@@ -1,0 +1,15 @@
+module(
+    name = "tfshell",
+    version = "0.0.1",
+)
+
+bazel_dep(name = "rules_python", version = "0.23.1")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    name = "pip",
+    requirements_lock = "//:requirements.txt",
+)
+use_repo(pip, "pip")
+
+bazel_dep(name = "buildifier_prebuilt", version = "6.1.0", dev_dependency = True)

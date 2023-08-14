@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Tue, 18 Jul 2023 21:37:41 +0000
+Subject: Posix std
+
+
+diff --git a/BUILD b/BUILD
+index 5e62b44a2..2e6e0c5a6 100644
+--- a/BUILD
++++ b/BUILD
+@@ -102,7 +102,7 @@ crypto_sources_asm = select({
+ 
+ # For C targets only (not C++), compile with C11 support.
+ posix_copts_c11 = [
+-    "-std=c11",
++    "-std=gnu11",
+     "-Wmissing-prototypes",
+     "-Wold-style-definition",
+     "-Wstrict-prototypes",
+-- 
+2.41.0
+

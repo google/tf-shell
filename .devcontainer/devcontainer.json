@@ -1,0 +1,35 @@
+{
+	"name": "Bazel (Community)",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"args": {
+			"BAZELISK_VERSION": "v1.17.0",
+			"BAZELISK_DOWNLOAD_SHA": "61699e22abb2a26304edfa1376f65ad24191f94a4ffed68a58d42b6fee01e124"
+		}
+	},
+
+	// Configure tool-specific properties.
+	"customizations": {
+		// Configure properties specific to VS Code.
+		"vscode": {
+			// Add the IDs of extensions you want installed when the container is created.
+			"extensions": [
+				"ms-python.python",
+				"ms-vscode.cpptools-extension-pack",
+				"BazelBuild.vscode-bazel",
+				"minherz.copyright-inserter"
+			]
+		}
+	},
+
+	"mounts": [ "source=/tmp,target=/tmp,type=bind,consistency=cached" ],
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [],
+	// Use 'postCreateCommand' to run commands after the container is created.
+	//"postCreateCommand": "echo hi",
+	// Uncomment when using a ptrace-based debugger like C++, Go, and Rust
+	// "runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
+	// Set `remoteUser` to `root` to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
+	"remoteUser": "vscode"
+}

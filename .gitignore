@@ -1,0 +1,10 @@
+bazel-bin
+bazel-tfshell
+bazel-out
+bazel-testlogs
+requirements.txt
+__pycache__
+.bazelrc
+**.venv
+*.whl
+MODULE.bazel.lock
