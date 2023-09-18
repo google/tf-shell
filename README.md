@@ -6,15 +6,16 @@ homomorphic encryption via the
 
 This is not an officially supported Google product.
 
-
 ## Getting Started
+
 ```bash
 pip install tf-shell
 ```
+
 See `./examples/` for how to use the library.
 
-
 ## Background
+
 Homomorphic encryption allows computation on encrypted data. For example, given
 two ciphertexts `a` and `b` representing the numbers `3` and `4`, respectively,
 one can compute a ciphertext `c` representing the number `7` without decrypting
@@ -29,8 +30,8 @@ ciphertexts with arbitrary depth. That said, because machine learning models are
 of bounded depth, the performance benefits of leveled schemes (without
 bootstrapping, e.g. SHELL) outweight limitations in circuit depth.
 
-
 ## Design
+
 This library has two modules, `shell_tensor` which supports Tensorflow Tensors
 containing ciphertexts with homomorphic properties, and `shell_ml` some (very)
 simple machine learning tools supporting privacy preserving training.
@@ -41,47 +42,43 @@ party who holds the features would like to train a model without learning the
 labels. The resultant trained model is differentially private with respect to
 the labels.
 
-
 ## Building
 
-
 ### Build From Source
-1. Install Bazelisk and python3 or use the devcontainer
 
-2. Install requriements
+1. Install Bazelisk and python3 or use the devcontainer.
+
+2. Run the tests.
+
     ```bash
-    python -m venv .venv
-    source .venv/bin/activate
-    echo "build --enable_bzlmod" >> .bazelrc
-    [ -f ./requirements.txt ] || ( touch requirements.txt && bazelisk run //:requirements.update )
-    pip install --require-hashes --no-deps -r requirements.txt
+    bazelisk test --config test ...
     ```
 
-3. Setup tensorflow
-    ```bash
-    export TF_NEED_CUDA=0
-    export PIP_MANYLINUX2010=1
-    export TF_CUDA_VERSION=10.1
-    ./configure_bazelrc.sh
-    ```
+3. Build the code.
 
-3. Build
     ```bash
     bazelisk build --config release //:wheel
-    python tools/wheel_rename.py
-    cp -f bazel-bin/*-*-cp*.whl ./ # copy out of devcontainer fs
+    bazelisk run //:wheel_rename
     ```
 
-3. Install build artifact in a new venv, e.g. to try out the `./examples/`.
+4. (Optional) Install the wheel, e.g. to try out the `./examples/`.
+    You may first need to copy the wheel out of the devcontainer's filesystem.
+
     ```bash
-    pip install bazel-bin/tf-shell-...-manylinux.whl
+    cp -f bazel-bin/*.whl ./ # run in devcontainer
+    ```
+
+    Then install.
+
+    ```bash
+    pip install tf_shell-...-manylinux.whl
     ```
 
 Note the cpython api is not compatible across minor python versions (e.g. 3.10,
 3.11) so the wheel must be rebuilt for each python version.
 
-
 ### Code Formatters and Counters
+
 ```bash
 bazelisk run //:bazel_formatter
 bazelisk run //:python_formatter
@@ -92,14 +89,17 @@ bazelisk run //:clang_formatter
 cloc ./ --fullpath --not-match-d='/(bazel-.*|.*\.venv)/'
 ```
 
-
 ### Update Python Dependencies
+
 ```bash
-bazelisk run //:requirements.update
+for ver in 3_8 3_9 3_10 3_11; do
+  touch requirements_${ver}.txt
+  bazelisk run //:requirements_${ver}.update
+done
 ```
 
-
 ### PyPI Package
+
 ```bash
 bazelisk build -c opt //:wheel
 python wheel_rename.py
@@ -111,16 +111,13 @@ export TWINE_CERT
 twine upload
 ```
 
-
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
 
-
 ## License
 
 Apache 2.0; see [`LICENSE`](LICENSE) for details.
-
 
 ## Disclaimer
 

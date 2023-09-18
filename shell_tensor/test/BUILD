@@ -29,7 +29,7 @@ py_test(
 
 py_test(
     name = "mul_test",
-    srcs = ["shell_tensor_mul.py"],
+    srcs = ["mul_test.py"],
     deps = [
         "//shell_tensor:shell_tensor_lib",
         requirement("tensorflow-cpu"),

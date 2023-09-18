@@ -17,7 +17,9 @@
 				"ms-python.python",
 				"ms-vscode.cpptools-extension-pack",
 				"BazelBuild.vscode-bazel",
-				"minherz.copyright-inserter"
+				"minherz.copyright-inserter",
+				"DavidAnson.vscode-markdownlint",
+				"yzhang.markdown-all-in-one"
 			]
 		}
 	},

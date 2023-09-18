@@ -3,13 +3,77 @@ module(
     version = "0.0.1",
 )
 
-bazel_dep(name = "rules_python", version = "0.23.1")
+hermetic_python_version = "3.11"
+
+hermetic_python_version_short = hermetic_python_version.replace(".", "_")
+
+bazel_dep(name = "rules_python", version = "0.25.0")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = hermetic_python_version == "3.8",
+    python_version = "3.8",
+)
+python.toolchain(
+    is_default = hermetic_python_version == "3.9",
+    python_version = "3.9",
+)
+python.toolchain(
+    is_default = hermetic_python_version == "3.10",
+    python_version = "3.10",
+)
+python.toolchain(
+    is_default = hermetic_python_version == "3.11",
+    python_version = "3.11",
+)
+use_repo(python,
+    "python_3_8", "python_3_8_x86_64-unknown-linux-gnu", 
+    "python_3_9", "python_3_9_x86_64-unknown-linux-gnu", 
+    "python_3_10", "python_3_10_x86_64-unknown-linux-gnu", 
+    "python_3_11", "python_3_11_x86_64-unknown-linux-gnu", 
+    "python_versions")
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
-    name = "pip",
-    requirements_lock = "//:requirements.txt",
+    hub_name = "pip",
+    python_version = "3.8",
+    requirements_lock = "//:requirements_3_8.txt",
+)
+pip.parse(
+    hub_name = "pip",
+    python_version = "3.9",
+    requirements_lock = "//:requirements_3_9.txt",
+)
+pip.parse(
+    hub_name = "pip",
+    python_version = "3.10",
+    requirements_lock = "//:requirements_3_10.txt",
+)
+pip.parse(
+    hub_name = "pip",
+    python_version = "3.11",
+    requirements_lock = "//:requirements_3_11.txt",
 )
 use_repo(pip, "pip")
 
 bazel_dep(name = "buildifier_prebuilt", version = "6.1.0", dev_dependency = True)
+
+
+bazel_dep(name = "pybind11_bazel", version = "2.11.1")
+python_configure = use_extension("@pybind11_bazel//:python_configure.bzl", "extension")
+
+#python_configure.toolchain(python_interpreter_target = "@python_versions//3.11:defs.bzl")
+#  above points to $(bazel info output_base)/external/rules_python~0.25.0~python~python_versions/3.11/defs.bzl
+#  and loads the repo @python_3_11//:defs
+#python_configure.toolchain(python_interpreter_target = "@python_3_11//:defs.bzl")
+#  above points to ""
+#  and says the interpreter is "@python_3_11_x86_64-unknown-linux-gnu//:bin/python3"
+# the above repo must be in the use_repo statement of rules_python
+# something like below would be much better but I don't know how to get a
+# plain old variable from a modules bzl file in this context.
+#load("@python_3_11//:defs.bzl", "interpreter")
+python_configure.toolchain(
+    python_interpreter_target = "@python_" + hermetic_python_version_short + "_x86_64-unknown-linux-gnu//:bin/python3"
+)
+
+use_repo(python_configure, "local_config_python", "pybind11")
