@@ -1,5 +1,5 @@
 bazel-bin
-bazel-tfshell
+bazel-tf-shell
 bazel-out
 bazel-testlogs
 requirements.txt
