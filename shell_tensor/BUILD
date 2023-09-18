@@ -19,14 +19,11 @@ cc_binary(
     ],
     copts = [
         "-pthread",
-        "-std=c++17",
-        "-D_GLIBCXX_USE_CXX11_ABI=1",  # PiPy package compiled with this on
         "-fPIC",
     ],
     linkshared = 1,
     deps = [
-        "@local_config_tf//:libtensorflow_framework",
-        "@local_config_tf//:tf_header_lib",
+        "//third_party/tensorflow:hermetic_tf",
         "@shell_encryption//shell_encryption:context",
         "@shell_encryption//shell_encryption:modulus_conversion",
         "@shell_encryption//shell_encryption:montgomery",

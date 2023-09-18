@@ -2,9 +2,7 @@ bazel-bin
 bazel-tf-shell
 bazel-out
 bazel-testlogs
-requirements.txt
 __pycache__
-.bazelrc
 **.venv
 *.whl
 MODULE.bazel.lock

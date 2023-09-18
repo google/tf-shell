@@ -1,0 +1,22 @@
+build --enable_bzlmod
+
+build -c opt
+
+build --spawn_strategy=standalone
+build --strategy=Genrule=standalone
+build --spawn_strategy=sandboxed
+
+build --cxxopt='-std=c++17'
+build --cxxopt='-D_GLIBCXX_USE_CXX11_ABI=1'
+
+build:test --cxxopt='-DPYBIND11_ABSEIL_STATUS_MODULE_PATH=pybind11_abseil.pybind11_abseil.status'
+
+build:release --cxxopt='-DPYBIND11_ABSEIL_STATUS_MODULE_PATH=pybind11_abseil.status'
+
+build:asan --strip=never
+build:asan --copt -fsanitize=address
+build:asan --copt -DADDRESS_SANITIZER
+build:asan --copt -O1
+build:asan --copt -g
+build:asan --copt -fno-omit-frame-pointer
+build:asan --linkopt -fsanitize=address

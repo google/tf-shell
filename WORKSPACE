@@ -3,36 +3,12 @@ workspace(name = "tf_shell")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
-# pybind is not in bazel central registry yet
-http_archive(
-    name = "pybind11_bazel",
-    sha256 = "b72c5b44135b90d1ffaba51e08240be0b91707ac60bea08bb4d84b47316211bb",
-    strip_prefix = "pybind11_bazel-b162c7c88a253e3f6b673df0c621aca27596ce6b",
-    urls = ["https://github.com/pybind/pybind11_bazel/archive/b162c7c88a253e3f6b673df0c621aca27596ce6b.zip"],
-)
-
-http_archive(
-    name = "pybind11",
-    build_file = "@pybind11_bazel//:pybind11.BUILD",
-    sha256 = "7af30a84c6810e721829c4646e31927af9d8861e085aa5dd37c3c8b8169fcda1",
-    strip_prefix = "pybind11-2.11.0",
-    urls = ["https://github.com/pybind/pybind11/archive/v2.11.0.tar.gz"],
-)
-
-load("@pybind11_bazel//:python_configure.bzl", "python_configure")
-
-python_configure(name = "local_config_python")
-
 # requires pybind >= 2.11.0
 git_repository(
     name = "pybind11_abseil",
     commit = "215bcc601cf2e373f59444a1ad837a353bd20696",
     remote = "https://github.com/pybind/pybind11_abseil.git",
 )
-
-load("//tf:tf_configure.bzl", "tf_configure")
-
-tf_configure(name = "local_config_tf")
 
 http_archive(
     name = "shell_encryption",

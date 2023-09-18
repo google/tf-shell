@@ -22,7 +22,11 @@ from platform import python_version
 from enum import Enum
 
 
-bazel_bin_dir = os.path.dirname(os.path.realpath(__file__)) + "/../bazel-bin/"
+bazel_dir_var = "BUILD_WORKSPACE_DIRECTORY"
+if not bazel_dir_var in os.environ:
+    raise Exception(f"{bazel_dir_var} not defined")
+build_workspace_dir = os.environ[bazel_dir_var]
+bazel_bin_dir = build_workspace_dir + "/bazel-bin/"
 whl_prefix = "tf_shell"
 
 
