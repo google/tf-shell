@@ -1,0 +1,60 @@
+name: Build and upload to PyPI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }} for Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        #os: [ubuntu-latest, windows-2019, macOS-11]
+        os: [ubuntu-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mount bazel cache
+        uses: actions/cache@v3
+        with:
+          path: "~/.cache/bazel"
+          key: 'bazel-${{matrix.os}}-${{ matrix.python-version }}'
+
+      - name: Build wheel
+        run: |
+          sed -i 's/hermetic_python_version = "3.11"/hermetic_python_version = "${{ matrix.python-version }}"/' ./MODULE.bazel
+          cat MODULE.bazel
+          bazelisk build --config release //:wheel
+          bazelisk run //:wheel_rename
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: bazel-bin/*.whl
+
+  upload_pypi:
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tf-shell/
+    permissions:
+      id-token: write
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v3
+        with:
+          name: artifact
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

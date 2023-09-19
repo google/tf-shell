@@ -98,19 +98,6 @@ for ver in 3_8 3_9 3_10 3_11; do
 done
 ```
 
-### PyPI Package
-
-```bash
-bazelisk build -c opt //:wheel
-python wheel_rename.py
-export TWINE_USERNAME
-export TWINE_PASSWORD
-export TWINE_REPOSITORY
-export TWINE_REPOSITORY_URL
-export TWINE_CERT
-twine upload
-```
-
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
