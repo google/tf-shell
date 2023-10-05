@@ -1,5 +1,5 @@
-load("@rules_python//python:packaging.bzl", "py_package")
 load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+load("@rules_python//python:packaging.bzl", "py_package")
 
 cc_binary(
     name = "python/ops/_shell_ops.so",

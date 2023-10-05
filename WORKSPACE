@@ -1,20 +1,20 @@
 workspace(name = "tf_shell")
 
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # requires pybind >= 2.11.0
 git_repository(
     name = "pybind11_abseil",
-    commit = "215bcc601cf2e373f59444a1ad837a353bd20696",
+    commit = "ba421f1152cfc06db1a65c0768886ef55822b1d5",
     remote = "https://github.com/pybind/pybind11_abseil.git",
 )
 
 http_archive(
     name = "shell_encryption",
-    sha256 = "8b45d1e511c4f259e67205aa9ea45176a866b704346ef346b15a783d11fe2567",
-    strip_prefix = "shell-encryption-f89f60e112d74629d96bb5714500fafa5649d338",
-    urls = ["https://github.com/google/shell-encryption/archive/f89f60e112d74629d96bb5714500fafa5649d338.zip"],
+    sha256 = "2ba4362441dab96b82312b445e60742e45fdafe62ad982561474e0bcd58a7249",
+    strip_prefix = "shell-encryption-4781b7cb1718bf9ffefb9b1a44dee118dacfc85b",
+    urls = ["https://github.com/google/shell-encryption/archive/4781b7cb1718bf9ffefb9b1a44dee118dacfc85b.zip"],
 )
 
 http_archive(
@@ -32,12 +32,13 @@ load("@com_github_tink_crypto_tink_cc//:tink_cc_deps_init.bzl", "tink_cc_deps_in
 
 tink_cc_deps_init()
 
+# rules_cc defines rules for generating C++ code from Protocol Buffers.
 http_archive(
     name = "rules_cc",
-    sha256 = "35f2fb4ea0b3e61ad64a369de284e4fbbdcdba71836a5555abb5e194cf119509",
-    strip_prefix = "rules_cc-624b5d59dfb45672d4239422fa1e3de1822ee110",
+    sha256 = "2037875b9a4456dce4a79d112a8ae885bbc4aad968e6587dca6e64f3a0900cdf",
+    strip_prefix = "rules_cc-0.0.9",
     urls = [
-        "https://github.com/bazelbuild/rules_cc/archive/624b5d59dfb45672d4239422fa1e3de1822ee110.tar.gz",
+        "https://github.com/bazelbuild/rules_cc/releases/download/0.0.9/rules_cc-0.0.9.tar.gz",
     ],
 )
 
@@ -47,10 +48,11 @@ rules_cc_dependencies()
 
 http_archive(
     name = "rules_proto",
-    sha256 = "dc3fb206a2cb3441b485eb1e423165b231235a1ea9b031b4433cf7bc1fa460dd",
-    strip_prefix = "rules_proto-5.3.0-21.7",
+    sha256 = "602e7161d9195e50246177e7c55b2f39950a9cf7366f74ed5f22fd45750cd208",
+    strip_prefix = "rules_proto-97d8af4dc474595af3900dd85cb3a29ad28cc313",
     urls = [
-        "https://github.com/bazelbuild/rules_proto/archive/refs/tags/5.3.0-21.7.tar.gz",
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_proto/archive/97d8af4dc474595af3900dd85cb3a29ad28cc313.tar.gz",
+        "https://github.com/bazelbuild/rules_proto/archive/97d8af4dc474595af3900dd85cb3a29ad28cc313.tar.gz",
     ],
 )
 
@@ -70,9 +72,10 @@ http_archive(
 # must be > 20230125.1 due to https://github.com/abseil/abseil-cpp/pull/1399
 http_archive(
     name = "com_google_absl",
-    strip_prefix = "abseil-cpp-20230125.3",
+    sha256 = "987ce98f02eefbaf930d6e38ab16aa05737234d7afbab2d5c4ea7adbe50c28ed",
+    strip_prefix = "abseil-cpp-20230802.1",
     urls = [
-        "https://github.com/abseil/abseil-cpp/archive/20230125.3.tar.gz",
+        "https://github.com/abseil/abseil-cpp/archive/refs/tags/20230802.1.tar.gz",
     ],
 )
 
@@ -98,26 +101,4 @@ http_archive(
     sha256 = "34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf",
     strip_prefix = "gflags-2.2.2",
     urls = ["https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"],
-)
-
-http_archive(
-    name = "rules_foreign_cc",
-    sha256 = "d54742ffbdc6924f222d2179f0e10e911c5c659c4ae74158e9fe827aad862ac6",
-    strip_prefix = "rules_foreign_cc-0.2.0",
-    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/0.2.0.tar.gz",
-)
-
-load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
-
-rules_foreign_cc_dependencies()
-
-http_archive(
-    name = "com_gnu_gmp",
-    build_file = "@//shell_encryption:BUILD.gmp.bazel",
-    sha256 = "fd4829912cddd12f84181c3451cc752be224643e87fac497b69edddadc49b4f2",
-    strip_prefix = "gmp-6.2.1",
-    urls = [
-        "https://gmplib.org/download/gmp/gmp-6.2.1.tar.xz",
-        "https://ftp.gnu.org/gnu/gmp/gmp-6.2.1.tar.xz",
-    ],
 )

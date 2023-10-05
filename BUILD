@@ -1,13 +1,12 @@
-load("//:version.bzl", "VERSION_LABEL")
-load("@python_versions//3.8:defs.bzl", compile_pip_requirements_3_8 = "compile_pip_requirements")
-load("@python_versions//3.8:defs.bzl", compile_pip_requirements_3_9 = "compile_pip_requirements")
-load("@python_versions//3.8:defs.bzl", compile_pip_requirements_3_10 = "compile_pip_requirements")
-load("@python_versions//3.8:defs.bzl", compile_pip_requirements_3_11 = "compile_pip_requirements")
-
+load("@buildifier_prebuilt//:rules.bzl", "buildifier")
 load("@pip//:requirements.bzl", "requirement")
+load("@python_versions//3.10:defs.bzl", compile_pip_requirements_3_10 = "compile_pip_requirements")
+load("@python_versions//3.11:defs.bzl", compile_pip_requirements_3_11 = "compile_pip_requirements")
+load("@python_versions//3.8:defs.bzl", compile_pip_requirements_3_8 = "compile_pip_requirements")
+load("@python_versions//3.9:defs.bzl", compile_pip_requirements_3_9 = "compile_pip_requirements")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_python//python:packaging.bzl", "py_wheel")
-load("@buildifier_prebuilt//:rules.bzl", "buildifier")
+load("//:version.bzl", "VERSION_LABEL")
 
 exports_files([
     "LICENSE",

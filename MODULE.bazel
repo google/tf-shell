@@ -26,12 +26,18 @@ python.toolchain(
     is_default = hermetic_python_version == "3.11",
     python_version = "3.11",
 )
-use_repo(python,
-    "python_3_8", "python_3_8_x86_64-unknown-linux-gnu", 
-    "python_3_9", "python_3_9_x86_64-unknown-linux-gnu", 
-    "python_3_10", "python_3_10_x86_64-unknown-linux-gnu", 
-    "python_3_11", "python_3_11_x86_64-unknown-linux-gnu", 
-    "python_versions")
+use_repo(
+    python,
+    "python_3_10",
+    "python_3_10_x86_64-unknown-linux-gnu",
+    "python_3_11",
+    "python_3_11_x86_64-unknown-linux-gnu",
+    "python_3_8",
+    "python_3_8_x86_64-unknown-linux-gnu",
+    "python_3_9",
+    "python_3_9_x86_64-unknown-linux-gnu",
+    "python_versions",
+)
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
@@ -56,10 +62,10 @@ pip.parse(
 )
 use_repo(pip, "pip")
 
-bazel_dep(name = "buildifier_prebuilt", version = "6.1.0", dev_dependency = True)
-
+bazel_dep(name = "buildifier_prebuilt", version = "6.3.3", dev_dependency = True)
 
 bazel_dep(name = "pybind11_bazel", version = "2.11.1")
+
 python_configure = use_extension("@pybind11_bazel//:python_configure.bzl", "extension")
 
 #python_configure.toolchain(python_interpreter_target = "@python_versions//3.11:defs.bzl")
@@ -73,7 +79,6 @@ python_configure = use_extension("@pybind11_bazel//:python_configure.bzl", "exte
 # plain old variable from a modules bzl file in this context.
 #load("@python_3_11//:defs.bzl", "interpreter")
 python_configure.toolchain(
-    python_interpreter_target = "@python_" + hermetic_python_version_short + "_x86_64-unknown-linux-gnu//:bin/python3"
+    python_interpreter_target = "@python_" + hermetic_python_version_short + "_x86_64-unknown-linux-gnu//:bin/python3",
 )
-
 use_repo(python_configure, "local_config_python", "pybind11")
