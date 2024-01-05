@@ -20,6 +20,5 @@ from shell_tensor.python.shell_tensor import ShellTensor64
 from shell_tensor.python.shell_tensor import create_context64
 from shell_tensor.python.shell_tensor import to_shell_tensor
 from shell_tensor.python.shell_tensor import from_shell_tensor
-from shell_tensor.python.shell_tensor import create_prng
 from shell_tensor.python.shell_tensor import create_key64
 from shell_tensor.python.shell_tensor import matmul

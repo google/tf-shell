@@ -17,28 +17,35 @@ import tensorflow as tf
 import shell_tensor
 
 
-plaintext_dtype = tf.int32
-
-
 class TestShellTensor(tf.test.TestCase):
+    plaintext_dtype = tf.int32
+    log_slots = 11
+    slots = 2**log_slots
+
     def get_context():
-        ct_params = shell_tensor.shell.ContextParams64(
-            modulus=shell_tensor.shell.kModulus59, log_n=10, log_t=16, variance=8
+        return shell_tensor.create_context64(
+            log_n=TestShellTensor.log_slots,
+            main_moduli=[8556589057, 8388812801],
+            aux_moduli=[34359709697],
+            plaintext_modulus=40961,
+            noise_variance=8,
+            seed="",
         )
-        context_tensor = shell_tensor.create_context64(ct_params)
-        return context_tensor
 
     def test_neg(self):
         context = TestShellTensor.get_context()
-        prng = shell_tensor.create_prng()
-        key = shell_tensor.create_key64(context, prng)
+        key = shell_tensor.create_key64(context)
 
-        a = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
+        a = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
         sa = shell_tensor.to_shell_tensor(context, a)
         nsa = -sa
         self.assertAllClose(-a, shell_tensor.from_shell_tensor(nsa))
 
-        ea = sa.get_encrypted(prng, key)
+        ea = sa.get_encrypted(key)
         nea = -ea
         self.assertAllClose(-a, nea.get_decrypted(key))
 
@@ -46,15 +53,22 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_ct_add(self):
         context = TestShellTensor.get_context()
-        prng = shell_tensor.create_prng()
-        key = shell_tensor.create_key64(context, prng)
+        key = shell_tensor.create_key64(context)
 
-        a = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
-        b = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
+        a = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
+        b = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
         sa = shell_tensor.to_shell_tensor(context, a)
         sb = shell_tensor.to_shell_tensor(context, b)
-        ea = sa.get_encrypted(prng, key)
-        eb = sb.get_encrypted(prng, key)
+        ea = sa.get_encrypted(key)
+        eb = sb.get_encrypted(key)
 
         ec = ea + eb
         self.assertAllClose(a, ea.get_decrypted(key))
@@ -66,17 +80,19 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_pt_add(self):
         context = TestShellTensor.get_context()
-        prng = shell_tensor.create_prng()
-        key = shell_tensor.create_key64(context, prng)
+        key = shell_tensor.create_key64(context)
 
-        a = tf.random.uniform([1024, 1], dtype=plaintext_dtype, maxval=10)
-        b = tf.random.uniform([1024, 1], dtype=plaintext_dtype, maxval=10)
+        a = tf.random.uniform(
+            [TestShellTensor.slots, 1], dtype=TestShellTensor.plaintext_dtype, maxval=10
+        )
+        b = tf.random.uniform(
+            [TestShellTensor.slots, 1], dtype=TestShellTensor.plaintext_dtype, maxval=10
+        )
         sa = shell_tensor.to_shell_tensor(context, a)
         sb = shell_tensor.to_shell_tensor(context, b)
-        ea = sa.get_encrypted(prng, key)
+        ea = sa.get_encrypted(key)
 
         ec = ea + sb
-        self.assertAllClose(a, ea.get_decrypted(key))
         self.assertAllClose(a + b, ec.get_decrypted(key))
 
         ed = sb + ea
@@ -88,15 +104,26 @@ class TestShellTensor(tf.test.TestCase):
         ef = sb - ea
         self.assertAllClose(b - a, ef.get_decrypted(key))
 
+        # Ensure initial arguemnts are not modified.
+        self.assertAllClose(a, ea.get_decrypted(key))
+        self.assertAllClose(b, shell_tensor.from_shell_tensor(sb))
+
     def test_ct_tf_add(self):
         context = TestShellTensor.get_context()
-        prng = shell_tensor.create_prng()
-        key = shell_tensor.create_key64(context, prng)
+        key = shell_tensor.create_key64(context)
 
-        a = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
-        b = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
+        a = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
+        b = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
         sa = shell_tensor.to_shell_tensor(context, a)
-        ea = sa.get_encrypted(prng, key)
+        ea = sa.get_encrypted(key)
 
         ec = ea + b
         self.assertAllClose(a, ea.get_decrypted(key))
@@ -111,11 +138,22 @@ class TestShellTensor(tf.test.TestCase):
         ef = b - ea
         self.assertAllClose(b - a, ef.get_decrypted(key))
 
+        # Ensure initial arguemnts are not modified.
+        self.assertAllClose(a, ea.get_decrypted(key))
+
     def test_pt_pt_add(self):
         context = TestShellTensor.get_context()
 
-        a = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
-        b = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
+        a = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
+        b = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
         sa = shell_tensor.to_shell_tensor(context, a)
         sb = shell_tensor.to_shell_tensor(context, b)
 
@@ -125,11 +163,23 @@ class TestShellTensor(tf.test.TestCase):
         sd = sa - sb
         self.assertAllClose(a - b, shell_tensor.from_shell_tensor(sd))
 
+        # Ensure initial arguemnts are not modified.
+        self.assertAllClose(a, shell_tensor.from_shell_tensor(sa))
+        self.assertAllClose(b, shell_tensor.from_shell_tensor(sb))
+
     def test_pt_tf_add(self):
         context = TestShellTensor.get_context()
 
-        a = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
-        b = tf.random.uniform([1024, 2, 3, 4], dtype=plaintext_dtype, maxval=10)
+        a = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
+        b = tf.random.uniform(
+            [TestShellTensor.slots, 2, 3, 4],
+            dtype=TestShellTensor.plaintext_dtype,
+            maxval=10,
+        )
         sa = shell_tensor.to_shell_tensor(context, a)
 
         sc = sa + b
@@ -143,6 +193,9 @@ class TestShellTensor(tf.test.TestCase):
 
         sf = b + sa
         self.assertAllClose(b + a, shell_tensor.from_shell_tensor(sf))
+
+        # Ensure initial arguemnts are not modified.
+        self.assertAllClose(a, shell_tensor.from_shell_tensor(sa))
 
 
 if __name__ == "__main__":

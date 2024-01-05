@@ -19,7 +19,8 @@
 				"BazelBuild.vscode-bazel",
 				"minherz.copyright-inserter",
 				"DavidAnson.vscode-markdownlint",
-				"yzhang.markdown-all-in-one"
+				"yzhang.markdown-all-in-one",
+				"ms-python.black-formatter"
 			]
 		}
 	},

@@ -54,12 +54,12 @@ class ShellTensor64(object):
     def is_encrypted(self):
         return self._is_enc
 
-    def get_encrypted(self, prng, key):
+    def get_encrypted(self, key):
         if self._is_enc:
             return self
         else:
             return ShellTensor64(
-                shell_ops.encrypt64(self._context, prng, key, self._raw),
+                shell_ops.encrypt64(self._context, key, self._raw),
                 self._context,
                 self._num_slots,
                 self._underlying_dtype,
@@ -195,7 +195,7 @@ class ShellTensor64(object):
     def __neg__(self):
         if self.is_encrypted:
             return ShellTensor64(
-                shell_ops.neg_ct64(self._context, self._raw),
+                shell_ops.neg_ct64(self._raw),
                 self._context,
                 self._num_slots,
                 self._underlying_dtype,
@@ -312,36 +312,24 @@ def from_shell_tensor(s_tensor):
     )
 
 
-def create_context64(ct_params):
-    assert isinstance(ct_params, raw_bindings.ContextParams64), type(ct_params)
-
-    # At time of writing, shell requires plaintext modulus to 2^(log_t)+1.
-    # If this is no longer true, caller may set pt_modulus explicitly.
-    pt_modulus = pow(2, ct_params.log_t) + 1
-
-    # sniff test with Fermats primality test on the plaintext modulus
-    for a in range(2, 100):
-        if pow(a, pt_modulus - 1, pt_modulus) != 1:
-            raise ValueError("Plaintext modulus is not prime")
-
+def create_context64(
+    log_n, main_moduli, aux_moduli, plaintext_modulus, noise_variance, seed=""
+):
     return shell_ops.context_import64(
-        plaintext_modulus=pt_modulus,
-        modulus=ct_params.modulus,
-        log_n=ct_params.log_n,
-        log_t=ct_params.log_t,
-        variance=ct_params.variance,
+        log_n=log_n,
+        main_moduli=main_moduli,
+        aux_moduli=aux_moduli,
+        plaintext_modulus=plaintext_modulus,
+        noise_variance=noise_variance,
+        seed=seed,
     )
 
 
-def create_prng(seed=""):
-    return shell_ops.prng_import(seed)
+def create_key64(context):
+    return shell_ops.key_gen64(context)
 
 
-def create_key64(context, prng):
-    return shell_ops.key_gen64(context, prng)
-
-
-def matmul(x, y, temp_prng=None, temp_key=None):
+def matmul(x, y, temp_key=None):
     if isinstance(x, ShellTensor64) and isinstance(y, tf.Tensor):
         return ShellTensor64(
             shell_ops.mat_mul_ct_pt64(x._raw, y),
@@ -355,16 +343,11 @@ def matmul(x, y, temp_prng=None, temp_key=None):
         context = y._context
 
         if y.is_encrypted:
-            # TODO(jchoncholas): Requiring key and prng is a limitation for now.
+            # TODO(jchoncholas): Requiring key is a limitation for now.
             # Once shell has galois key rotation we can compute a reduce operation
             # over a polynomial which is required for this operation. For now
             # we cheat and decrypt, compute, re-encrypt.
-            assert (
-                temp_prng is not None
-            ), "prng, and key must be provided for matmul_pt_ct"
-            assert (
-                temp_key is not None
-            ), "prng, and key must be provided for matmul_pt_ct"
+            assert temp_key is not None, "key must be provided for matmul_pt_ct"
             print(
                 f"WARNING: matmul for pt*ct is not computed under encryption yet. Decrypting, computing, re-encrypting."
             )
@@ -387,7 +370,7 @@ def matmul(x, y, temp_prng=None, temp_key=None):
 
         res = tf.cast(res, y_orgig_dtype)
         shell_res = to_shell_tensor(context, res)
-        enc_res = shell_res.get_encrypted(temp_prng, temp_key)
+        enc_res = shell_res.get_encrypted(temp_key)
         # dimensions of enc_res: num_slots by x_m by y_n
         # Dimensions match what would be returned when galois slot rotation
         # is implemented.

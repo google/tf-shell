@@ -22,25 +22,28 @@ import numpy as np
 import shell_tensor
 import shell_ml
 
+plaintext_dtype = tf.int32
+log_slots = 11
+slots = 2**log_slots
+
 
 # Shell setup
 def get_context():
-    ct_params = shell_tensor.shell.ContextParams64(
-        modulus=shell_tensor.shell.kModulus59,
-        log_n=10,
-        log_t=16,
-        variance=0,  # Too low for prod. Okay for test.
+    return shell_tensor.create_context64(
+        log_n=log_slots,
+        main_moduli=[8556589057, 8388812801],
+        aux_moduli=[34359709697],
+        plaintext_modulus=40961,
+        noise_variance=8,
+        seed="",
     )
-    context_tensor = shell_tensor.create_context64(ct_params)
-    return context_tensor
 
 
 context = get_context()
-prng = shell_tensor.create_prng()
-key = shell_tensor.create_key64(context, prng)
+key = shell_tensor.create_key64(context)
 
 
-batch_size = 2**10
+batch_size = slots
 stop_after_n_batches = 4
 
 # Prepare the dataset.
@@ -80,7 +83,7 @@ def train_step(x, y):
     y = tf.cast(y, tf.int32)
 
     # Encrypt y
-    y = shell_tensor.to_shell_tensor(context, y).get_encrypted(prng, key)
+    y = shell_tensor.to_shell_tensor(context, y).get_encrypted(key)
 
     # Forward pass in plaintext
     y_1 = hidden_layer(x)
@@ -89,8 +92,8 @@ def train_step(x, y):
 
     # Backward pass under encryption
     dJ_dy_pred = loss_fn.grad(y, y_pred)
-    (dJ_dw1, dJ_dx1) = output_layer.backward(dJ_dy_pred, False, prng, key)
-    (dJ_dw0, dJ_dx0_unused) = hidden_layer.backward(dJ_dx1, True, prng, key)
+    (dJ_dw1, dJ_dx1) = output_layer.backward(dJ_dy_pred, False, key)
+    (dJ_dw0, dJ_dx0_unused) = hidden_layer.backward(dJ_dx1, True, key)
 
     # In practice, the gradients are likely secret and should be aggregated and
     # noised before decryption. Additionally, weight gradients are in a form

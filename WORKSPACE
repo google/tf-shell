@@ -6,15 +6,15 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # requires pybind >= 2.11.0
 git_repository(
     name = "pybind11_abseil",
-    commit = "ba421f1152cfc06db1a65c0768886ef55822b1d5",
+    commit = "67491a4176dad18d5971047c40ae12ca355d4fcb",
     remote = "https://github.com/pybind/pybind11_abseil.git",
 )
 
 http_archive(
     name = "shell_encryption",
-    sha256 = "2ba4362441dab96b82312b445e60742e45fdafe62ad982561474e0bcd58a7249",
-    strip_prefix = "shell-encryption-4781b7cb1718bf9ffefb9b1a44dee118dacfc85b",
-    urls = ["https://github.com/google/shell-encryption/archive/4781b7cb1718bf9ffefb9b1a44dee118dacfc85b.zip"],
+    sha256 = "894373a7c369b8b7b01e9a2e98a18b801a9f318d261988faaf856dbcf099a8a4",
+    strip_prefix = "shell-encryption-a0b2e04616928b8c3d9be581cc7680032d44eaf8",
+    urls = ["https://github.com/google/shell-encryption/archive/a0b2e04616928b8c3d9be581cc7680032d44eaf8.zip"],
 )
 
 http_archive(

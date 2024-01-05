@@ -2,7 +2,6 @@ load("@buildifier_prebuilt//:rules.bzl", "buildifier")
 load("@pip//:requirements.bzl", "requirement")
 load("@python_versions//3.10:defs.bzl", compile_pip_requirements_3_10 = "compile_pip_requirements")
 load("@python_versions//3.11:defs.bzl", compile_pip_requirements_3_11 = "compile_pip_requirements")
-load("@python_versions//3.8:defs.bzl", compile_pip_requirements_3_8 = "compile_pip_requirements")
 load("@python_versions//3.9:defs.bzl", compile_pip_requirements_3_9 = "compile_pip_requirements")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_python//python:packaging.bzl", "py_wheel")
@@ -12,21 +11,12 @@ exports_files([
     "LICENSE",
     "setup.py",
     "requirements.in",
-    "requirements_3_8.txt",
     "requirements_3_9.txt",
     "requirements_3_10.txt",
     "requirements_3_11.txt",
     "README.md",
     "DESCRIPTION.md",
 ])
-
-compile_pip_requirements_3_8(
-    name = "requirements_3_8",
-    extra_args = ["--allow-unsafe"],  # need setuptools
-    requirements_in = "//:requirements.in",
-    requirements_txt = "//:requirements_3_8.txt",
-    visibility = ["//visibility:public"],
-)
 
 compile_pip_requirements_3_9(
     name = "requirements_3_9",
@@ -124,9 +114,9 @@ py_wheel(
         "@bazel_tools//src/conditions:linux_x86_64": "LINUX_x86_64",
         "@bazel_tools//src/conditions:linux_aarch64": "LINUX_aarch64",
     }),
-    python_requires = ">=3.8.0",
+    python_requires = ">=3.9.0",
     python_tag = "INTERPRETER",
-    requires = ["tensorflow-cpu==2.13.0"],
+    requires = ["tensorflow-cpu==2.14.0"],
     summary = "TF-Shell: Privacy preserving machine learning with Tensorflow and the SHELL encryption library",
     version = VERSION_LABEL,
     deps = [

@@ -26,23 +26,22 @@ shell_ops = load_library.load_op_library(
 context_import64 = shell_ops.context_import64
 polynomial_import64 = shell_ops.polynomial_import64
 polynomial_export64 = shell_ops.polynomial_export64
-prng_import = shell_ops.prng_import
 key_gen64 = shell_ops.key_gen64
 
 encrypt64 = shell_ops.encrypt64
 decrypt64 = shell_ops.decrypt64
 
+# Add and subtract.
 add_ct_ct64 = shell_ops.add_ct_ct64
 add_ct_pt64 = shell_ops.add_ct_pt64
 add_pt_pt64 = shell_ops.add_pt_pt64
-
 sub_ct_ct64 = shell_ops.sub_ct_ct64
 sub_ct_pt64 = shell_ops.sub_ct_pt64
 sub_pt_pt64 = shell_ops.sub_pt_pt64
-
 neg_ct64 = shell_ops.neg_ct64
 neg_pt64 = shell_ops.neg_pt64
 
+# Multiply.
 mul_ct_ct64 = shell_ops.mul_ct_ct64
 mul_ct_pt64 = shell_ops.mul_ct_pt64
 mul_pt_pt64 = shell_ops.mul_pt_pt64

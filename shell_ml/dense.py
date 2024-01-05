@@ -76,7 +76,7 @@ class ShellDense:
 
         return outputs
 
-    def backward(self, dy, is_first_layer=False, temp_prng=None, temp_key=None):
+    def backward(self, dy, is_first_layer=False, temp_key=None):
         """dense backward"""
         x = self._layer_input
         z = self._layer_intermediate
@@ -98,7 +98,7 @@ class ShellDense:
         # polynomial, we cheat and decrypt-compute-encrypt. This requires
         # passing the key etc. to the op but once slot rotation is implemented
         # this wont be necessary.
-        d_weights = shell_tensor.matmul(tf.transpose(x), dy, temp_prng, temp_key)
+        d_weights = shell_tensor.matmul(tf.transpose(x), dy, temp_key)
         if not self.skip_normalization:
             d_weights = d_weights / batch_size
         grad_weights.append(d_weights)

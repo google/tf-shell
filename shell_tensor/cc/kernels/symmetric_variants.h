@@ -15,7 +15,7 @@
  */
 
 #pragma once
-#include "shell_encryption/symmetric_encryption.h"
+#include "shell_encryption/rns/rns_bgv_ciphertext.h"
 #include "tensorflow/core/framework/variant.h"
 #include "tensorflow/core/framework/variant_encode_decode.h"
 #include "tensorflow/core/framework/variant_op_registry.h"
@@ -26,12 +26,12 @@ using tensorflow::VariantTensorData;
 template <typename T>
 class SymmetricKeyVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using KeyClass = rlwe::SymmetricRlweKey<ModularInt>;
+  using Key = rlwe::RnsRlweSecretKey<ModularInt>;
 
  public:
   SymmetricKeyVariant() {}
 
-  SymmetricKeyVariant(KeyClass k) : key(k) {}
+  SymmetricKeyVariant(Key k) : key(k) {}
 
   static inline char const kTypeName[] = "ShellSymmetricKeyVariant";
 
@@ -45,18 +45,18 @@ class SymmetricKeyVariant {
 
   std::string DebugString() const { return "ShellSymmetricKeyVariant"; }
 
-  KeyClass key;
+  Key key;
 };
 
 template <typename T>
 class SymmetricCtVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using CtClass = rlwe::SymmetricRlweCiphertext<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
 
  public:
   SymmetricCtVariant() {}
 
-  SymmetricCtVariant(CtClass arg) : ct(std::move(arg)) {}
+  SymmetricCtVariant(SymmetricCt arg) : ct(std::move(arg)) {}
 
   static inline char const kTypeName[] = "ShellSymmetricCtVariant";
 
@@ -70,5 +70,5 @@ class SymmetricCtVariant {
 
   std::string DebugString() const { return "ShellSymmetricCtVariant"; }
 
-  CtClass ct;
+  SymmetricCt ct;
 };

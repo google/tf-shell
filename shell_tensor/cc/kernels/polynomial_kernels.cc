@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <type_traits>
+
 #include "context_variant.h"
 #include "polynomial_variant.h"
 #include "shell_encryption/context.h"
 #include "shell_encryption/modulus_conversion.h"
 #include "shell_encryption/montgomery.h"
-#include "shell_encryption/polynomial.h"
+#include "shell_encryption/rns/rns_polynomial.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_shape.h"
@@ -42,9 +44,12 @@ template <typename From, typename To>
 class PolynomialImportOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<To>;
+  using Integer = typename ModularInt::Int;
   using ModularIntParams = typename ModularInt::Params;
   using Polynomial = rlwe::Polynomial<ModularInt>;
-  using Context = rlwe::RlweContext<ModularInt>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+  using Context = rlwe::RnsContext<ModularInt>;
+  using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
   using NttParams = rlwe::NttParameters<ModularInt>;
 
  public:
@@ -52,23 +57,28 @@ class PolynomialImportOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    ContextVariant<To> const* shell_ctx_var;
-    OP_REQUIRES_OK(op_ctx,
-                   GetVariant<ContextVariant<To>>(op_ctx, 0, &shell_ctx_var));
-    ModularIntParams const* pt_params = shell_ctx_var->pt_params.get();
-    NttParams const* pt_ntt_params = &(shell_ctx_var->pt_ntt_params);
-    Context const* shell_ctx = shell_ctx_var->ct_context.get();
+    OP_REQUIRES_VALUE(ContextVariant<To> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<To>>(op_ctx, 0));
 
-    size_t num_slots = shell_ctx->GetN();
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, shell_ctx != nullptr,
+                InvalidArgument("Shell context object is empty."));
+
+    Encoder const* encoder = shell_ctx_var->encoder_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, encoder != nullptr,
+                InvalidArgument("Shell encoder object is empty."));
+
+    int num_slots = 1 << shell_ctx->LogN();
 
     Tensor const& input = op_ctx->input(1);
 
     // First dimension of the shape must equal number of slots.
     OP_REQUIRES(
-        op_ctx,
-        input.dims() > 0 && static_cast<size_t>(input.dim_size(0)) == num_slots,
-        InvalidArgument("Dimensions expected to start with:", num_slots,
-                        "but got shape:", input.shape().DebugString()));
+        op_ctx, input.dims() > 0 && input.dim_size(0) == num_slots,
+        InvalidArgument("Dimensions expected to start with: ", num_slots,
+                        " but got shape: ", input.shape().DebugString()));
 
     Tensor* output;
     auto output_shape = input.shape();
@@ -79,36 +89,49 @@ class PolynomialImportOp : public OpKernel {
     auto flat_output = output->flat<Variant>();
 
     for (int i = 0; i < flat_input.dimension(1); ++i) {
-      // Create a vector of montgomery ints.
-      std::vector<ModularInt> mont(num_slots,
-                                   ModularInt::ImportZero(pt_params));
-      for (size_t slot = 0; slot < num_slots; ++slot) {
-        OP_REQUIRES_VALUE(
-            mont[slot], op_ctx,
-            ModularInt::ImportInt(flat_input(slot, i), pt_params));
+      // Contiguous memory of plaintext for the absl span required by RNS BGV
+      // encoder.
+      std::vector<To> wrapped_nums;
+
+      if constexpr (std::is_signed<From>::value) {
+        // SHELL is built on the assumption that the plaintext type (in this
+        // case `From`) will always fit into the ciphertext underlying type
+        // (in this case `To`). E.g. the plaintext modulus is stored as the
+        // ciphertext type. This is true even in the RNS code paths. This means
+        // that this function can convert `From` to a signed version of `To`,
+        // then modulus switch into plaintext field t and type `To` without
+        // overflow.
+        using SignedInteger = std::make_signed_t<To>;
+
+        // Copy into contiguous memory of signed `To`'s
+        std::vector<SignedInteger> nums(num_slots);
+        for (int slot = 0; slot < num_slots; ++slot) {
+          nums[slot] = static_cast<SignedInteger>(flat_input(slot, i));
+        }
+
+        // Map signed integers into the plaintext modulus field.
+        OP_REQUIRES_VALUE(wrapped_nums, op_ctx,
+                          (encoder->template WrapSigned<SignedInteger>(nums)));
+      } else {
+        wrapped_nums = std::vector<To>(num_slots);
+        // Since From and To are both unsigned, just cast and copy.
+        for (int slot = 0; slot < num_slots; ++slot) {
+          wrapped_nums[slot] = static_cast<To>(flat_input(slot, i));
+        }
       }
 
-      // Convert montgomery coefficients to polynomial in inverse ntt form
-      // mod t, then switch modulus to q so that subsequent polynomial
-      // multiplication under encryption performs point-wise multiplication in
-      // plaintext. Modulus switching to the larger modulus is non-trivial when
-      // plaintext numbers are negative.
-      Polynomial mont_mod_t(std::move(mont));
-      std::vector<ModularInt> intt_mont_mod_t =
-          mont_mod_t.InverseNtt(pt_ntt_params, pt_params);
-
+      // The encoder first performs an inverse ntt (mod t), then switches to
+      // to mod Q in RNS form. This is important so that subsequent operations
+      // on the polynomial happen element-wise in the plaintext space.
+      // Note "importing" the integers in the correct modulus (first t, then
+      // switching to Q) is non-trivial when plaintext numbers are negative.
       OP_REQUIRES_VALUE(
-          std::vector<ModularInt> intt_mont_mod_q, op_ctx,
-          rlwe::ConvertModulusBalanced(intt_mont_mod_t, *pt_params,
-                                       *shell_ctx->GetModulusParams()));
+          RnsPolynomial rns_polynomial, op_ctx,
+          encoder->EncodeBgv(wrapped_nums, shell_ctx->MainPrimeModuli()));
 
-      Polynomial mont_mod_q =
-          Polynomial::ConvertToNtt(intt_mont_mod_q, shell_ctx->GetNttParams(),
-                                   shell_ctx->GetModulusParams());
-
-      // Wrap in a PolynomialVariant and store Polynomial in output tensor.
-      auto wrapped = PolynomialVariant<To>(std::move(mont_mod_q));
-      flat_output(i) = std::move(wrapped);
+      // Wrap in a PolynomialVariant and store in output tensor.
+      auto variant = PolynomialVariant<To>(std::move(rns_polynomial));
+      flat_output(i) = std::move(variant);
     }
   }
 };
@@ -119,7 +142,9 @@ class PolynomialExportOp : public OpKernel {
   using ModularInt = rlwe::MontgomeryInt<From>;
   using ModularIntParams = typename ModularInt::Params;
   using Polynomial = rlwe::Polynomial<ModularInt>;
-  using Context = rlwe::RlweContext<ModularInt>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+  using Context = rlwe::RnsContext<ModularInt>;
+  using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
   using NttParams = rlwe::NttParameters<ModularInt>;
 
  public:
@@ -127,14 +152,12 @@ class PolynomialExportOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    ContextVariant<From> const* shell_ctx_var;
-    OP_REQUIRES_OK(op_ctx,
-                   GetVariant<ContextVariant<From>>(op_ctx, 0, &shell_ctx_var));
-    ModularIntParams const* pt_params = shell_ctx_var->pt_params.get();
-    NttParams const* pt_ntt_params = &(shell_ctx_var->pt_ntt_params);
-    Context const* shell_ctx = shell_ctx_var->ct_context.get();
+    OP_REQUIRES_VALUE(ContextVariant<From> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<From>>(op_ctx, 0));
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+    Encoder const* encoder = shell_ctx_var->encoder_.get();
 
-    size_t num_slots = shell_ctx->GetN();
+    size_t num_slots = 1 << shell_ctx->LogN();
 
     Tensor const& input = op_ctx->input(1);
 
@@ -151,35 +174,42 @@ class PolynomialExportOp : public OpKernel {
       PolynomialVariant<From> const* pv =
           std::move(flat_input(i).get<PolynomialVariant<From>>());
       OP_REQUIRES(op_ctx, pv != nullptr,
-                  InvalidArgument("PolynomialVariant at flat index:", i,
-                                  "did not unwrap successfully."));
-      Polynomial p_mod_q = std::move(pv->poly);
+                  InvalidArgument("PolynomialVariant at flat index: ", i,
+                                  " did not unwrap successfully."));
+      RnsPolynomial rns_polynomial = std::move(pv->poly);
 
+      // TODO: if debug
       OP_REQUIRES(
-          op_ctx, p_mod_q.Coeffs().size() == num_slots,
-          InvalidArgument("Polynomial dimensions:", p_mod_q.Coeffs().size(),
-                          "do not match shell context degree:", num_slots));
+          op_ctx, rns_polynomial.NumCoeffs() == static_cast<int>(num_slots),
+          InvalidArgument("Polynomial dimensions: ", rns_polynomial.NumCoeffs(),
+                          " do not match shell context degree: ", num_slots));
 
-      // Shell Polynomial is in ntt form, mod q. First inverse ntt (mod q), then
-      // switch from mod q back to mod t, then compute the ntt to recover the
-      // original input.
-      std::vector<ModularInt> intt_p_mod_q = p_mod_q.InverseNtt(
-          shell_ctx->GetNttParams(), shell_ctx->GetModulusParams());
+      // TODO: if debug
+      OP_REQUIRES(op_ctx, rns_polynomial.IsNttForm(),
+                  InvalidArgument("PolynomialVariant at flat index: ", i,
+                                  " is not in NTT form."));
 
+      // Switch from mod Q to plaintext modulus and compute NTT to get the
+      // plaintext by using the Decode function.
       OP_REQUIRES_VALUE(
-          std::vector<ModularInt> intt_p_mod_t, op_ctx,
-          rlwe::ConvertModulusBalanced(
-              intt_p_mod_q, *shell_ctx->GetModulusParams(), *pt_params));
+          std::vector<From> unsigned_nums, op_ctx,
+          encoder->DecodeBgv(rns_polynomial, shell_ctx->MainPrimeModuli()));
 
-      Polynomial p_mod_t =
-          Polynomial::ConvertToNtt(intt_p_mod_t, pt_ntt_params, pt_params);
+      if constexpr (std::is_signed<To>::value) {
+        // Map the plaintext modulus field back into signed integers.
+        // Effectively switches the modulus from t to 2^(num bits in `From`)
+        // handling the sign bits appropriately.
+        OP_REQUIRES_VALUE(std::vector<std::make_signed_t<To>> nums, op_ctx,
+                          encoder->template UnwrapToSigned<To>(unsigned_nums));
 
-      // convert out of montgomery form and store in output tensor
-      std::vector<ModularInt> mont = p_mod_t.Coeffs();
-      for (size_t slot = 0; slot < num_slots; ++slot) {
-        To res = mont[slot].ExportInt(pt_params);
-        res = fix_sign_extend(res, shell_ctx->GetLogT());
-        flat_output(slot, i) = res;
+        for (size_t slot = 0; slot < num_slots; ++slot) {
+          flat_output(slot, i) = static_cast<To>(nums[slot]);
+        }
+      } else {
+        // both `From` and `To` are unsigned, just cast and copy.
+        for (size_t slot = 0; slot < num_slots; ++slot) {
+          flat_output(slot, i) = static_cast<To>(unsigned_nums[slot]);
+        }
       }
     }
   }

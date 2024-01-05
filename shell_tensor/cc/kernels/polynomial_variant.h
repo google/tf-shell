@@ -17,7 +17,7 @@
 #pragma once
 #include <memory>
 
-#include "shell_encryption/polynomial.h"
+#include "shell_encryption/rns/rns_polynomial.h"
 #include "tensorflow/core/framework/variant.h"
 #include "tensorflow/core/framework/variant_encode_decode.h"
 #include "tensorflow/core/framework/variant_op_registry.h"
@@ -28,7 +28,7 @@ using tensorflow::VariantTensorData;
 template <typename T>
 class PolynomialVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using Polynomial = rlwe::Polynomial<ModularInt>;
+  using Polynomial = rlwe::RnsPolynomial<ModularInt>;
 
  public:
   PolynomialVariant() {}

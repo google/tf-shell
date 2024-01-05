@@ -14,10 +14,10 @@
 
 #include "context_variant.h"
 #include "polynomial_variant.h"
-#include "prng_variant.h"
-#include "shell_encryption/context.h"
 #include "shell_encryption/modulus_conversion.h"
 #include "shell_encryption/prng/single_thread_hkdf_prng.h"
+#include "shell_encryption/rns/rns_context.h"
+#include "shell_encryption/rns/rns_polynomial.h"
 #include "symmetric_variants.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -44,9 +44,7 @@ template <typename T>
 class MulCtCtOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using Context = rlwe::RlweContext<ModularInt>;
-  using Polynomial = rlwe::Polynomial<ModularInt>;
-  using CtClass = rlwe::SymmetricRlweCiphertext<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
 
  public:
   explicit MulCtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -71,16 +69,16 @@ class MulCtCtOp : public OpKernel {
       OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index:", i,
                                   " for input a did not unwrap successfully."));
-      CtClass const& ct_a = ct_a_var->ct;
+      SymmetricCt const& ct_a = ct_a_var->ct;
 
       SymmetricCtVariant<T> const* ct_b_var =
           std::move(flat_b(i).get<SymmetricCtVariant<T>>());
       OP_REQUIRES(op_ctx, ct_b_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index:", i,
                                   " for input b did not unwrap successfully."));
-      CtClass const& ct_b = ct_b_var->ct;
+      SymmetricCt const& ct_b = ct_b_var->ct;
 
-      OP_REQUIRES_VALUE(CtClass ct_c, op_ctx, ct_a * ct_b);
+      OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx, ct_a * ct_b);
 
       SymmetricCtVariant ct_c_var(std::move(ct_c));
       flat_output(i) = std::move(ct_c_var);
@@ -92,9 +90,8 @@ template <typename T>
 class MulCtPtOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using Context = rlwe::RlweContext<ModularInt>;
-  using Polynomial = rlwe::Polynomial<ModularInt>;
-  using CtClass = rlwe::SymmetricRlweCiphertext<ModularInt>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
 
  public:
   explicit MulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -119,16 +116,16 @@ class MulCtPtOp : public OpKernel {
       OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index:", i,
                                   " for input a did not unwrap successfully."));
-      CtClass const& ct_a = ct_a_var->ct;
+      SymmetricCt const& ct_a = ct_a_var->ct;
 
       PolynomialVariant<T> const* pv_b_var =
           std::move(flat_b(i).get<PolynomialVariant<T>>());
       OP_REQUIRES(op_ctx, pv_b_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index:", i,
                                   " for input b did not unwrap successfully."));
-      Polynomial const& pt_b = pv_b_var->poly;
+      RnsPolynomial const& pt_b = pv_b_var->poly;
 
-      OP_REQUIRES_VALUE(CtClass ct_c, op_ctx,
+      OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx,
                         ct_a * pt_b);  // shell aborb operation
 
       SymmetricCtVariant ct_c_var(std::move(ct_c));
@@ -141,17 +138,16 @@ template <typename T>
 class MulPtPtOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using Context = rlwe::RlweContext<ModularInt>;
-  using Polynomial = rlwe::Polynomial<ModularInt>;
+  using Context = rlwe::RnsContext<ModularInt>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
 
  public:
   explicit MulPtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    ContextVariant<T> const* shell_ctx_var;
-    OP_REQUIRES_OK(op_ctx,
-                   GetVariant<ContextVariant<T>>(op_ctx, 0, &shell_ctx_var));
-    Context const* shell_ctx = shell_ctx_var->ct_context.get();
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
 
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
@@ -172,17 +168,17 @@ class MulPtPtOp : public OpKernel {
       OP_REQUIRES(op_ctx, pv_a_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index:", i,
                                   " for input a did not unwrap successfully."));
-      Polynomial const& pt_a = pv_a_var->poly;
+      RnsPolynomial const& pt_a = pv_a_var->poly;
 
       PolynomialVariant<T> const* pv_b_var =
           std::move(flat_b(i).get<PolynomialVariant<T>>());
       OP_REQUIRES(op_ctx, pv_b_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index:", i,
                                   " for input b did not unwrap successfully."));
-      Polynomial const& pt_b = pv_b_var->poly;
+      RnsPolynomial const& pt_b = pv_b_var->poly;
 
-      OP_REQUIRES_VALUE(Polynomial pt_c, op_ctx,
-                        pt_a.Mul(pt_b, shell_ctx->GetModulusParams()));
+      OP_REQUIRES_VALUE(RnsPolynomial pt_c, op_ctx,
+                        pt_a.Mul(pt_b, shell_ctx->MainPrimeModuli()));
 
       PolynomialVariant<T> pt_c_var(std::move(pt_c));
       flat_output(i) = std::move(pt_c_var);
@@ -194,15 +190,19 @@ template <typename T, typename PtT>
 class MatMulCtPtOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using Context = rlwe::RlweContext<ModularInt>;
-  using Polynomial = rlwe::Polynomial<ModularInt>;
-  using CtClass = rlwe::SymmetricRlweCiphertext<ModularInt>;
+  using Context = rlwe::RnsContext<ModularInt>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
 
  public:
   explicit MatMulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
-  // This computes the following:
-  // def poor_mans_matmul_ct_pt(x, y):
+  // A matrix of ciphertext multiplied by plaintext matrix can be performed
+  // without any expensive ciphertext slot rotations and without needing to
+  // encode the plaintext into a polynomial. This only uses ciphertext *
+  // plaintext scalar multiplication and addition by doing the following:
+  //
+  // def simple_matmul_ct_pt(x, y):
   //  xm, xn = x.shape
   //  ym, yn = y.shape
   //
@@ -215,7 +215,6 @@ class MatMulCtPtOp : public OpKernel {
   //
   // TODO(jchoncholas): Support batching. a's dimension may be greater
   // than 2 and matmul is performed for each of the outter dims.
-
   void Compute(OpKernelContext* op_ctx) override {
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
@@ -244,14 +243,16 @@ class MatMulCtPtOp : public OpKernel {
       OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index: 0",
                                   " for input a did not unwrap successfully."));
-      CtClass const& ct_a = ct_a_var->ct;
+      SymmetricCt const& ct_a = ct_a_var->ct;
 
-      OP_REQUIRES_VALUE(
-          auto mint_b, op_ctx,
-          ModularInt::ImportInt(flat_b(0, i), ct_a.ModulusParams()));
-
-      OP_REQUIRES_VALUE(CtClass ct_result, op_ctx,
-                        ct_a * mint_b);  // Ct * scalar
+      // TODO do we want to import int then use the montgomery form?
+      // or do we just want to "balance" the number just in case it is negative?
+      // OP_REQUIRES_VALUE(
+      //     auto mint_b, op_ctx,
+      //     ModularInt::ImportInt(flat_b(0, i),
+      //     shell_ctx_var->pt_params_.get()));
+      OP_REQUIRES_VALUE(SymmetricCt ct_result, op_ctx,
+                        ct_a * flat_b(0, i));  // ciphertext * scalar
 
       for (int j = 1; j < b.dim_size(0); ++j) {
         SymmetricCtVariant<T> const* ct_a_var =
@@ -260,13 +261,15 @@ class MatMulCtPtOp : public OpKernel {
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index:", j,
                             " for input a did not unwrap successfully."));
-        CtClass const& ct_a = ct_a_var->ct;
+        SymmetricCt const& ct_a = ct_a_var->ct;
 
-        OP_REQUIRES_VALUE(
-            auto mint_b, op_ctx,
-            ModularInt::ImportInt(flat_b(j, i), ct_a.ModulusParams()));
-        OP_REQUIRES_VALUE(CtClass scaled, op_ctx,
-                          ct_a * mint_b);  // Ct * scalar
+        // TODO do we want to import int then use the montgomery form?
+        // or do we just want to "balance" the number just in case it is
+        // negative? OP_REQUIRES_VALUE(
+        //     auto mint_b, op_ctx,
+        //     ModularInt::ImportInt(flat_b(j, i), ct_a.ModulusParams()));
+        OP_REQUIRES_VALUE(SymmetricCt scaled, op_ctx,
+                          ct_a * flat_b(j, i));  // Ct * scalar
         OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(scaled));
       }
 
@@ -278,14 +281,6 @@ class MatMulCtPtOp : public OpKernel {
 
 template <typename PtT, typename T>
 class MatMulPtCtOp : public OpKernel {
- private:
-  using ModularInt = rlwe::MontgomeryInt<T>;
-  using Context = rlwe::RlweContext<ModularInt>;
-  using Polynomial = rlwe::Polynomial<ModularInt>;
-  using CtClass = rlwe::SymmetricRlweCiphertext<ModularInt>;
-  using Prng = rlwe::SecurePrng;
-  using KeyClass = rlwe::SymmetricRlweKey<ModularInt>;
-
  public:
   explicit MatMulPtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 

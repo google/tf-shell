@@ -26,12 +26,12 @@ using tensorflow::shape_inference::ShapeHandle;
 static_assert(sizeof(size_t) == sizeof(uint64_t), "Fatal size mismatch");
 
 REGISTER_OP("ContextImport64")
-    // Cant use Attr instead of Input, Attr only supports int
+    .Input("log_n: uint64")
+    .Input("main_moduli: uint64")
+    .Input("aux_moduli: uint64")
     .Input("plaintext_modulus: uint64")
-    .Input("modulus: uint64")
-    .Input("log_n: uint64")  // must be size_t
-    .Input("log_t: uint64")
-    .Input("variance: uint64")
+    .Input("noise_variance: uint64")
+    .Input("seed: string")
     .Output("shell_context: variant")
     .SetIsStateful()
     .SetShapeFn(ScalarShape);
@@ -52,7 +52,7 @@ REGISTER_OP("PolynomialImport64")
       return OkStatus();
     });
 
-// Output shape depends on content of shell_context
+// Output shape depends on content of context object
 // so no SetShapeFn() for this Op.
 REGISTER_OP("PolynomialExport64")
     .Attr("dtype: {uint8, int8, int16, int32, int64}")
@@ -61,28 +61,20 @@ REGISTER_OP("PolynomialExport64")
     .Output("val: dtype")
     .SetIsStateful();
 
-REGISTER_OP("PrngImport")
-    .Input("seed: string")
-    .Output("prng: variant")
-    .SetIsStateful()
-    .SetShapeFn(ScalarShape);
-
 REGISTER_OP("KeyGen64")
     .Input("context: variant")
-    .Input("prng: variant")
     .Output("key: variant")
     .SetIsStateful()
     .SetShapeFn(ScalarShape);
 
 REGISTER_OP("Encrypt64")
     .Input("context: variant")
-    .Input("prng: variant")
     .Input("key: variant")
     .Input("val: variant")
     .Output("out: variant")
     .SetIsStateful()
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(3));
+      c->set_output(0, c->input(2));
       return OkStatus();
     });
 
@@ -96,6 +88,7 @@ REGISTER_OP("Decrypt64")
     .Output("out: dtype")
     .SetIsStateful();
 
+// Add and subtract.
 REGISTER_OP("AddCtCt64")
     .Input("a: variant")
     .Input("b: variant")
@@ -135,17 +128,17 @@ REGISTER_OP("SubPtPt64")
     .SetIsStateful();
 
 REGISTER_OP("NegCt64")
-    .Input("context: variant")
-    .Input("a: variant")
-    .Output("c: variant")
+    .Input("value: variant")
+    .Output("negated_value: variant")
     .SetIsStateful();
 
 REGISTER_OP("NegPt64")
     .Input("context: variant")
-    .Input("a: variant")
-    .Output("c: variant")
+    .Input("value: variant")
+    .Output("negated_value: variant")
     .SetIsStateful();
 
+// Multiply.
 REGISTER_OP("MulCtCt64")
     .Input("a: variant")
     .Input("b: variant")
