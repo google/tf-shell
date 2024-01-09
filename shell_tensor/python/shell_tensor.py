@@ -258,6 +258,18 @@ class ShellTensor64(object):
     def __rmul__(self, other):
         return self * other
 
+    def roll(self, rotation_key, num_slots):
+        if not self._is_enc:
+            raise ValueError("Unencrypted ShellTensor rotation not supported yet.")
+        else:
+            return ShellTensor64(
+                shell_ops.roll64(rotation_key, self._raw, num_slots),
+                self._context,
+                self._num_slots,
+                self._underlying_dtype,
+                True,
+            )
+
 
 def _tensor_conversion_function(tensor, dtype=None, name=None, as_ref=False):
     if not name is None:
@@ -327,6 +339,10 @@ def create_context64(
 
 def create_key64(context):
     return shell_ops.key_gen64(context)
+
+
+def create_rotation_key64(context, key):
+    return shell_ops.rotation_key_gen64(context, key)
 
 
 def matmul(x, y, temp_key=None):

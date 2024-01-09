@@ -21,4 +21,5 @@ from shell_tensor.python.shell_tensor import create_context64
 from shell_tensor.python.shell_tensor import to_shell_tensor
 from shell_tensor.python.shell_tensor import from_shell_tensor
 from shell_tensor.python.shell_tensor import create_key64
+from shell_tensor.python.shell_tensor import create_rotation_key64
 from shell_tensor.python.shell_tensor import matmul

@@ -171,3 +171,17 @@ REGISTER_OP("MatMulPtCt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetIsStateful();
+
+// Rotate.
+REGISTER_OP("RotationKeyGen64")
+    .Input("context: variant")
+    .Input("key: variant")
+    .Output("rotation_key: variant")
+    .SetIsStateful();
+
+REGISTER_OP("Roll64")
+    .Input("key: variant")
+    .Input("value: variant")
+    .Input("shift: int64")
+    .Output("rotated_value: variant")
+    .SetIsStateful();

@@ -35,3 +35,12 @@ py_test(
         requirement("tensorflow-cpu"),
     ],
 )
+
+py_test(
+    name = "rotation_test",
+    srcs = ["rotation_test.py"],
+    deps = [
+        "//shell_tensor:shell_tensor_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)

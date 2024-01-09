@@ -10,6 +10,8 @@ cc_binary(
         "cc/kernels/mul_kernels.cc",
         "cc/kernels/polynomial_kernels.cc",
         "cc/kernels/polynomial_variant.h",
+        "cc/kernels/rotation_kernels.cc",
+        "cc/kernels/rotation_variants.h",
         "cc/kernels/symmetric_kernels.cc",
         "cc/kernels/symmetric_variants.h",
         "cc/kernels/utils.h",

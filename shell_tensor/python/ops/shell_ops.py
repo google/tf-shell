@@ -47,3 +47,7 @@ mul_ct_pt64 = shell_ops.mul_ct_pt64
 mul_pt_pt64 = shell_ops.mul_pt_pt64
 mat_mul_ct_pt64 = shell_ops.mat_mul_ct_pt64
 mat_mul_pt_ct64 = shell_ops.mat_mul_pt_ct64
+
+# Rotate slots.
+rotation_key_gen64 = shell_ops.rotation_key_gen64
+roll64 = shell_ops.roll64
