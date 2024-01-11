@@ -122,7 +122,6 @@ template <typename T>
 class RollOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
-  using Context = rlwe::RnsContext<ModularInt>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
   using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
@@ -195,7 +194,73 @@ class RollOp : public OpKernel {
   }
 };
 
+template <typename T>
+class ReduceSumOp : public OpKernel {
+ private:
+  using ModularInt = rlwe::MontgomeryInt<T>;
+  using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
+  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
+
+ public:
+  explicit ReduceSumOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
+
+  void Compute(OpKernelContext* op_ctx) override {
+    // Recover the input rotation keys.
+    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
+                      GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
+    std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
+
+    // Recover the input tensor.
+    Tensor const& value = op_ctx->input(1);
+    OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
+                InvalidArgument("Cannot reduce_sum an empty ciphertext."));
+    auto flat_value = value.flat<Variant>();
+
+    // Setup the output.
+    Tensor* output;
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, value.shape(), &output));
+    auto flat_output = output->flat<Variant>();
+
+    for (int i = 0; i < flat_output.dimension(0); ++i) {
+      // Learn how many slots there are from first ciphertext and create a deep
+      // copy to hold the sum.
+      SymmetricCtVariant<T> const* ct_var =
+          std::move(flat_value(i).get<SymmetricCtVariant<T>>());
+      OP_REQUIRES(
+          op_ctx, ct_var != nullptr,
+          InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+      SymmetricCt sum = ct_var->ct;  // deep copy to start the sum.
+      int const num_slots = 1 << sum.LogN();
+
+      // Add the rotations to the sum.
+      // Note the ciphertext rotations operate on each half of the ciphertext
+      // separately. So the max rotatation is by half the number of slots.
+      for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+        // TODO if debug
+        OP_REQUIRES(op_ctx, keys->find(shift) != keys->end(),
+                    InvalidArgument("No key for shift of '", shift, "'"));
+        PowerAndKey const& p_and_k = keys->at(shift);
+
+        // Rotate by the shift.
+        OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
+                          sum.Substitute(p_and_k.substitution_power));
+        OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
+
+        // Add to the sum.
+        sum.AddInPlace(ct_rot);
+      }
+
+      SymmetricCtVariant ct_out_var(std::move(sum));
+      flat_output(i) = std::move(ct_out_var);
+    }
+  }
+};
+
 REGISTER_KERNEL_BUILDER(Name("RotationKeyGen64").Device(DEVICE_CPU),
                         RotationKeyGenOp<uint64>);
 
 REGISTER_KERNEL_BUILDER(Name("Roll64").Device(DEVICE_CPU), RollOp<uint64>);
+
+REGISTER_KERNEL_BUILDER(Name("ReduceSum64").Device(DEVICE_CPU),
+                        ReduceSumOp<uint64>);

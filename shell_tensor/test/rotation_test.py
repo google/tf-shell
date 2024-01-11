@@ -73,6 +73,38 @@ class TestShellTensorRotation(tf.test.TestCase):
         tftensor_out = enc_left.get_decrypted(key)
         self.assertAllClose(tftensor_out, tftensor_left)
 
+    # TensorFlow's reduce_sum has slightly different semantics than encrypted
+    # reduce_sum. Encrypted reduce_sum affects top and bottom halves
+    # independently, as well as repeating the sum across the halves. This
+    # function emulates this in plaintext.
+    def plaintext_reduce_sum(self, t):
+        bottom_answer = tf.math.reduce_sum(
+            t[0 : self.slots // 2], axis=0, keepdims=True
+        )
+        top_answer = tf.math.reduce_sum(t[self.slots // 2 :], axis=0, keepdims=True)
+
+        repeated_bottom_answer = tf.repeat(
+            bottom_answer, repeats=self.slots // 2, axis=0
+        )
+        repeated_top_answer = tf.repeat(top_answer, repeats=self.slots // 2, axis=0)
+
+        return tf.concat([repeated_bottom_answer, repeated_top_answer], 0)
+
+    def test_reduce_sum(self):
+        context = self.get_context()
+        key = shell_tensor.create_key64(context)
+        rotation_key = shell_tensor.create_rotation_key64(context, key)
+        test_shape = [self.slots, 2, 3, 4]
+
+        tftensor = tf.random.uniform(test_shape, dtype=tf.int32, maxval=10)
+        s = shell_tensor.to_shell_tensor(context, tftensor)
+        enc = s.get_encrypted(key)
+
+        enc_reduce_sum = enc.reduce_sum(rotation_key)
+
+        tftensor_out = enc_reduce_sum.get_decrypted(key)
+        self.assertAllClose(tftensor_out, self.plaintext_reduce_sum(tftensor))
+
 
 if __name__ == "__main__":
     tf.test.main()

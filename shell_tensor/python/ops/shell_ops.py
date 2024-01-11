@@ -51,3 +51,4 @@ mat_mul_pt_ct64 = shell_ops.mat_mul_pt_ct64
 # Rotate slots.
 rotation_key_gen64 = shell_ops.rotation_key_gen64
 roll64 = shell_ops.roll64
+reduce_sum64 = shell_ops.reduce_sum64 

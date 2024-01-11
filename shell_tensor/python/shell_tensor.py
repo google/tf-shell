@@ -270,6 +270,18 @@ class ShellTensor64(object):
                 True,
             )
 
+    def reduce_sum(self, rotation_key):
+        if not self._is_enc:
+            raise ValueError("Unencrypted ShellTensor reduce_sum not supported yet.")
+        else:
+            return ShellTensor64(
+                shell_ops.reduce_sum64(rotation_key, self._raw),
+                self._context,
+                self._num_slots,
+                self._underlying_dtype,
+                True,
+            )
+
 
 def _tensor_conversion_function(tensor, dtype=None, name=None, as_ref=False):
     if not name is None:
