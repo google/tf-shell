@@ -51,16 +51,21 @@ def train_step(x, y):
     """One step of training with using the "post scale" approach.
 
     High level idea:
-    For each output class, forward pass to compute the gradient.  Now we have a
+    For each output class, backward pass to compute the gradient.  Now we have a
     _vector_ of model updates for one sample. The real gradient update for the
     sample is a linear combination of the vector of weight updates whose scale
-    is determined by dJ_dypred (the derivative of the loss with respect to the
-    predicted output y). Separating out dJ_dypred allows us to scale the weight
-    updates easily under encryption / multiparty computation because the
-    multiplicative depth of the computation is 1, however it requires
-    many more multiplications compared to standard backpropagation.
+    is determined by dJ_dyhat (the derivative of the loss with respect to the
+    predicted output yhat). Effectively, we have factored out dJ_dyhat from the
+    gradient. Separating out dJ_dyhat allows us to scale the weight updates
+    easily when the label is secret and the gradient must be computed under
+    encryption / multiparty computation because the multiplicative depth of the
+    computation is 1, however the number of multiplications required now depends
+    on the model size AND the number of output classes. In contrast, standard
+    backpropagation only requires multiplications proportional to the model size,
+    howver the multiplicative depth is proportional to the model depth..
     """
 
+    # First, a quick note about TensorFlow's gradient tape.jacobian().
     # The jacobian tape returns a list of lists of tensors. The outer list is
     # indexed by the layers of the model. Each tensor includes the gradients for
     # all samples in the minibatch and all output classes. In summary, the
@@ -72,22 +77,22 @@ def train_step(x, y):
     # aggregated over a minibatch by using the tape.gradient function) because
     # each grad's Weight tensor slice needs to be scaled independently.
     #
-    # Also note, using the tape.gradient function to individually compute the
-    # gradients for each sample and each output class takes ~10x longer than
-    # tape.jacobian.
+    # Also note, using tape.gradient to individually compute the gradients for
+    # each sample and each output class takes ~10x longer than tape.jacobian.
     with tf.GradientTape() as tape:
         y_pred = model(x, training=True)  # forward pass
     grads = tape.jacobian(
         y_pred, model.trainable_variables
     )  # dy_pred_j/dW_sample_class
 
-    # Compute (y_pred - y) which in theory could be hidden by MPC/HE.
+    # Compute (y_pred - y) which in theory could be computed under encryption.
     scalars = y_pred - y  # dJ/dy_pred
 
     # Scale each gradient (layer by layer) by the plaintext loss gradient
     # and then reduce the gradients across the minibatch and output classes.
     # This is why the approach is called "post scale", because the scaling
-    # happens after all gradients are computed.
+    # happens after all gradients are computed. Since 'scalars' is a vector
+    # of ciphertexts, this would requires ciphertext-plaintext multiplication.
     dp_grads = []
     for l, layer_grad_full in enumerate(grads):
         dp_grads.append(tf.zeros(layer_grad_full.shape[2:]))
