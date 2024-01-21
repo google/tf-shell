@@ -357,7 +357,7 @@ def create_rotation_key64(context, key):
     return shell_ops.rotation_key_gen64(context, key)
 
 
-def matmul(x, y, temp_key=None):
+def matmul(x, y, rotation_key=None):
     if isinstance(x, ShellTensor64) and isinstance(y, tf.Tensor):
         return ShellTensor64(
             shell_ops.mat_mul_ct_pt64(x._context, x._raw, y),
@@ -366,44 +366,25 @@ def matmul(x, y, temp_key=None):
             x._underlying_dtype,
             is_enc=True,
         )
+
     elif isinstance(x, tf.Tensor) and isinstance(y, ShellTensor64):
-        num_slots = y._num_slots
-        context = y._context
+        assert rotation_key is not None, "Rotation key must be provided to multiply pt*ct"
+        return ShellTensor64(
+            shell_ops.mat_mul_pt_ct64(y._context, rotation_key, x, y._raw),
+            y._context,
+            y._num_slots,
+            y._underlying_dtype,
+            is_enc=True,
+        )
 
-        if y.is_encrypted:
-            # TODO(jchoncholas): Requiring key is a limitation for now.
-            # Once shell has galois key rotation we can compute a reduce operation
-            # over a polynomial which is required for this operation. For now
-            # we cheat and decrypt, compute, re-encrypt.
-            assert temp_key is not None, "key must be provided for matmul_pt_ct"
-            print(
-                f"WARNING: matmul for pt*ct is not computed under encryption yet. Decrypting, computing, re-encrypting."
-            )
-            y = y.get_decrypted(temp_key)
-        else:
-            y = from_shell_tensor(y)
-
-        y_orgig_dtype = y.dtype
-        if not x.dtype is y.dtype:
-            # TODO(jchoncholas): When shell support rotations, casting will not
-            # be required
-            print(
-                f"WARNING: matmult requires casting y to x's dtype (from {y.dtype} to {x.dtype})"
-            )
-            y = tf.cast(y, x.dtype)
-
-        res = tf.matmul(x, y)
-        res = tf.expand_dims(res, axis=0)
-        res = tf.repeat(res, repeats=[num_slots], axis=0)
-
-        res = tf.cast(res, y_orgig_dtype)
-        shell_res = to_shell_tensor(context, res)
-        enc_res = shell_res.get_encrypted(temp_key)
-        # dimensions of enc_res: num_slots by x_m by y_n
-        # Dimensions match what would be returned when galois slot rotation
-        # is implemented.
-
-        return enc_res
+    elif isinstance(x, ShellTensor64) and isinstance(y, ShellTensor64):
+        return ShellTensor64(
+            shell_ops.mat_mul_pt_pt64(x._context, x._raw, y._raw),
+            x._context,
+            x._num_slots,
+            x._underlying_dtype,
+            is_enc=True,
+        )
 
     elif isinstance(x, tf.Tensor) and isinstance(y, tf.Tensor):
         return tf.matmul(x, y)

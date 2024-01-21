@@ -14,6 +14,7 @@
 
 #include "context_variant.h"
 #include "polynomial_variant.h"
+#include "rotation_variants.h"
 #include "shell_encryption/modulus_conversion.h"
 #include "shell_encryption/prng/single_thread_hkdf_prng.h"
 #include "shell_encryption/rns/rns_context.h"
@@ -321,16 +322,170 @@ class MatMulCtPtOp : public OpKernel {
 
 template <typename PtT, typename T>
 class MatMulPtCtOp : public OpKernel {
+  using ModularInt = rlwe::MontgomeryInt<T>;
+  using Context = rlwe::RnsContext<ModularInt>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
+  using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
+  using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
+  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
+
  public:
   explicit MatMulPtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
-  // TODO(jchoncholas): This is a stub for now. It decryptes, computes the
-  // matrix multiplication, and then re-encrypts. Right now shell does not
-  // support ciphertext slot rotation via galois keys which is required to
-  // perform the addition steps of the matrix multiplication.
   void Compute(OpKernelContext* op_ctx) override {
-    OP_REQUIRES(op_ctx, false,
-                InvalidArgument("Plaintext * Ciphertext not implemented"));
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, shell_ctx != nullptr,
+                InvalidArgument("Shell context object is empty."));
+
+    int num_slots = 1 << shell_ctx->LogN();
+
+    Encoder const* encoder = shell_ctx_var->encoder_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, encoder != nullptr,
+                InvalidArgument("Shell encoder object is empty."));
+
+    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
+                      GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
+    std::map<int, PowerAndKey> const* rot_keys = &rotation_key_var->keys;
+
+    Tensor const& a = op_ctx->input(2);
+    Tensor const& b = op_ctx->input(3);
+
+    // b is a vector of Polynomials so first dimension is the number of
+    // slots.
+    OP_REQUIRES(op_ctx, a.dims() >= 2 && b.dims() == 1,
+                InvalidArgument("Inputs must have dimension 2."));
+
+    int num_ct_cols = b.dim_size(0);
+    int pt_total_size = a.NumElements();
+    int num_pt_inner_rows = a.dim_size(a.dims() - 2);
+    int num_pt_inner_cols = a.dim_size(a.dims() - 1);
+    int num_pt_inner_elems = num_pt_inner_rows * num_pt_inner_cols;
+
+    OP_REQUIRES(op_ctx, num_pt_inner_cols == num_slots,
+                InvalidArgument(
+                    "Inputs dimensions do not support matrix multiplication."));
+
+    // Output of one plaintext matrix * ciphertext matrix is a matrix of
+    // *polynomials*. This is different from how plaintext matrix multiplication
+    // works where the output is just a matrix of integers. In this case, we
+    // have effectively increased the number of dimensions of the output by 1.
+    // I.e. the inner dimension is a ciphertext where *every* slot contains
+    // the same value. This is due to the reduce_sum operation which
+    // results in ciphertexts whose slots are all the same value, the result
+    // of the reduce sum.
+    Tensor* output;
+    auto output_shape = a.shape();
+    OP_REQUIRES_OK(op_ctx, output_shape.RemoveLastDimsWithStatus(1));
+    OP_REQUIRES_OK(op_ctx, output_shape.AddDimWithStatus(num_ct_cols));
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
+
+    auto flat_a =
+        a.shaped<PtT, 3>({pt_total_size / num_pt_inner_rows / num_pt_inner_cols,
+                          num_pt_inner_rows, num_pt_inner_cols});
+
+    // Printing the shapes of the tensors changes whether it is a Tensorflow
+    // Tensor or an Eigen Tensor, which is what is retured from the flat()
+    // calls.
+    // std::cout << "a shape = " << a.shape().DebugString() << std::endl;
+    // std::cout << "flat_a shape = " << flat_a.dimensions() << std::endl;
+
+    auto flat_b = b.flat<Variant>();
+    auto flat_output = output->shaped<Variant, 3>(
+        {flat_a.dimension(0), num_pt_inner_rows, num_ct_cols});
+
+    // For each outer n-2 dimensions of a, perform the matrix multiplication
+    // on the inner dimension.
+    for (int outer = 0; outer < flat_a.dimension(0); ++outer) {
+      // Iterate over the rows in the plaintext inner matrix, encode the
+      // plaintext matrix into polynomials row-wise then multiply by the
+      // ciphertext column.
+      for (int i = 0; i < num_pt_inner_rows; ++i) {
+        // Encode the row of the plaintext matrix into a polynomial.
+        std::vector<T> wrapped_row;
+        if constexpr (std::is_signed<PtT>::value) {
+          // SHELL is built on the assumption that the plaintext type (in this
+          // case `From`) will always fit into the ciphertext underlying type
+          // (in this case `To`). E.g. the plaintext modulus is stored as the
+          // ciphertext type. This is true even in the RNS code paths. This
+          // means that this function can convert `From` to a signed version
+          // of `To`, then modulus switch into plaintext field t and type `To`
+          // without overflow.
+          using SignedInteger = std::make_signed_t<T>;
+
+          // Copy into contiguous memory of signed `To`'s
+          std::vector<SignedInteger> nums(num_slots);
+          for (int slot = 0; slot < num_slots; ++slot) {
+            nums[slot] = static_cast<SignedInteger>(flat_a(outer, i, slot));
+          }
+
+          // Map signed integers into the plaintext modulus field.
+          OP_REQUIRES_VALUE(
+              wrapped_row, op_ctx,
+              (encoder->template WrapSigned<SignedInteger>(nums)));
+        } else {
+          wrapped_row = std::vector<T>(num_slots);
+          // Since From and To are both unsigned, just cast and copy.
+          for (int slot = 0; slot < num_slots; ++slot) {
+            wrapped_row[slot] = static_cast<T>(flat_a(outer, i, slot));
+          }
+        }
+
+        OP_REQUIRES_VALUE(
+            RnsPolynomial row_polynomial, op_ctx,
+            encoder->EncodeBgv(wrapped_row, shell_ctx->MainPrimeModuli()));
+
+        // Multiply the row by each of the ciphertext vector,
+        // point - wise.
+        for (int ct_col = 0; ct_col < num_ct_cols; ++ct_col) {
+          // Index into the ciphertext columns.
+          SymmetricCtVariant<T> const* ct_b_var =
+              std::move(flat_b(ct_col).get<SymmetricCtVariant<T>>());
+          // TODO if debug
+          OP_REQUIRES(
+              op_ctx, ct_b_var != nullptr,
+              InvalidArgument("SymmetricCtVariant at flat index: 0",
+                              " for input a did not unwrap successfully."));
+          SymmetricCt const& ct_b = ct_b_var->ct;
+
+          // Perform the multiplication.
+          OP_REQUIRES_VALUE(SymmetricCt ct_result, op_ctx,
+                            ct_b * row_polynomial);
+
+          // Reduce sum the result.
+          // Add the rotations to the sum.
+          // Note the ciphertext rotations operate on each half of the
+          // ciphertext separately. So the max rotatation is by half the
+          // number of slots.
+          for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+            // TODO if debug
+            OP_REQUIRES(op_ctx, rot_keys->find(shift) != rot_keys->end(),
+                        InvalidArgument("No key for shift of '", shift, "'"));
+            PowerAndKey const& p_and_k = rot_keys->at(shift);
+
+            // Rotate by the shift.
+            OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
+                              ct_result.Substitute(p_and_k.substitution_power));
+            OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
+
+            // Add to the sum.
+            ct_result.AddInPlace(ct_rot);
+          }
+
+          // At this point we have one ciphertext per row of the plaintext
+          // matrix where every element in the ciphertext is the same value,
+          // the result of the reduce sum operation. Store in the output
+          // tensor.
+          SymmetricCtVariant<T> ct_result_var(std::move(ct_result));
+          flat_output(outer, i, ct_col) = std::move(ct_result_var);
+        }
+      }
+    }
   }
 };
 

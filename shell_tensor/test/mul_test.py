@@ -120,21 +120,45 @@ class TestShellTensor(tf.test.TestCase):
         self.assertAllClose(a, ea.get_decrypted(key))
         self.assertAllClose(tf.matmul(a, b), ec.get_decrypted(key))
 
-    # def test_tf_ct_matmul(self):
-    #     context = TestShellTensor.get_context()
-    #     key = shell_tensor.create_key64(context)
+    # tf-shell matmult has slightly different semantics than plaintext /
+    # Tensorflow. Encrypted matmult affects top and bottom halves independently,
+    # as well as the first dimension repeating the sum of either the halves.
+    # This function emulates this in plaintext.
+    def plaintext_matmul(self, a, b):
+        half_slots = self.slots // 2
 
-    #     a = tf.random.uniform([5, TestShellTensor.slots], dtype=tf.int32, maxval=10)
-    #     b = tf.random.uniform([TestShellTensor.slots, 7], dtype=tf.int32, maxval=10)
-    #     eb = shell_tensor.to_shell_tensor(context, b).get_encrypted(key)
+        a_top = a[:, :half_slots]
+        a_bottom = a[:, half_slots:]
+        b_top = b[:half_slots, :]
+        b_bottom = b[half_slots:, :]
 
-    #     ec = shell_tensor.matmul(a, eb, key)
-    #     self.assertAllClose(b, eb.get_decrypted(key))
+        top = tf.matmul(a_top, b_top)
+        bottom = tf.matmul(a_bottom, b_bottom)
 
-    #     check_c = tf.matmul(a, b)
-    #     check_c = tf.expand_dims(check_c, axis=0)
-    #     check_c = tf.repeat(check_c, repeats=[TestShellTensor.slots], axis=0)
-    #     self.assertAllClose(check_c, ec.get_decrypted(key))
+        top = tf.expand_dims(top, axis=0)
+        bottom = tf.expand_dims(bottom, axis=0)
+
+        top = tf.repeat(top, repeats=[half_slots], axis=0)
+        bottom = tf.repeat(bottom, repeats=[half_slots], axis=0)
+
+        return tf.concat([top, bottom], axis=0)
+
+    def test_tf_ct_matmul(self):
+        context = TestShellTensor.get_context()
+        key = shell_tensor.create_key64(context)
+        rotation_key = shell_tensor.create_rotation_key64(context, key)
+
+        a = tf.random.uniform([3, TestShellTensor.slots], dtype=tf.int32, maxval=3)
+        b = tf.random.uniform([TestShellTensor.slots, 2], dtype=tf.int32, maxval=3)
+
+        eb = shell_tensor.to_shell_tensor(context, b).get_encrypted(key)
+
+        ec = shell_tensor.matmul(a, eb, rotation_key)
+        self.assertAllClose(b, eb.get_decrypted(key))
+
+        check_c = self.plaintext_matmul(a,b)
+        self.assertAllClose(check_c.shape, ec.shape)
+        self.assertAllClose(check_c, ec.get_decrypted(key))
 
 
 if __name__ == "__main__":

@@ -168,6 +168,8 @@ REGISTER_OP("MatMulCtPt64")
 
 REGISTER_OP("MatMulPtCt64")
     .Attr("dtype: {uint8, int8, int16, int32, int64}")
+    .Input("context: variant")
+    .Input("rotation_key: variant")
     .Input("a: dtype")
     .Input("b: variant")
     .Output("c: variant")
