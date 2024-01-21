@@ -159,14 +159,15 @@ REGISTER_OP("MulPtPt64")
     .SetIsStateful();
 
 REGISTER_OP("MatMulCtPt64")
-    .Attr("dtype: {uint8, int8, int16, int32, int64, float, double}")
+    .Attr("dtype: {uint8, int8, int16, int32, int64}")
+    .Input("context: variant")
     .Input("a: variant")
     .Input("b: dtype")
     .Output("c: variant")
     .SetIsStateful();
 
 REGISTER_OP("MatMulPtCt64")
-    .Attr("dtype: {uint8, int8, int16, int32, int64, float, double}")
+    .Attr("dtype: {uint8, int8, int16, int32, int64}")
     .Input("a: dtype")
     .Input("b: variant")
     .Output("c: variant")

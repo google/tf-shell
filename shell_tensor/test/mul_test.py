@@ -112,8 +112,8 @@ class TestShellTensor(tf.test.TestCase):
         context = TestShellTensor.get_context()
         key = shell_tensor.create_key64(context)
 
-        a = tf.random.uniform([TestShellTensor.slots, 5], dtype=tf.int32, maxval=10)
-        b = tf.random.uniform([5, 7], dtype=tf.int32, maxval=10)
+        a = tf.random.uniform([TestShellTensor.slots, 5], dtype=tf.int32, maxval=10) - 5
+        b = tf.random.uniform([5, 7], dtype=tf.int32, maxval=10) - 5
         ea = shell_tensor.to_shell_tensor(context, a).get_encrypted(key)
 
         ec = shell_tensor.matmul(ea, b)

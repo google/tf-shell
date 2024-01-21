@@ -193,6 +193,7 @@ class MatMulCtPtOp : public OpKernel {
   using Context = rlwe::RnsContext<ModularInt>;
   using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
+  using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
 
  public:
   explicit MatMulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -200,7 +201,8 @@ class MatMulCtPtOp : public OpKernel {
   // A matrix of ciphertext multiplied by plaintext matrix can be performed
   // without any expensive ciphertext slot rotations and without needing to
   // encode the plaintext into a polynomial. This only uses ciphertext *
-  // plaintext scalar multiplication and addition by doing the following:
+  // plaintext scalar multiplication and addition (i.e. no ciphertext rotations)
+  // by doing the following:
   //
   // def simple_matmul_ct_pt(x, y):
   //  xm, xn = x.shape
@@ -214,10 +216,23 @@ class MatMulCtPtOp : public OpKernel {
   //      result_column_i += x_polynomial_column[j] * y_scalar[j, i]
   //
   // TODO(jchoncholas): Support batching. a's dimension may be greater
-  // than 2 and matmul is performed for each of the outter dims.
+  // than 2 and matmul is performed for each of the outer dims.
   void Compute(OpKernelContext* op_ctx) override {
-    Tensor const& a = op_ctx->input(0);
-    Tensor const& b = op_ctx->input(1);
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, shell_ctx != nullptr,
+                InvalidArgument("Shell context object is empty."));
+
+    Encoder const* encoder = shell_ctx_var->encoder_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, encoder != nullptr,
+                InvalidArgument("Shell encoder object is empty."));
+
+    Tensor const& a = op_ctx->input(1);
+    Tensor const& b = op_ctx->input(2);
 
     // a is a vector of Polynomials so first dimension is the number of slots.
     OP_REQUIRES(op_ctx, a.dims() == 1 && b.dims() == 2,
@@ -227,7 +242,7 @@ class MatMulCtPtOp : public OpKernel {
                 InvalidArgument(
                     "Inputs dimensions do not support matrix multiplication."));
 
-    // output is a vector of Polynomials and the first dimension is the number
+    // Output is a vector of Polynomials and the first dimension is the number
     // of slots.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(
@@ -245,14 +260,14 @@ class MatMulCtPtOp : public OpKernel {
                                   " for input a did not unwrap successfully."));
       SymmetricCt const& ct_a = ct_a_var->ct;
 
-      // TODO do we want to import int then use the montgomery form?
-      // or do we just want to "balance" the number just in case it is negative?
-      // OP_REQUIRES_VALUE(
-      //     auto mint_b, op_ctx,
-      //     ModularInt::ImportInt(flat_b(0, i),
-      //     shell_ctx_var->pt_params_.get()));
+      // Before multiplying, the check if the plaintext integer is signed.
+      // If so, it needs to be imported into the field of the plaintext modulus
+      // to properly handle negative values.
+      OP_REQUIRES_VALUE(T mint_b, op_ctx,
+                        ToSigned(flat_b(0, i), encoder, op_ctx));
+
       OP_REQUIRES_VALUE(SymmetricCt ct_result, op_ctx,
-                        ct_a * flat_b(0, i));  // ciphertext * scalar
+                        ct_a * mint_b);  // ciphertext * scalar
 
       for (int j = 1; j < b.dim_size(0); ++j) {
         SymmetricCtVariant<T> const* ct_a_var =
@@ -263,18 +278,43 @@ class MatMulCtPtOp : public OpKernel {
                             " for input a did not unwrap successfully."));
         SymmetricCt const& ct_a = ct_a_var->ct;
 
-        // TODO do we want to import int then use the montgomery form?
-        // or do we just want to "balance" the number just in case it is
-        // negative? OP_REQUIRES_VALUE(
-        //     auto mint_b, op_ctx,
-        //     ModularInt::ImportInt(flat_b(j, i), ct_a.ModulusParams()));
+        // Again check if the plaintext integer is signed.
+        OP_REQUIRES_VALUE(T mint_b, op_ctx,
+                          ToSigned(flat_b(j, i), encoder, op_ctx));
+
         OP_REQUIRES_VALUE(SymmetricCt scaled, op_ctx,
-                          ct_a * flat_b(j, i));  // Ct * scalar
+                          ct_a * mint_b);  // Ct * scalar
         OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(scaled));
       }
 
       SymmetricCtVariant<T> ct_result_var(std::move(ct_result));
       flat_output(i) = std::move(ct_result_var);
+    }
+  }
+
+  static StatusOr<T> ToSigned(PtT const& val, Encoder const* encoder,
+                              OpKernelContext* op_ctx) {
+    if constexpr (std::is_signed<PtT>::value) {
+      // SHELL is built on the assumption that the plaintext type (in this
+      // case `From`) will always fit into the ciphertext underlying type
+      // (in this case `To`). E.g. the plaintext modulus is stored as the
+      // ciphertext type. This is true even in the RNS code paths. This means
+      // that this function can convert `From` to a signed version of `To`,
+      // then modulus switch into plaintext field t and type `To` without
+      // overflow.
+      using SignedInteger = std::make_signed_t<T>;
+
+      // Map signed integer into the unsigned plaintext modulus field.
+      auto signed_val = (encoder->template WrapSigned<SignedInteger>({val}));
+
+      if (!signed_val.ok()) {
+        return signed_val.status();
+      } else {
+        return signed_val.value()[0];
+      }
+    } else {
+      // Since T and PtT are both unsigned, just cast and copy.
+      return static_cast<T>(val);
     }
   }
 };
@@ -318,12 +358,6 @@ REGISTER_KERNEL_BUILDER(
 REGISTER_KERNEL_BUILDER(
     Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
     MatMulCtPtOp<uint64, int64>);
-REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<float>("dtype"),
-    MatMulCtPtOp<uint64, float>);
-REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<double>("dtype"),
-    MatMulCtPtOp<uint64, double>);
 
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
@@ -340,9 +374,3 @@ REGISTER_KERNEL_BUILDER(
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
     MatMulPtCtOp<int64, uint64>);
-REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<float>("dtype"),
-    MatMulPtCtOp<float, uint64>);
-REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<double>("dtype"),
-    MatMulPtCtOp<double, uint64>);

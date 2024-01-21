@@ -360,7 +360,7 @@ def create_rotation_key64(context, key):
 def matmul(x, y, temp_key=None):
     if isinstance(x, ShellTensor64) and isinstance(y, tf.Tensor):
         return ShellTensor64(
-            shell_ops.mat_mul_ct_pt64(x._raw, y),
+            shell_ops.mat_mul_ct_pt64(x._context, x._raw, y),
             x._context,
             x._num_slots,
             x._underlying_dtype,
@@ -409,4 +409,6 @@ def matmul(x, y, temp_key=None):
         return tf.matmul(x, y)
 
     else:
-        raise ValueError(f"Unsupported types for matmul. Got {type(x)} and {type(y)}")
+        raise ValueError(
+            f"Unsupported types for matmul. Got {type(x)} and {type(y)}. If multiplying a plaintext, pass it as a plain TensorFlow tensor, not a ShellTensor."
+        )
