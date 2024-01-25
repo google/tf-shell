@@ -126,9 +126,19 @@ class TestShellTensor(tf.test.TestCase):
     # This function emulates this in plaintext.
     def plaintext_matmul(self, a, b):
         half_slots = self.slots // 2
+        tf_half_slots = tf.constant([half_slots], dtype=tf.int32)
 
-        a_top = a[:, :half_slots]
-        a_bottom = a[:, half_slots:]
+        a_shape = tf.shape(a)
+        a_top_start = tf.zeros_like(a_shape)
+        a_top_shape = tf.concat([a_shape[:-1], tf_half_slots], axis=0)
+        a_top = tf.slice(a, a_top_start, a_top_shape)
+        a_bottom_start = tf.concat(
+            [tf.zeros_like(a_top_start[:-1]), tf_half_slots], axis=0
+        )
+        a_bottom_shape = tf.concat([a_shape[:-1], tf_half_slots], axis=0)
+        a_bottom = tf.slice(a, a_bottom_start, a_bottom_shape)
+
+        assert len(tf.shape(b)) == 2
         b_top = b[:half_slots, :]
         b_bottom = b[half_slots:, :]
 
@@ -148,15 +158,18 @@ class TestShellTensor(tf.test.TestCase):
         key = shell_tensor.create_key64(context)
         rotation_key = shell_tensor.create_rotation_key64(context, key)
 
-        a = tf.random.uniform([3, TestShellTensor.slots], dtype=tf.int32, maxval=3)
-        b = tf.random.uniform([TestShellTensor.slots, 2], dtype=tf.int32, maxval=3)
+        a = (
+            tf.random.uniform([3, 5, TestShellTensor.slots], dtype=tf.int32, maxval=3)
+            - 2
+        )
+        b = tf.random.uniform([TestShellTensor.slots, 2], dtype=tf.int32, maxval=3) - 2
 
         eb = shell_tensor.to_shell_tensor(context, b).get_encrypted(key)
 
         ec = shell_tensor.matmul(a, eb, rotation_key)
         self.assertAllClose(b, eb.get_decrypted(key))
 
-        check_c = self.plaintext_matmul(a,b)
+        check_c = self.plaintext_matmul(a, b)
         self.assertAllClose(check_c.shape, ec.shape)
         self.assertAllClose(check_c, ec.get_decrypted(key))
 
