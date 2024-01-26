@@ -37,7 +37,9 @@ REGISTER_OP("ContextImport64")
     .SetShapeFn(ScalarShape);
 
 REGISTER_OP("PolynomialImport64")
-    .Attr("dtype: {uint8, int8, int16, int32, int64, float, double}")
+    .Attr(
+        "dtype: {uint8, int8, int16, uint16, int32, uint32, int64, uint64, "
+        "float, double}")
     .Input("shell_context: variant")
     .Input("in: dtype")
     .Output("val: variant")
@@ -55,7 +57,7 @@ REGISTER_OP("PolynomialImport64")
 // Output shape depends on content of context object
 // so no SetShapeFn() for this Op.
 REGISTER_OP("PolynomialExport64")
-    .Attr("dtype: {uint8, int8, int16, int32, int64}")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("shell_context: variant")
     .Input("in: variant")
     .Output("val: dtype")
@@ -81,7 +83,7 @@ REGISTER_OP("Encrypt64")
 // Output shape depends on content of shell_context
 // so no SetShapeFn() for this Op.
 REGISTER_OP("Decrypt64")
-    .Attr("dtype: {uint8, int8, int16, int32, int64}")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
     .Input("key: variant")
     .Input("val: variant")
@@ -151,6 +153,22 @@ REGISTER_OP("MulCtPt64")
     .Output("c: variant")
     .SetIsStateful();
 
+REGISTER_OP("MulCtTfScalar64")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Input("context: variant")
+    .Input("a: variant")
+    .Input("b: dtype")
+    .Output("c: variant")
+    .SetIsStateful();
+
+REGISTER_OP("MulPtTfScalar64")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Input("context: variant")
+    .Input("a: variant")
+    .Input("b: dtype")
+    .Output("c: variant")
+    .SetIsStateful();
+
 REGISTER_OP("MulPtPt64")
     .Input("context: variant")
     .Input("a: variant")
@@ -159,7 +177,7 @@ REGISTER_OP("MulPtPt64")
     .SetIsStateful();
 
 REGISTER_OP("MatMulCtPt64")
-    .Attr("dtype: {uint8, int8, int16, int32, int64}")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
     .Input("a: variant")
     .Input("b: dtype")
@@ -167,7 +185,7 @@ REGISTER_OP("MatMulCtPt64")
     .SetIsStateful();
 
 REGISTER_OP("MatMulPtCt64")
-    .Attr("dtype: {uint8, int8, int16, int32, int64}")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
     .Input("rotation_key: variant")
     .Input("a: dtype")

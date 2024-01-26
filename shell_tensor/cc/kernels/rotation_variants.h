@@ -39,8 +39,7 @@ class RotationKeyVariant {
   RotationKeyVariant() {}
 
   // Create with gadget first, then create and add keys.
-  RotationKeyVariant(Gadget gadget)
-      : gadget(gadget) {}
+  RotationKeyVariant(Gadget gadget) : gadget(gadget) {}
 
   static inline char const kTypeName[] = "ShellRotationKeyVariant";
 

@@ -35,6 +35,8 @@ using tensorflow::OpKernel;
 using tensorflow::OpKernelConstruction;
 using tensorflow::OpKernelContext;
 using tensorflow::Tensor;
+using tensorflow::uint16;
+using tensorflow::uint32;
 using tensorflow::uint64;
 using tensorflow::uint8;
 using tensorflow::Variant;
@@ -215,6 +217,7 @@ class PolynomialExportOp : public OpKernel {
   }
 };
 
+// Import ops.
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<uint8>("dtype"),
@@ -222,18 +225,34 @@ REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
 REGISTER_KERNEL_BUILDER(
     Name("PolynomialImport64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
     PolynomialImportOp<int8, uint64>);
+
+REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint16>("dtype"),
+                        PolynomialImportOp<uint16, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int16>("dtype"),
                         PolynomialImportOp<int16, uint64>);
+
+REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint32>("dtype"),
+                        PolynomialImportOp<uint32, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int32>("dtype"),
                         PolynomialImportOp<int32, uint64>);
+
+REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint64>("dtype"),
+                        PolynomialImportOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int64>("dtype"),
                         PolynomialImportOp<int64, uint64>);
+
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<float>("dtype"),
@@ -243,6 +262,7 @@ REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .TypeConstraint<double>("dtype"),
                         PolynomialImportOp<double, uint64>);
 
+// Import ops.
 REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<uint8>("dtype"),
@@ -250,14 +270,29 @@ REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
 REGISTER_KERNEL_BUILDER(
     Name("PolynomialExport64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
     PolynomialExportOp<uint64, int8>);
+
+REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint16>("dtype"),
+                        PolynomialExportOp<uint64, uint16>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int16>("dtype"),
                         PolynomialExportOp<uint64, int16>);
+
+REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint32>("dtype"),
+                        PolynomialExportOp<uint64, uint32>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int32>("dtype"),
                         PolynomialExportOp<uint64, int32>);
+
+REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint64>("dtype"),
+                        PolynomialExportOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int64>("dtype"),

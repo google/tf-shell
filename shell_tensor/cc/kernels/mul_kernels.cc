@@ -36,6 +36,8 @@ using tensorflow::OpKernelConstruction;
 using tensorflow::OpKernelContext;
 using tensorflow::Tensor;
 using tensorflow::TensorShape;
+using tensorflow::uint16;
+using tensorflow::uint32;
 using tensorflow::uint64;
 using tensorflow::uint8;
 using tensorflow::Variant;
@@ -131,6 +133,122 @@ class MulCtPtOp : public OpKernel {
 
       SymmetricCtVariant ct_c_var(std::move(ct_c));
       flat_output(i) = std::move(ct_c_var);
+    }
+  }
+};
+
+// Multiply a ciphertext or a plaintext shell polynomial by a plaintext scalar.
+template <typename T, typename PtT, typename CtOrPolyVariant>
+class MulShellTfScalarOp : public OpKernel {
+ private:
+  using ModularInt = rlwe::MontgomeryInt<T>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
+  using Context = rlwe::RnsContext<ModularInt>;
+  using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
+
+ public:
+  explicit MulShellTfScalarOp(OpKernelConstruction* op_ctx)
+      : OpKernel(op_ctx) {}
+
+  void Compute(OpKernelContext* op_ctx) override {
+    // Get the shell context object.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, shell_ctx != nullptr,
+                InvalidArgument("Shell context object is empty."));
+    Encoder const* encoder = shell_ctx_var->encoder_.get();
+    // TODO if debug
+    OP_REQUIRES(op_ctx, encoder != nullptr,
+                InvalidArgument("Shell encoder object is empty."));
+
+    int num_slots = 1 << shell_ctx->LogN();
+
+    Tensor const& a = op_ctx->input(1);
+    Tensor const& b = op_ctx->input(2);
+
+    OP_REQUIRES(op_ctx, b.dims() == 0 && b.NumElements() == 1,
+                InvalidArgument("Plaintext must be scalar. Instead got shape:",
+                                b.shape().DebugString()));
+
+    Tensor* output;
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
+
+    auto flat_a = a.flat<Variant>();
+    auto flat_b = b.flat<PtT>();
+    auto flat_output = output->flat<Variant>();
+
+    // First, create a polynomial out of the scalar b where every element is b.
+    //
+    // Contiguous memory of plaintext for the absl span required by RNS BGV
+    // encoder.
+    std::vector<T> wrapped_nums;
+    if constexpr (std::is_signed<PtT>::value) {
+      // SHELL is built on the assumption that the plaintext type (in this
+      // case `PtT`) will always fit into the ciphertext underlying type
+      // (in this case `T`). E.g. the plaintext modulus is stored as the
+      // ciphertext type. This is true even in the RNS code paths. This means
+      // that this function can convert `PtT` to a signed version of `T`,
+      // then modulus switch into plaintext field t and type `T` without
+      // overflow.
+      using SignedInteger = std::make_signed_t<T>;
+
+      // Copy into contiguous memory of signed `T`'s
+      std::vector<SignedInteger> nums(num_slots);
+      for (int slot = 0; slot < num_slots; ++slot) {
+        nums[slot] = static_cast<SignedInteger>(flat_b(0));
+      }
+
+      // Map signed integers into the plaintext modulus field.
+      OP_REQUIRES_VALUE(wrapped_nums, op_ctx,
+                        (encoder->template WrapSigned<SignedInteger>(nums)));
+    } else {
+      wrapped_nums = std::vector<T>(num_slots);
+      // Since From and To are both unsigned, just cast and copy.
+      for (int slot = 0; slot < num_slots; ++slot) {
+        wrapped_nums[slot] = static_cast<T>(flat_b(0));
+      }
+    }
+
+    // The encoder first performs an inverse ntt (mod t), then switches to
+    // to mod Q in RNS form. This is important so that subsequent operations
+    // on the polynomial happen element-wise in the plaintext space.
+    // Note "importing" the integers in the correct modulus (first t, then
+    // switching to Q) is non-trivial when plaintext numbers are negative.
+    OP_REQUIRES_VALUE(
+        RnsPolynomial pt_b_polynomial, op_ctx,
+        encoder->EncodeBgv(wrapped_nums, shell_ctx->MainPrimeModuli()));
+
+    // Now multiply every polynomial in a by the same b.
+    for (int i = 0; i < flat_output.dimension(0); ++i) {
+      CtOrPolyVariant const* ct_or_pt_var =
+          std::move(flat_a(i).get<CtOrPolyVariant>());
+      OP_REQUIRES(op_ctx, ct_or_pt_var != nullptr,
+                  InvalidArgument("Input at flat index:", i,
+                                  " for input a did not unwrap successfully."));
+
+      if constexpr (std::is_same<CtOrPolyVariant,
+                                 PolynomialVariant<T>>::value) {
+        RnsPolynomial const& poly = ct_or_pt_var->poly;
+
+        OP_REQUIRES_VALUE(
+            RnsPolynomial result, op_ctx,
+            poly.Mul(pt_b_polynomial, shell_ctx->MainPrimeModuli()));
+
+        CtOrPolyVariant result_var(std::move(result));
+        flat_output(i) = std::move(result_var);
+      } else if constexpr (std::is_same<CtOrPolyVariant,
+                                        SymmetricCtVariant<T>>::value) {
+        SymmetricCt const& ct = ct_or_pt_var->ct;
+
+        OP_REQUIRES_VALUE(SymmetricCt result, op_ctx,
+                          ct * pt_b_polynomial);  // shell aborb operation
+
+        CtOrPolyVariant result_var(std::move(result));
+        flat_output(i) = std::move(result_var);
+      }
     }
   }
 };
@@ -365,7 +483,6 @@ class MatMulPtCtOp : public OpKernel {
     int pt_total_size = a.NumElements();
     int num_pt_inner_rows = a.dim_size(a.dims() - 2);
     int num_pt_inner_cols = a.dim_size(a.dims() - 1);
-    int num_pt_inner_elems = num_pt_inner_rows * num_pt_inner_cols;
 
     OP_REQUIRES(op_ctx, num_pt_inner_cols == num_slots,
                 InvalidArgument(
@@ -474,7 +591,7 @@ class MatMulPtCtOp : public OpKernel {
             OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
 
             // Add to the sum.
-            ct_result.AddInPlace(ct_rot);
+            OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(ct_rot));
           }
 
           // At this point we have one ciphertext per row of the plaintext
@@ -495,37 +612,117 @@ REGISTER_KERNEL_BUILDER(Name("MulCtCt64").Device(DEVICE_CPU),
 REGISTER_KERNEL_BUILDER(Name("MulCtPt64").Device(DEVICE_CPU),
                         MulCtPtOp<uint64>);
 
+// Multiply ciphertext by plaintext scalar.
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
+    MulShellTfScalarOp<uint64, uint8, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
+    MulShellTfScalarOp<uint64, int8, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
+    MulShellTfScalarOp<uint64, uint8, SymmetricCtVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
+    MulShellTfScalarOp<uint64, int8, SymmetricCtVariant<uint64>>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    MulShellTfScalarOp<uint64, uint16, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
+    MulShellTfScalarOp<uint64, int16, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    MulShellTfScalarOp<uint64, uint16, SymmetricCtVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
+    MulShellTfScalarOp<uint64, int16, SymmetricCtVariant<uint64>>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    MulShellTfScalarOp<uint64, uint32, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
+    MulShellTfScalarOp<uint64, int32, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    MulShellTfScalarOp<uint64, uint32, SymmetricCtVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
+    MulShellTfScalarOp<uint64, int32, SymmetricCtVariant<uint64>>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    MulShellTfScalarOp<uint64, uint64, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
+    MulShellTfScalarOp<uint64, int64, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    MulShellTfScalarOp<uint64, uint64, SymmetricCtVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
+    MulShellTfScalarOp<uint64, int64, SymmetricCtVariant<uint64>>);
+
+// Multiply ciphertext by plaintext tensor of the same shape.
 REGISTER_KERNEL_BUILDER(Name("MulPtPt64").Device(DEVICE_CPU),
                         MulPtPtOp<uint64>);
 
+// Matrix multiply ciphertext and plaintext.
 REGISTER_KERNEL_BUILDER(
     Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
     MatMulCtPtOp<uint64, uint8>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
     MatMulCtPtOp<uint64, int8>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    MatMulCtPtOp<uint64, uint16>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
     MatMulCtPtOp<uint64, int16>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    MatMulCtPtOp<uint64, uint32>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
     MatMulCtPtOp<uint64, int32>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    MatMulCtPtOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
     MatMulCtPtOp<uint64, int64>);
 
+// Matrix multiply plaintext and ciphertext.
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
     MatMulPtCtOp<uint8, uint64>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
     MatMulPtCtOp<int8, uint64>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    MatMulPtCtOp<uint16, uint64>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
     MatMulPtCtOp<int16, uint64>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    MatMulPtCtOp<uint32, uint64>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
     MatMulPtCtOp<int32, uint64>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    MatMulPtCtOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
     MatMulPtCtOp<int64, uint64>);

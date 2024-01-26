@@ -35,6 +35,8 @@ using tensorflow::OpKernelConstruction;
 using tensorflow::OpKernelContext;
 using tensorflow::Tensor;
 using tensorflow::TensorShape;
+using tensorflow::uint16;
+using tensorflow::uint32;
 using tensorflow::uint64;
 using tensorflow::uint8;
 using tensorflow::Variant;
@@ -207,12 +209,24 @@ REGISTER_KERNEL_BUILDER(
 REGISTER_KERNEL_BUILDER(
     Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
     DecryptOp<uint64, int8>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    DecryptOp<uint64, uint16>);
 REGISTER_KERNEL_BUILDER(
     Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
     DecryptOp<uint64, int16>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    DecryptOp<uint64, uint32>);
 REGISTER_KERNEL_BUILDER(
     Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
     DecryptOp<uint64, int32>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    DecryptOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(
     Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
     DecryptOp<uint64, int64>);

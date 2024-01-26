@@ -15,35 +15,47 @@
 # limitations under the License.
 import tensorflow as tf
 import shell_tensor
+import test_utils
 
 
 class TestShellTensor(tf.test.TestCase):
-    plaintext_dtype = tf.int32
-    log_slots = 11
-    slots = 2**log_slots
+    # Matrix multiplication tests require smaller parameters to avoid overflow.
+    matmul_fxp_fractional_bits = [0, 1]
+    matmul_max_val = 3
+    matmul_val_offset = -1
+    matmul_dtypes = [
+        tf.int32,
+        tf.int64,
+        tf.float32,
+        tf.float64,
+    ]
 
-    def get_context():
-        return shell_tensor.create_context64(
-            log_n=TestShellTensor.log_slots,
-            main_moduli=[8556589057, 8388812801],
-            aux_moduli=[34359709697],
-            plaintext_modulus=40961,
-            noise_variance=8,
-            seed="",
-        )
-
-    def test_ct_ct_mul(self):
-        context = TestShellTensor.get_context()
+    def _test_ct_ct_mul(self, test_context, plaintext_dtype, frac_bits):
+        context = test_context.shell_context
         key = shell_tensor.create_key64(context)
 
+        # This test performs one multiplication.
+        min_val, max_val = test_utils.get_bounds_for_n_muls(
+            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
+        )
+
         a = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
+        a = tf.cast(a, plaintext_dtype)
         b = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
-        sa = shell_tensor.to_shell_tensor(context, a)
-        sb = shell_tensor.to_shell_tensor(context, b)
+        b = tf.cast(b, plaintext_dtype)
+
+        sa = shell_tensor.to_shell_tensor(context, a, fxp_fractional_bits=frac_bits)
+        sb = shell_tensor.to_shell_tensor(context, b, fxp_fractional_bits=frac_bits)
         ea = sa.get_encrypted(key)
         eb = sb.get_encrypted(key)
 
@@ -52,18 +64,41 @@ class TestShellTensor(tf.test.TestCase):
         self.assertAllClose(b, eb.get_decrypted(key))
         self.assertAllClose(a * b, ec.get_decrypted(key))
 
-    def test_ct_pt_mul(self):
-        context = TestShellTensor.get_context()
+    def test_ct_ct_mul(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in test_utils.test_dtypes:
+                    with self.subTest(
+                        "ct_ct_mul with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_ct_ct_mul(test_context, test_dtype, frac_bits)
+
+    def _test_ct_pt_mul(self, test_context, plaintext_dtype, frac_bits):
+        context = test_context.shell_context
         key = shell_tensor.create_key64(context)
 
+        # This test performs one multiplication.
+        min_val, max_val = test_utils.get_bounds_for_n_muls(
+            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
+        )
+
         a = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
+        a = tf.cast(a, plaintext_dtype)
         b = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
-        sa = shell_tensor.to_shell_tensor(context, a)
-        sb = shell_tensor.to_shell_tensor(context, b)
+        b = tf.cast(b, plaintext_dtype)
+        sa = shell_tensor.to_shell_tensor(context, a, fxp_fractional_bits=frac_bits)
+        sb = shell_tensor.to_shell_tensor(context, b, fxp_fractional_bits=frac_bits)
         ea = sa.get_encrypted(key)
 
         ec = ea * sb
@@ -73,17 +108,40 @@ class TestShellTensor(tf.test.TestCase):
         ed = sb * ea
         self.assertAllClose(a * b, ed.get_decrypted(key))
 
-    def test_ct_tf_mul(self):
-        context = TestShellTensor.get_context()
+    def test_ct_pt_mul(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in test_utils.test_dtypes:
+                    with self.subTest(
+                        "ct_pt_mul with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_ct_pt_mul(test_context, test_dtype, frac_bits)
+
+    def _test_ct_tf_scalar_mul(self, test_context, plaintext_dtype, frac_bits):
+        context = test_context.shell_context
         key = shell_tensor.create_key64(context)
 
+        # This test performs one multiplication.
+        min_val, max_val = test_utils.get_bounds_for_n_muls(
+            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
+        )
+
         a = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
+        a = tf.cast(a, plaintext_dtype)
         b = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
-        sa = shell_tensor.to_shell_tensor(context, a)
+        b = tf.cast(b, plaintext_dtype)
+        sa = shell_tensor.to_shell_tensor(context, a, fxp_fractional_bits=frac_bits)
         ea = sa.get_encrypted(key)
 
         ec = ea * b
@@ -93,39 +151,139 @@ class TestShellTensor(tf.test.TestCase):
         ed = b * ea
         self.assertAllClose(a * b, ed.get_decrypted(key))
 
-    def test_pt_pt_mul(self):
-        context = TestShellTensor.get_context()
+    def test_ct_tf_scalar_mul(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in test_utils.test_dtypes:
+                    with self.subTest(
+                        "ct_tf_scalar_mul with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_ct_tf_scalar_mul(test_context, test_dtype, frac_bits)
+
+    def _test_ct_tf_mul(self, test_context, plaintext_dtype, frac_bits):
+        context = test_context.shell_context
+        key = shell_tensor.create_key64(context)
+
+        # This test performs one multiplication.
+        min_val, max_val = test_utils.get_bounds_for_n_muls(
+            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
+        )
 
         a = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
+        a = tf.cast(a, plaintext_dtype)
         b = tf.random.uniform(
-            [TestShellTensor.slots, 2, 3, 4], dtype=tf.int32, maxval=10
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
         )
-        sa = shell_tensor.to_shell_tensor(context, a)
-        sb = shell_tensor.to_shell_tensor(context, b)
+        b = tf.cast(b, plaintext_dtype)
+        sa = shell_tensor.to_shell_tensor(context, a, fxp_fractional_bits=frac_bits)
+        ea = sa.get_encrypted(key)
+
+        ec = ea * b
+        self.assertAllClose(a, ea.get_decrypted(key))
+        self.assertAllClose(a * b, ec.get_decrypted(key))
+
+        ed = b * ea
+        self.assertAllClose(a * b, ed.get_decrypted(key))
+
+    def test_ct_tf_mul(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in test_utils.test_dtypes:
+                    with self.subTest(
+                        "ct_tf_mul with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_ct_tf_mul(test_context, test_dtype, frac_bits)
+
+    def _test_pt_pt_mul(self, test_context, plaintext_dtype, frac_bits):
+        context = test_context.shell_context
+
+        # This test performs one multiplication.
+        min_val, max_val = test_utils.get_bounds_for_n_muls(
+            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
+        )
+
+        a = tf.random.uniform(
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
+        )
+        a = tf.cast(a, plaintext_dtype)
+        b = tf.random.uniform(
+            [test_context.slots, 2, 3, 4],
+            dtype=tf.int32,
+            maxval=max_val,
+            minval=min_val,
+        )
+        b = tf.cast(b, plaintext_dtype)
+        sa = shell_tensor.to_shell_tensor(context, a, fxp_fractional_bits=frac_bits)
+        sb = shell_tensor.to_shell_tensor(context, b, fxp_fractional_bits=frac_bits)
 
         sc = sa * sb
         self.assertAllClose(a * b, shell_tensor.from_shell_tensor(sc))
 
-    def test_ct_tf_matmul(self):
-        context = TestShellTensor.get_context()
+    def test_pt_pt_mul(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in test_utils.test_dtypes:
+                    with self.subTest(
+                        "pt_pt_mul with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_pt_pt_mul(test_context, test_dtype, frac_bits)
+
+    def _test_ct_tf_matmul(self, test_context, plaintext_dtype, frac_bits):
+        context = test_context.shell_context
         key = shell_tensor.create_key64(context)
 
-        a = tf.random.uniform([TestShellTensor.slots, 5], dtype=tf.int32, maxval=10) - 5
-        b = tf.random.uniform([5, 7], dtype=tf.int32, maxval=10) - 5
-        ea = shell_tensor.to_shell_tensor(context, a).get_encrypted(key)
+        a = (
+            tf.random.uniform(
+                [test_context.slots, 5], dtype=tf.int32, maxval=self.matmul_max_val
+            )
+            - self.matmul_val_offset
+        )
+        a = tf.cast(a, plaintext_dtype)
+        b = (
+            tf.random.uniform([5, 7], dtype=tf.int32, maxval=self.matmul_max_val)
+            - self.matmul_val_offset
+        )
+        b = tf.cast(b, plaintext_dtype)
+
+        ea = shell_tensor.to_shell_tensor(
+            context, a, fxp_fractional_bits=frac_bits
+        ).get_encrypted(key)
 
         ec = shell_tensor.matmul(ea, b)
         self.assertAllClose(a, ea.get_decrypted(key))
-        self.assertAllClose(tf.matmul(a, b), ec.get_decrypted(key))
+        c = tf.matmul(a, b)
+        self.assertAllClose(c, ec.get_decrypted(key))
+
+    def test_ct_tf_matmul(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in self.matmul_dtypes:
+                    with self.subTest(
+                        "ct_tf_matmul with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_ct_tf_matmul(test_context, test_dtype, frac_bits)
 
     # tf-shell matmult has slightly different semantics than plaintext /
     # Tensorflow. Encrypted matmult affects top and bottom halves independently,
     # as well as the first dimension repeating the sum of either the halves.
     # This function emulates this in plaintext.
     def plaintext_matmul(self, a, b):
-        half_slots = self.slots // 2
+        half_slots = b.shape[0] // 2
         tf_half_slots = tf.constant([half_slots], dtype=tf.int32)
 
         a_shape = tf.shape(a)
@@ -153,18 +311,31 @@ class TestShellTensor(tf.test.TestCase):
 
         return tf.concat([top, bottom], axis=0)
 
-    def test_tf_ct_matmul(self):
-        context = TestShellTensor.get_context()
+    def _test_tf_ct_matmul(self, test_context, plaintext_dtype, frac_bits):
+        context = test_context.shell_context
         key = shell_tensor.create_key64(context)
         rotation_key = shell_tensor.create_rotation_key64(context, key)
 
         a = (
-            tf.random.uniform([3, 5, TestShellTensor.slots], dtype=tf.int32, maxval=3)
-            - 2
+            tf.random.uniform(
+                [3, 5, test_context.slots],
+                dtype=tf.int32,
+                maxval=self.matmul_max_val,
+            )
+            - self.matmul_val_offset
         )
-        b = tf.random.uniform([TestShellTensor.slots, 2], dtype=tf.int32, maxval=3) - 2
+        a = tf.cast(a, plaintext_dtype)
+        b = (
+            tf.random.uniform(
+                [test_context.slots, 2], dtype=tf.int32, maxval=self.matmul_max_val
+            )
+            - self.matmul_val_offset
+        )
+        b = tf.cast(b, plaintext_dtype)
 
-        eb = shell_tensor.to_shell_tensor(context, b).get_encrypted(key)
+        eb = shell_tensor.to_shell_tensor(
+            context, b, fxp_fractional_bits=frac_bits
+        ).get_encrypted(key)
 
         ec = shell_tensor.matmul(a, eb, rotation_key)
         self.assertAllClose(b, eb.get_decrypted(key))
@@ -172,6 +343,16 @@ class TestShellTensor(tf.test.TestCase):
         check_c = self.plaintext_matmul(a, b)
         self.assertAllClose(check_c.shape, ec.shape)
         self.assertAllClose(check_c, ec.get_decrypted(key))
+
+    def test_tf_ct_matmul(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in self.matmul_dtypes:
+                    with self.subTest(
+                        "tf_ct_matmul with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_tf_ct_matmul(test_context, test_dtype, frac_bits)
 
 
 if __name__ == "__main__":
