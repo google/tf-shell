@@ -355,6 +355,8 @@ class ShellTensor64(object):
         if not self._is_enc:
             raise ValueError("Unencrypted ShellTensor rotation not supported yet.")
         else:
+            num_slots = tf.cast(num_slots, tf.int64)
+
             return ShellTensor64(
                 value=shell_ops.roll64(rotation_key, self._raw, num_slots),
                 context=self._context,
@@ -365,12 +367,32 @@ class ShellTensor64(object):
                 mult_count=self._mult_count,
             )
 
-    def reduce_sum(self, rotation_key):
+    def reduce_sum(self, axis=0, rotation_key=None):
         if not self._is_enc:
             raise ValueError("Unencrypted ShellTensor reduce_sum not supported yet.")
-        else:
+        # Check axis is a scalar
+        elif isinstance(axis, tf.Tensor) and not axis.shape != []:
+            raise ValueError("Only scalar `axis` is supported.")
+        elif axis == 0:
+            if rotation_key is None:
+                raise ValueError(
+                    "Rotation key must be provided to reduce_sum over axis 0."
+                )
+
             return ShellTensor64(
-                value=shell_ops.reduce_sum64(rotation_key, self._raw),
+                value=shell_ops.reduce_sum_by_rotation64(self._raw, rotation_key),
+                context=self._context,
+                num_slots=self._num_slots,
+                underlying_dtype=self._underlying_dtype,
+                is_enc=True,
+                fxp_fractional_bits=self._fxp_fractional_bits,
+                mult_count=self._mult_count,
+            )
+        else:
+            if axis >= len(self.shape):
+                raise ValueError("Axis greater than number of dimensions")
+            return ShellTensor64(
+                value=shell_ops.reduce_sum64(self._raw, axis),
                 context=self._context,
                 num_slots=self._num_slots,
                 underlying_dtype=self._underlying_dtype,

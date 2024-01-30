@@ -207,8 +207,14 @@ REGISTER_OP("Roll64")
     .Output("rotated_value: variant")
     .SetIsStateful();
 
-REGISTER_OP("ReduceSum64")
-    .Input("rotation_key: variant")
+REGISTER_OP("ReduceSumByRotation64")
     .Input("value: variant")
+    .Input("rotation_key: variant")
+    .Output("repeated_reduce_sum: variant")
+    .SetIsStateful();
+
+REGISTER_OP("ReduceSum64")
+    .Input("value: variant")
+    .Input("axis: int64")
     .Output("repeated_reduce_sum: variant")
     .SetIsStateful();

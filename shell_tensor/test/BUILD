@@ -59,6 +59,7 @@ py_test(
 
 py_test(
     name = "rotation_test",
+    size = "medium",
     srcs = [
         "rotation_test.py",
         "test_utils.py",

@@ -42,7 +42,7 @@ using tensorflow::uint8;
 using tensorflow::Variant;
 using tensorflow::errors::InvalidArgument;
 
-constexpr int kLogGadgetBase = 10;
+constexpr int kLogGadgetBase = 4;
 constexpr rlwe::PrngType kPrngType = rlwe::PRNG_TYPE_HKDF;
 
 template <typename T>
@@ -132,6 +132,9 @@ class RollOp : public OpKernel {
   void Compute(OpKernelContext* op_ctx) override {
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(
+        op_ctx, rotation_key_var != nullptr,
+        InvalidArgument("RotationKeyVariant a did not unwrap successfully."));
     std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
 
     Tensor const& value = op_ctx->input(1);
@@ -167,9 +170,12 @@ class RollOp : public OpKernel {
       shift += num_slots / 2;
     }
 
-    OP_REQUIRES(op_ctx, keys->find(shift) != keys->end(),
-                InvalidArgument("No key for shift of '", shift, "'"));
-    PowerAndKey const& p_and_k = keys->at(shift);
+    PowerAndKey const* p_and_k;
+    if (shift != 0) {
+      OP_REQUIRES(op_ctx, keys->find(shift) != keys->end(),
+                  InvalidArgument("No key for shift of '", shift, "'"));
+      p_and_k = &keys->at(shift);
+    }
 
     for (int i = 0; i < flat_output.dimension(0); ++i) {
       SymmetricCtVariant<T> const* ct_var =
@@ -184,12 +190,79 @@ class RollOp : public OpKernel {
         flat_output(i) = std::move(ct_out_var);
       } else {
         OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
-                          ct.Substitute(p_and_k.substitution_power));
-        OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
+                          ct.Substitute(p_and_k->substitution_power));
+        OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k->key.ApplyTo(ct_sub));
 
         SymmetricCtVariant ct_out_var(std::move(ct_rot));
         flat_output(i) = std::move(ct_out_var);
       }
+    }
+  }
+};
+
+template <typename T>
+class ReduceSumByRotationOp : public OpKernel {
+ private:
+  using ModularInt = rlwe::MontgomeryInt<T>;
+  using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
+  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
+
+ public:
+  explicit ReduceSumByRotationOp(OpKernelConstruction* op_ctx)
+      : OpKernel(op_ctx) {}
+
+  void Compute(OpKernelContext* op_ctx) override {
+    // Recover the input tensor.
+    Tensor const& value = op_ctx->input(0);
+    OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
+                InvalidArgument("Cannot reduce_sum an empty ciphertext."));
+
+    auto flat_value = value.flat<Variant>();
+
+    // Recover the input rotation keys.
+    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
+                      GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
+    OP_REQUIRES(
+        op_ctx, rotation_key_var != nullptr,
+        InvalidArgument("RotationKeyVariant a did not unwrap successfully."));
+    std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
+
+    Tensor* output;
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, value.shape(), &output));
+    auto flat_output = output->flat<Variant>();
+
+    for (int i = 0; i < flat_output.dimension(0); ++i) {
+      // Learn how many slots there are from first ciphertext and create a
+      // deep copy to hold the sum.
+      SymmetricCtVariant<T> const* ct_var =
+          std::move(flat_value(i).get<SymmetricCtVariant<T>>());
+      OP_REQUIRES(
+          op_ctx, ct_var != nullptr,
+          InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+      SymmetricCt sum = ct_var->ct;  // deep copy to start the sum.
+      int const num_slots = 1 << sum.LogN();
+
+      // Add the rotations to the sum.
+      // Note the ciphertext rotations operate on each half of the ciphertext
+      // separately. So the max rotation is by half the number of slots.
+      for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+        // TODO if debug
+        OP_REQUIRES(op_ctx, keys->find(shift) != keys->end(),
+                    InvalidArgument("No key for shift of '", shift, "'"));
+        PowerAndKey const& p_and_k = keys->at(shift);
+
+        // Rotate by the shift.
+        OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
+                          sum.Substitute(p_and_k.substitution_power));
+        OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
+
+        // Add to the sum.
+        OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct_rot));
+      }
+
+      SymmetricCtVariant ct_out_var(std::move(sum));
+      flat_output(i) = std::move(ct_out_var);
     }
   }
 };
@@ -206,53 +279,81 @@ class ReduceSumOp : public OpKernel {
   explicit ReduceSumOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Recover the input rotation keys.
-    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
-                      GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
-    std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
-
     // Recover the input tensor.
-    Tensor const& value = op_ctx->input(1);
+    Tensor const& value = op_ctx->input(0);
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
-    auto flat_value = value.flat<Variant>();
+
+    // Recover the axis to reduce over.
+    Tensor const& axis_tensor = op_ctx->input(1);
+    OP_REQUIRES(op_ctx, axis_tensor.NumElements() == 1,
+                InvalidArgument("axis must be scalar, saw shape: ",
+                                axis_tensor.shape().DebugString()));
+    OP_REQUIRES_VALUE(int64 axis, op_ctx, GetScalar<int64>(op_ctx, 1));
+
+    // The axis to reduce over.
+    int dim_to_reduce = axis - 1;
+
+    // Check axis is within dim size.
+    OP_REQUIRES(op_ctx, dim_to_reduce < value.dims(),
+                InvalidArgument("Cannot reduce_sum over polynomial_axis '",
+                                dim_to_reduce, "' (axis '", axis,
+                                "') for input with shape ",
+                                value.shape().DebugString()));
+
+    uint8_t dim_sz_to_reduce = value.dim_size(dim_to_reduce);
+
+    // Create a temp Tensor to hold intermediate sums during the reduction.
+    // It is the same size as the input Tensor.
+    Tensor intermediate_sums;
+    auto intermediate_sums_shape = value.shape();
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_temp(tensorflow::DT_VARIANT,
+                                                 intermediate_sums_shape,
+                                                 &intermediate_sums));
+
+    auto flat_intermediate_sums =
+        intermediate_sums.flat_inner_outer_dims<Variant>(dim_to_reduce - 1);
+    auto flat_value = value.flat_inner_outer_dims<Variant>(dim_to_reduce - 1);
 
     // Setup the output.
     Tensor* output;
-    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, value.shape(), &output));
-    auto flat_output = output->flat<Variant>();
+    auto output_shape = value.shape();
+    OP_REQUIRES_OK(op_ctx, output_shape.RemoveDimWithStatus(dim_to_reduce));
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
+    // Setup a shape to access the output Tensor as a flat Tensor, with the
+    // same indexing as the input Tensor excluding the dimension to reduce.
+    int inner_shape = flat_value.dimension(0);
+    int outer_shape = flat_value.dimension(2);
+    auto flat_output = output->shaped<Variant, 2>({inner_shape, outer_shape});
 
+    // Take the first ciphertext in the chip and add all the other chips to it.
     for (int i = 0; i < flat_output.dimension(0); ++i) {
-      // Learn how many slots there are from first ciphertext and create a deep
-      // copy to hold the sum.
-      SymmetricCtVariant<T> const* ct_var =
-          std::move(flat_value(i).get<SymmetricCtVariant<T>>());
-      OP_REQUIRES(
-          op_ctx, ct_var != nullptr,
-          InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
-      SymmetricCt sum = ct_var->ct;  // deep copy to start the sum.
-      int const num_slots = 1 << sum.LogN();
+      for (int j = 0; j < flat_output.dimension(1); ++j) {
+        // Get the first chip.
+        SymmetricCtVariant<T> const* first_ct_var =
+            std::move(flat_value(i, 0, j).get<SymmetricCtVariant<T>>());
+        OP_REQUIRES(op_ctx, first_ct_var != nullptr,
+                    InvalidArgument(
+                        "SymmetricCtVariant a did not unwrap successfully."));
+        SymmetricCt sum = first_ct_var->ct;  // deep copy to start the sum.
 
-      // Add the rotations to the sum.
-      // Note the ciphertext rotations operate on each half of the ciphertext
-      // separately. So the max rotatation is by half the number of slots.
-      for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
-        // TODO if debug
-        OP_REQUIRES(op_ctx, keys->find(shift) != keys->end(),
-                    InvalidArgument("No key for shift of '", shift, "'"));
-        PowerAndKey const& p_and_k = keys->at(shift);
+        // Add the remaining chips.
+        for (int chip_dim = 1; chip_dim < dim_sz_to_reduce; ++chip_dim) {
+          SymmetricCtVariant<T> const* ct_var = std::move(
+              flat_value(i, chip_dim, j).get<SymmetricCtVariant<T>>());
+          OP_REQUIRES(op_ctx, ct_var != nullptr,
+                      InvalidArgument(
+                          "SymmetricCtVariant a did not unwrap successfully."));
+          SymmetricCt const& ct = ct_var->ct;
 
-        // Rotate by the shift.
-        OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
-                          sum.Substitute(p_and_k.substitution_power));
-        OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
+          // Perform the addition.
+          OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct));
+        }
 
-        // Add to the sum.
-        sum.AddInPlace(ct_rot);
+        // Store in the output.
+        SymmetricCtVariant res_var(std::move(sum));
+        flat_output(i, j) = std::move(res_var);
       }
-
-      SymmetricCtVariant ct_out_var(std::move(sum));
-      flat_output(i) = std::move(ct_out_var);
     }
   }
 };
@@ -261,6 +362,9 @@ REGISTER_KERNEL_BUILDER(Name("RotationKeyGen64").Device(DEVICE_CPU),
                         RotationKeyGenOp<uint64>);
 
 REGISTER_KERNEL_BUILDER(Name("Roll64").Device(DEVICE_CPU), RollOp<uint64>);
+
+REGISTER_KERNEL_BUILDER(Name("ReduceSumByRotation64").Device(DEVICE_CPU),
+                        ReduceSumByRotationOp<uint64>);
 
 REGISTER_KERNEL_BUILDER(Name("ReduceSum64").Device(DEVICE_CPU),
                         ReduceSumOp<uint64>);
