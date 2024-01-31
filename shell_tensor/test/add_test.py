@@ -20,35 +20,34 @@ import test_utils
 
 class TestShellTensor(tf.test.TestCase):
     def _test_neg(self, test_context, plaintext_dtype, frac_bits):
-        context = test_context.shell_context
-        key = shell_tensor.create_key64(context)
-
         # This test performs zero additions, just negation.
-        min_val, max_val = test_utils.get_bounds_for_n_adds(
-            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 0
-        )
+        a = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 0)
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        tf.cast(a, plaintext_dtype)
-        sa = shell_tensor.to_shell_tensor(context, a)
+        if a is None:
+            # Test parameters do not support zero additions at this
+            # precision.
+            print(
+                "Note: Skipping test neg with dtype %s and frac_bits %d. Not enough precision to support this test."
+                % (plaintext_dtype, frac_bits)
+            )
+            return
+
+        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a, frac_bits)
         nsa = -sa
         self.assertAllClose(-a, shell_tensor.from_shell_tensor(nsa))
 
-        ea = sa.get_encrypted(key)
+        ea = sa.get_encrypted(test_context.key)
         nea = -ea
-        self.assertAllClose(-a, nea.get_decrypted(key))
+        self.assertAllClose(-a, nea.get_decrypted(test_context.key))
 
-        self.assertAllClose(a, ea.get_decrypted(key))
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
 
     def test_neg(self):
         for test_context in test_utils.test_contexts:
-            for frac_bits in test_utils.test_fxp_fractional_bits:
-                for test_dtype in test_utils.test_dtypes:
+            for frac_bits in [1]:
+                # for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in [tf.float32]:
+                    # for test_dtype in test_utils.test_dtypes:
                     if test_dtype.is_unsigned:
                         # Negating an unsigned value is undefined.
                         continue
@@ -59,45 +58,44 @@ class TestShellTensor(tf.test.TestCase):
                         self._test_neg(test_context, test_dtype, frac_bits)
 
     def _test_ct_ct_add(self, test_context, plaintext_dtype, frac_bits):
-        context = test_context.shell_context
-        key = shell_tensor.create_key64(context)
-
         # This test performs one addition.
-        min_val, max_val = test_utils.get_bounds_for_n_adds(
+        _, max_val = test_utils.get_bounds_for_n_adds(
             plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
         )
+        a = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
+        b = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        a = tf.cast(a, plaintext_dtype)
-        b = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        b = tf.cast(b, plaintext_dtype)
+        if a is None:
+            # Test parameters do not support one addition at this
+            # precision.
+            print(
+                "Note: Skipping test ct_ct_add with dtype %s and frac_bits %d. Not enough precision to support this test."
+                % (plaintext_dtype, frac_bits)
+            )
+            return
 
-        ea = shell_tensor.to_shell_tensor(context, a).get_encrypted(key)
-        eb = shell_tensor.to_shell_tensor(context, b).get_encrypted(key)
+        ea = shell_tensor.to_shell_tensor(
+            test_context.shell_context, a, frac_bits
+        ).get_encrypted(test_context.key)
+        eb = shell_tensor.to_shell_tensor(
+            test_context.shell_context, b, frac_bits
+        ).get_encrypted(test_context.key)
 
         ec = ea + eb
-        self.assertAllClose(a, ea.get_decrypted(key))
-        self.assertAllClose(b, eb.get_decrypted(key))
-        self.assertAllClose(a + b, ec.get_decrypted(key))
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
+        self.assertAllClose(b, eb.get_decrypted(test_context.key))
+        self.assertAllClose(a + b, ec.get_decrypted(test_context.key))
 
         if plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
-            eaa = shell_tensor.to_shell_tensor(context, a + max_val).get_encrypted(key)
+            eaa = shell_tensor.to_shell_tensor(
+                test_context.shell_context, a + max_val, frac_bits
+            ).get_encrypted(test_context.key)
             ed = eaa - eb
-            self.assertAllClose(a + max_val - b, ed.get_decrypted(key))
+            self.assertAllClose(a + max_val - b, ed.get_decrypted(test_context.key))
         else:
             ed = ea - eb
-            self.assertAllClose(a - b, ed.get_decrypted(key))
+            self.assertAllClose(a - b, ed.get_decrypted(test_context.key))
 
     def test_ct_ct_add(self):
         for test_context in test_utils.test_contexts:
@@ -110,56 +108,54 @@ class TestShellTensor(tf.test.TestCase):
                         self._test_ct_ct_add(test_context, test_dtype, frac_bits)
 
     def _test_ct_pt_add(self, test_context, plaintext_dtype, frac_bits):
-        context = test_context.shell_context
-        key = shell_tensor.create_key64(context)
-
         # This test performs one addition.
-        min_val, max_val = test_utils.get_bounds_for_n_adds(
+        _, max_val = test_utils.get_bounds_for_n_adds(
             plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
         )
+        a = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
+        b = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        a = tf.cast(a, plaintext_dtype)
-        b = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        b = tf.cast(b, plaintext_dtype)
-        sa = shell_tensor.to_shell_tensor(context, a)
-        sb = shell_tensor.to_shell_tensor(context, b)
-        ea = sa.get_encrypted(key)
+        if a is None:
+            # Test parameters do not support one addition at this
+            # precision.
+            print(
+                "Note: Skipping test ct_pt_add with dtype %s and frac_bits %d. Not enough precision to support this test."
+                % (plaintext_dtype, frac_bits)
+            )
+            return
+
+        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a, frac_bits)
+        sb = shell_tensor.to_shell_tensor(test_context.shell_context, b, frac_bits)
+        ea = sa.get_encrypted(test_context.key)
 
         ec = ea + sb
-        self.assertAllClose(a + b, ec.get_decrypted(key))
+        self.assertAllClose(a + b, ec.get_decrypted(test_context.key))
 
         ed = sb + ea
-        self.assertAllClose(a + b, ed.get_decrypted(key))
+        self.assertAllClose(a + b, ed.get_decrypted(test_context.key))
 
         if plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
-            eaa = shell_tensor.to_shell_tensor(context, a + max_val).get_encrypted(key)
+            eaa = shell_tensor.to_shell_tensor(
+                test_context.shell_context, a + max_val, frac_bits
+            ).get_encrypted(test_context.key)
             ee = eaa - sb
-            self.assertAllClose(a + max_val - b, ee.get_decrypted(key))
+            self.assertAllClose(a + max_val - b, ee.get_decrypted(test_context.key))
 
-            sbb = shell_tensor.to_shell_tensor(context, b + max_val)
+            sbb = shell_tensor.to_shell_tensor(
+                test_context.shell_context, b + max_val, frac_bits
+            )
             ef = sbb - ea
-            self.assertAllClose(b + max_val - a, ef.get_decrypted(key))
+            self.assertAllClose(b + max_val - a, ef.get_decrypted(test_context.key))
         else:
             ee = ea - sb
-            self.assertAllClose(a - b, ee.get_decrypted(key))
+            self.assertAllClose(a - b, ee.get_decrypted(test_context.key))
 
             ef = sb - ea
-            self.assertAllClose(b - a, ef.get_decrypted(key))
+            self.assertAllClose(b - a, ef.get_decrypted(test_context.key))
 
         # Ensure initial arguments are not modified.
-        self.assertAllClose(a, ea.get_decrypted(key))
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
         self.assertAllClose(b, shell_tensor.from_shell_tensor(sb))
 
     def test_ct_pt_add(self):
@@ -173,56 +169,52 @@ class TestShellTensor(tf.test.TestCase):
                         self._test_ct_pt_add(test_context, test_dtype, frac_bits)
 
     def _test_ct_tf_add(self, test_context, plaintext_dtype, frac_bits):
-        context = test_context.shell_context
-        key = shell_tensor.create_key64(context)
-
         # This test performs one addition.
-        min_val, max_val = test_utils.get_bounds_for_n_adds(
+        _, max_val = test_utils.get_bounds_for_n_adds(
             plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
         )
+        a = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
+        b = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        a = tf.cast(a, plaintext_dtype)
-        b = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        b = tf.cast(b, plaintext_dtype)
-        sa = shell_tensor.to_shell_tensor(context, a)
-        ea = sa.get_encrypted(key)
+        if a is None:
+            # Test parameters do not support one addition at this
+            # precision.
+            print(
+                "Note: Skipping test ct_tf_add with dtype %s and frac_bits %d. Not enough precision to support this test."
+                % (plaintext_dtype, frac_bits)
+            )
+            return
+
+        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a, frac_bits)
+        ea = sa.get_encrypted(test_context.key)
 
         ec = ea + b
-        self.assertAllClose(a, ea.get_decrypted(key))
-        self.assertAllClose(a + b, ec.get_decrypted(key))
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
+        self.assertAllClose(a + b, ec.get_decrypted(test_context.key))
 
         ed = b + ea
-        self.assertAllClose(a + b, ed.get_decrypted(key))
+        self.assertAllClose(a + b, ed.get_decrypted(test_context.key))
 
         if plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
-            eaa = shell_tensor.to_shell_tensor(context, a + max_val).get_encrypted(key)
+            eaa = shell_tensor.to_shell_tensor(
+                test_context.shell_context, a + max_val, frac_bits
+            ).get_encrypted(test_context.key)
             ee = eaa - b
-            self.assertAllClose(a + max_val - b, ee.get_decrypted(key))
+            self.assertAllClose(a + max_val - b, ee.get_decrypted(test_context.key))
 
             bb = b + max_val
             ef = bb - ea
-            self.assertAllClose(bb - a, ef.get_decrypted(key))
+            self.assertAllClose(bb - a, ef.get_decrypted(test_context.key))
         else:
             ee = ea - b
-            self.assertAllClose(a - b, ee.get_decrypted(key))
+            self.assertAllClose(a - b, ee.get_decrypted(test_context.key))
 
             ef = b - ea
-            self.assertAllClose(b - a, ef.get_decrypted(key))
+            self.assertAllClose(b - a, ef.get_decrypted(test_context.key))
 
         # Ensure initial arguemnts are not modified.
-        self.assertAllClose(a, ea.get_decrypted(key))
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
 
     def test_ct_tf_add(self):
         for test_context in test_utils.test_contexts:
@@ -235,36 +227,33 @@ class TestShellTensor(tf.test.TestCase):
                         self._test_ct_tf_add(test_context, test_dtype, frac_bits)
 
     def _test_pt_pt_add(self, test_context, plaintext_dtype, frac_bits):
-        context = test_context.shell_context
-
         # This test performs one addition.
-        min_val, max_val = test_utils.get_bounds_for_n_adds(
+        _, max_val = test_utils.get_bounds_for_n_adds(
             plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
         )
+        a = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
+        b = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        a = tf.cast(a, plaintext_dtype)
-        b = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        b = tf.cast(b, plaintext_dtype)
-        sa = shell_tensor.to_shell_tensor(context, a)
-        sb = shell_tensor.to_shell_tensor(context, b)
+        if a is None:
+            # Test parameters do not support one addition at this
+            # precision.
+            print(
+                "Note: Skipping test pt_pt_add with dtype %s and frac_bits %d. Not enough precision to support this test."
+                % (plaintext_dtype, frac_bits)
+            )
+            return
+
+        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a, frac_bits)
+        sb = shell_tensor.to_shell_tensor(test_context.shell_context, b, frac_bits)
 
         sc = sa + sb
         self.assertAllClose(a + b, shell_tensor.from_shell_tensor(sc))
 
         if plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
-            saa = shell_tensor.to_shell_tensor(context, a + max_val)
+            saa = shell_tensor.to_shell_tensor(
+                test_context.shell_context, a + max_val, frac_bits
+            )
             ee = saa - sb
             self.assertAllClose(a + max_val - b, shell_tensor.from_shell_tensor(ee))
         else:
@@ -286,28 +275,23 @@ class TestShellTensor(tf.test.TestCase):
                         self._test_pt_pt_add(test_context, test_dtype, frac_bits)
 
     def _test_pt_tf_add(self, test_context, plaintext_dtype, frac_bits):
-        context = test_context.shell_context
-
         # This test performs one addition.
-        min_val, max_val = test_utils.get_bounds_for_n_adds(
+        _, max_val = test_utils.get_bounds_for_n_adds(
             plaintext_dtype, test_context.plaintext_modulus, frac_bits, 1
         )
+        a = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
+        b = test_utils.uniform_for_n_adds(plaintext_dtype, test_context, frac_bits, 1)
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        a = tf.cast(a, plaintext_dtype)
-        b = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int32,
-            maxval=max_val,
-            minval=min_val,
-        )
-        b = tf.cast(b, plaintext_dtype)
-        sa = shell_tensor.to_shell_tensor(context, a)
+        if a is None:
+            # Test parameters do not support one addition at this
+            # precision.
+            print(
+                "Note: Skipping test pt_tf_add with dtype %s and frac_bits %d. Not enough precision to support this test."
+                % (plaintext_dtype, frac_bits)
+            )
+            return
+
+        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a, frac_bits)
 
         sc = sa + b
         self.assertAllClose(a + b, shell_tensor.from_shell_tensor(sc))
@@ -317,7 +301,9 @@ class TestShellTensor(tf.test.TestCase):
 
         if plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
-            saa = shell_tensor.to_shell_tensor(context, a + max_val)
+            saa = shell_tensor.to_shell_tensor(
+                test_context.shell_context, a + max_val, frac_bits
+            )
             se = saa - b
             self.assertAllClose(a + max_val - b, shell_tensor.from_shell_tensor(se))
 

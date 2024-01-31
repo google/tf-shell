@@ -17,7 +17,7 @@ import tensorflow as tf
 import shell_tensor
 import math
 
-test_fxp_fractional_bits = [0, 1]
+test_fxp_fractional_bits = [0, 1, 2, 3, 4]
 test_dtypes = [
     tf.int8,
     tf.uint8,
@@ -33,7 +33,8 @@ test_dtypes = [
 
 
 class TestContext:
-    def __init__(self, log_slots, plaintext_modulus):
+    def __init__(self, outer_shape, log_slots, main_moduli, plaintext_modulus):
+        self.outer_shape = outer_shape
         self.log_slots = log_slots
         self.slots = 2**log_slots
 
@@ -41,22 +42,35 @@ class TestContext:
 
         self.shell_context = shell_tensor.create_context64(
             log_n=log_slots,
-            main_moduli=[8556589057, 8388812801],
-            aux_moduli=[34359709697],
+            main_moduli=main_moduli,
+            aux_moduli=[],
             plaintext_modulus=plaintext_modulus,
             noise_variance=4,
             seed="",
         )
 
+        self.key = shell_tensor.create_key64(self.shell_context)
 
-test_contexts = [TestContext(log_slots=11, plaintext_modulus=40961)]
+        self.rotation_key = shell_tensor.create_rotation_key64(
+            self.shell_context, self.key
+        )
 
 
-def get_bounds_for_n_muls(dtype, plaintext_modulus, num_fxp_fractional_bits, num_muls):
+test_contexts = [
+    TestContext(
+        outer_shape=[3, 2, 3],
+        log_slots=11,
+        main_moduli=[8556589057, 8388812801],
+        plaintext_modulus=40961,
+    ),
+]
+
+
+def get_bounds_for_n_muls(dtype, plaintext_modulus, num_frac_bits, num_muls):
     """Returns a safe range for plaintext values when doing a given number of
     multiplications. The range is determined by both the plaintext modulus and
     the datatype."""
-    max_fractional_bits = 2**num_muls * num_fxp_fractional_bits
+    max_fractional_bits = 2**num_muls * num_frac_bits
     max_fractional_value = 2**max_fractional_bits
 
     # Make sure not to exceed the range of the dtype.
@@ -85,10 +99,10 @@ def get_bounds_for_n_muls(dtype, plaintext_modulus, num_fxp_fractional_bits, num
     return min_val, max_val
 
 
-def get_bounds_for_n_adds(dtype, plaintext_modulus, num_fxp_fractional_bits, num_adds):
+def get_bounds_for_n_adds(dtype, plaintext_modulus, num_frac_bits, num_adds):
     """Returns a safe range for plaintext values when doing a given number of
     additions."""
-    max_fractional_bits = num_fxp_fractional_bits
+    max_fractional_bits = num_frac_bits
     max_fractional_value = 2**max_fractional_bits
 
     # Make sure not to exceed the range of the dtype.
@@ -115,3 +129,76 @@ def get_bounds_for_n_adds(dtype, plaintext_modulus, num_fxp_fractional_bits, num
     max_val = min(max_plaintext_dtype, max_plaintext_modulus)
 
     return min_val, max_val
+
+
+def uniform_for_n_adds(dtype, test_context, num_fxp_frac_bits, num_adds):
+    """Returns a random tensor with values in the range of the datatype and
+    plaintext modulus. The elements support n additions without overflowing
+    either the datatype and plaintext modulus. Floating point datatypes return
+    fractional values at the appropriate quantization."""
+    min_val, max_val = get_bounds_for_n_adds(
+        dtype, test_context.plaintext_modulus, num_fxp_frac_bits, num_adds
+    )
+
+    if max_val < 2 ** (-num_fxp_frac_bits - 1):
+        return None
+
+    if dtype.is_floating:
+        min_val *= 2**num_fxp_frac_bits
+        max_val *= 2**num_fxp_frac_bits
+
+    shape = test_context.outer_shape.copy()
+    shape.insert(0, test_context.slots)
+
+    rand = tf.random.uniform(
+        shape,
+        dtype=tf.int64,
+        maxval=max_val,
+        minval=min_val,
+    )
+
+    rand = tf.cast(rand, dtype)
+    if dtype.is_floating:
+        rand /= 2**num_fxp_frac_bits
+
+    return rand
+
+
+def uniform_for_n_muls(
+    dtype, test_context, num_fxp_frac_bits, num_muls, shape=None, subsequent_adds=0
+):
+    """Returns a random tensor with values in the range of the datatype and
+    plaintext modulus. The elements support n additions without overflowing
+    either the datatype and plaintext modulus. Floating point datatypes return
+    fractional values at the appropriate quantization.
+    """
+    min_val, max_val = get_bounds_for_n_muls(
+        dtype, test_context.plaintext_modulus, num_fxp_frac_bits, num_muls
+    )
+
+    min_val = math.floor(min_val / (subsequent_adds + 1))
+    max_val = math.floor(max_val / (subsequent_adds + 1))
+
+    if max_val < 2 ** (-num_fxp_frac_bits - 1):
+        return None
+
+    if dtype.is_floating:
+        min_val *= 2**num_fxp_frac_bits
+        max_val *= 2**num_fxp_frac_bits
+
+    if shape is None:
+        shape = test_context.outer_shape.copy()
+        shape.insert(0, test_context.slots)
+
+    rand = tf.random.uniform(
+        shape,
+        dtype=tf.int64,
+        maxval=max_val,
+        minval=min_val,
+    )
+
+    rand = tf.cast(rand, dtype)
+    if dtype.is_floating:
+        rand /= 2**num_fxp_frac_bits
+
+    return rand

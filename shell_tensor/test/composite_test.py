@@ -20,14 +20,11 @@ import test_utils
 
 class TestShellTensor(tf.test.TestCase):
     def _test_ct_ct_mulmul(self, test_context, plaintext_dtype, frac_bits):
-        shell_context = test_context.shell_context
-        key = shell_tensor.create_key64(shell_context)
-
         # This test performs two multiplications.
-        min_val, max_val = test_utils.get_bounds_for_n_muls(
-            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 2
-        )
-        if max_val == 0:
+        a = test_utils.uniform_for_n_muls(plaintext_dtype, test_context, frac_bits, 2)
+        b = test_utils.uniform_for_n_muls(plaintext_dtype, test_context, frac_bits, 2)
+
+        if a is None:
             # Test parameters do not support two multiplications at this
             # precision.
             print(
@@ -36,40 +33,25 @@ class TestShellTensor(tf.test.TestCase):
             )
             return
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int64,
-            maxval=max_val,
-            minval=min_val,
-        )
-        a = tf.cast(a, plaintext_dtype)
-        b = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int64,
-            maxval=max_val,
-            minval=min_val,
-        )
-        b = tf.cast(b, plaintext_dtype)
-
         ea = shell_tensor.to_shell_tensor(
-            shell_context, a, fxp_fractional_bits=frac_bits
-        ).get_encrypted(key)
+            test_context.shell_context, a, fxp_fractional_bits=frac_bits
+        ).get_encrypted(test_context.key)
         eb = shell_tensor.to_shell_tensor(
-            shell_context, b, fxp_fractional_bits=frac_bits
-        ).get_encrypted(key)
+            test_context.shell_context, b, fxp_fractional_bits=frac_bits
+        ).get_encrypted(test_context.key)
 
         ec = ea * eb
-        self.assertAllClose(a * b, ec.get_decrypted(key))
+        self.assertAllClose(a * b, ec.get_decrypted(test_context.key))
 
         # Here, ec has a mul_count of 1 while eb has a mul_count of 0. To
         # multiply them, eb needs to be left shifted by the number of fractional
         # bits in the fixed point representation to match ec. ShellTensor should
         # handle this automatically.
         ed = ec * eb
-        self.assertAllClose(a * b * b, ed.get_decrypted(key))
+        self.assertAllClose(a * b * b, ed.get_decrypted(test_context.key))
 
-        self.assertAllClose(a, ea.get_decrypted(key))
-        self.assertAllClose(b, eb.get_decrypted(key))
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
+        self.assertAllClose(b, eb.get_decrypted(test_context.key))
 
     def test_ct_ct_mulmul(self):
         for test_context in test_utils.test_contexts:
@@ -82,14 +64,11 @@ class TestShellTensor(tf.test.TestCase):
                         self._test_ct_ct_mulmul(test_context, test_dtype, frac_bits)
 
     def _test_ct_pt_mulmul(self, test_context, plaintext_dtype, frac_bits):
-        shell_context = test_context.shell_context
-        key = shell_tensor.create_key64(shell_context)
-
         # This test performs two multiplications.
-        min_val, max_val = test_utils.get_bounds_for_n_muls(
-            plaintext_dtype, test_context.plaintext_modulus, frac_bits, 2
-        )
-        if max_val == 0:
+        a = test_utils.uniform_for_n_muls(plaintext_dtype, test_context, frac_bits, 2)
+        b = test_utils.uniform_for_n_muls(plaintext_dtype, test_context, frac_bits, 2)
+
+        if a is None:
             # Test parameters do not support two multiplications at this
             # precision.
             print(
@@ -98,40 +77,25 @@ class TestShellTensor(tf.test.TestCase):
             )
             return
 
-        a = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int64,
-            maxval=max_val,
-            minval=min_val,
-        )
-        a = tf.cast(a, plaintext_dtype)
-        b = tf.random.uniform(
-            [test_context.slots, 2, 3, 4],
-            dtype=tf.int64,
-            maxval=max_val,
-            minval=min_val,
-        )
-        b = tf.cast(b, plaintext_dtype)
-
         ea = shell_tensor.to_shell_tensor(
-            shell_context, a, fxp_fractional_bits=frac_bits
-        ).get_encrypted(key)
+            test_context.shell_context, a, fxp_fractional_bits=frac_bits
+        ).get_encrypted(test_context.key)
         eb = shell_tensor.to_shell_tensor(
-            shell_context, b, fxp_fractional_bits=frac_bits
-        ).get_encrypted(key)
+            test_context.shell_context, b, fxp_fractional_bits=frac_bits
+        ).get_encrypted(test_context.key)
 
         ec = ea * eb
-        self.assertAllClose(a * b, ec.get_decrypted(key))
+        self.assertAllClose(a * b, ec.get_decrypted(test_context.key))
 
         # Here, ec has a mul_count of 1 while eb has a mul_count of 0. To
         # multiply them, eb needs to be left shifted by the number of fractional
         # bits in the fixed point representation to match ec. ShellTensor should
         # handle this automatically.
         ed = ec * b
-        self.assertAllClose(a * b * b, ed.get_decrypted(key))
+        self.assertAllClose(a * b * b, ed.get_decrypted(test_context.key))
 
-        self.assertAllClose(a, ea.get_decrypted(key))
-        self.assertAllClose(b, eb.get_decrypted(key))
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
+        self.assertAllClose(b, eb.get_decrypted(test_context.key))
 
     def test_ct_pt_mulmul(self):
         for test_context in test_utils.test_contexts:
@@ -142,6 +106,50 @@ class TestShellTensor(tf.test.TestCase):
                         % (frac_bits, test_dtype)
                     ):
                         self._test_ct_pt_mulmul(test_context, test_dtype, frac_bits)
+
+    def _test_get_at_mul_count(self, test_context, plaintext_dtype, frac_bits):
+        # This test performs two multiplications.
+        a = test_utils.uniform_for_n_muls(plaintext_dtype, test_context, frac_bits, 2)
+        b = test_utils.uniform_for_n_muls(plaintext_dtype, test_context, frac_bits, 2)
+
+        if a is None:
+            # Test parameters do not support two multiplications at this
+            # precision.
+            print(
+                "Note: Skipping test ct_pt_mulmul with dtype %s and frac_bits %d. Not enough precision to support this test."
+                % (plaintext_dtype, frac_bits)
+            )
+            return
+
+        ea = shell_tensor.to_shell_tensor(
+            test_context.shell_context, a, fxp_fractional_bits=frac_bits
+        ).get_encrypted(test_context.key)
+        eb = shell_tensor.to_shell_tensor(
+            test_context.shell_context, b, fxp_fractional_bits=frac_bits
+        ).get_encrypted(test_context.key)
+
+        ec = ea * eb
+        self.assertAllClose(a * b, ec.get_decrypted(test_context.key))
+
+        ec_right_shifted = ec.get_at_multiplication_count(0)
+
+        # Here, ec_right_shifted and eb both have a mul_count of 0. Multiplying
+        # them should be straightforward.
+        ed = ec_right_shifted * b
+        self.assertAllClose(a * b * b, ed.get_decrypted(test_context.key))
+
+        self.assertAllClose(a, ea.get_decrypted(test_context.key))
+        self.assertAllClose(b, eb.get_decrypted(test_context.key))
+
+    def test_get_at_mul_count(self):
+        for test_context in test_utils.test_contexts:
+            for frac_bits in test_utils.test_fxp_fractional_bits:
+                for test_dtype in test_utils.test_dtypes:
+                    with self.subTest(
+                        "test_get_at_mul_count with fractional bits %d and dtype %s"
+                        % (frac_bits, test_dtype)
+                    ):
+                        self._test_get_at_mul_count(test_context, test_dtype, frac_bits)
 
 
 if __name__ == "__main__":
