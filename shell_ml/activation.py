@@ -23,14 +23,18 @@ def relu(x):
 
 
 def relu_deriv(y, dy):
+    assert not isinstance(y, shell_tensor.ShellTensor64)
+    # Cannot operate on individual slots of a shell tensor.
+    # Formulate the problem as element-wise multiplication.
+    # t = np.dtype(dy.plaintext_dtype.as_numpy_dtype)
     if isinstance(dy, shell_tensor.ShellTensor64):
-        # Cannot operate on individual slots of a shell tensor.
-        # Formulate the problem as element-wise multiplication.
-        t = np.dtype(dy.plaintext_dtype.as_numpy_dtype)
-        mask = tf.where(y <= 0, t.type(0), t.type(1))
-        return dy * mask
+        dy_dtype = dy.plaintext_dtype
     else:
-        return dy * (y > 0)
+        dy_dtype = dy.dtype
+    mask = tf.where(
+        y <= 0, tf.constant(0, dtype=dy_dtype), tf.constant(1, dtype=dy_dtype)
+    )
+    return dy * mask
 
 
 def sigmoid(x):
