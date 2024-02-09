@@ -178,7 +178,10 @@ class PolynomialExportOp : public OpKernel {
       OP_REQUIRES(op_ctx, pv != nullptr,
                   InvalidArgument("PolynomialVariant at flat index: ", i,
                                   " did not unwrap successfully."));
-      RnsPolynomial rns_polynomial = std::move(pv->poly);
+      // Deep copy the polynomial.
+      OP_REQUIRES_VALUE(
+          RnsPolynomial rns_polynomial, op_ctx,
+          RnsPolynomial::Create(pv->poly.Coeffs(), pv->poly.IsNttForm()));
 
       // TODO: if debug
       OP_REQUIRES(

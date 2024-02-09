@@ -63,6 +63,9 @@ StatusOr<vector<T>> GetVector(OpKernelContext* ctx, int index) {
   return std::move(res);
 }
 
+// Given an OpKernelContext and an index, returns the Variant value at that
+// index in the context. If the tensor is not a Variant or does not unpack
+// correctly, returns an error.
 template <typename T>
 StatusOr<T const*> GetVariant(OpKernelContext* ctx, int index) {
   Tensor const& input = ctx->input(index);

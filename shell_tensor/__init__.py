@@ -17,9 +17,15 @@ from __future__ import absolute_import
 
 from shell_tensor import shell
 from shell_tensor.python.shell_tensor import ShellTensor64
-from shell_tensor.python.shell_tensor import create_context64
 from shell_tensor.python.shell_tensor import to_shell_tensor
 from shell_tensor.python.shell_tensor import from_shell_tensor
-from shell_tensor.python.shell_tensor import create_key64
-from shell_tensor.python.shell_tensor import create_rotation_key64
 from shell_tensor.python.shell_tensor import matmul
+
+from shell_tensor.python.shell_context import ShellContext64
+from shell_tensor.python.shell_context import create_context64
+
+from shell_tensor.python.shell_key import ShellKey64
+from shell_tensor.python.shell_key import create_key64
+
+from shell_tensor.python.shell_key import ShellRotationKey64
+from shell_tensor.python.shell_key import create_rotation_key64

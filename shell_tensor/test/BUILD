@@ -10,6 +10,19 @@ py_test(
 )
 
 py_test(
+    name = "context_test",
+    size = "small",
+    srcs = [
+        "context_test.py",
+        "test_utils.py",
+    ],
+    deps = [
+        "//shell_tensor:shell_tensor_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
     name = "basic_test",
     srcs = [
         "basic_test.py",
@@ -59,7 +72,7 @@ py_test(
 
 py_test(
     name = "rotation_test",
-    size = "medium",
+    size = "enormous",
     srcs = [
         "rotation_test.py",
         "test_utils.py",

@@ -17,188 +17,201 @@ import tensorflow as tf
 import shell_tensor
 import math
 
-test_fxp_fractional_bits = [0, 1, 2, 3, 4]
-test_dtypes = [
-    tf.int8,
-    tf.uint8,
-    tf.int16,
-    tf.uint16,
-    tf.int32,
-    tf.uint32,
-    tf.int64,
-    tf.uint64,
-    tf.float32,
-    tf.float64,
-]
-
 
 class TestContext:
-    def __init__(self, outer_shape, log_slots, main_moduli, plaintext_modulus):
+    def __init__(
+        self,
+        outer_shape,
+        plaintext_dtype,
+        log_n,
+        main_moduli,
+        aux_moduli,
+        plaintext_modulus,
+        noise_variance=8,
+        scaling_factor=1,
+        mul_depth_supported=0,
+        seed="",
+    ):
         self.outer_shape = outer_shape
-        self.log_slots = log_slots
-        self.slots = 2**log_slots
-
-        self.plaintext_modulus = plaintext_modulus
+        self.plaintext_dtype = plaintext_dtype
 
         self.shell_context = shell_tensor.create_context64(
-            log_n=log_slots,
+            log_n=log_n,
             main_moduli=main_moduli,
-            aux_moduli=[],
+            aux_moduli=aux_moduli,
             plaintext_modulus=plaintext_modulus,
-            noise_variance=4,
-            seed="",
+            noise_variance=noise_variance,
+            scaling_factor=scaling_factor,
+            mul_depth_supported=mul_depth_supported,
+            seed=seed,
         )
 
         self.key = shell_tensor.create_key64(self.shell_context)
 
-        self.rotation_key = shell_tensor.create_rotation_key64(
-            self.shell_context, self.key
+    @property
+    def rotation_key(self):
+        # Rotation keys are slow to generate. Only generate them on demand and
+        # cache them.
+        if not hasattr(self, "_rotation_key"):
+            self._rotation_key = shell_tensor.create_rotation_key64(
+                self.shell_context, self.key
+            )
+        return self._rotation_key
+
+    def __str__(self):
+        return f"log_n {self.shell_context.log_n}, plaintext_modulus {self.shell_context.plaintext_modulus}, plaintext_dtype {self.plaintext_dtype}, scaling_factor {self.shell_context.scaling_factor}"
+
+
+def get_bounds_for_n_adds(test_context, num_adds):
+    """Returns a safe range for plaintext values when doing a given number of
+    additions."""
+    dtype = test_context.plaintext_dtype
+    plaintext_modulus = test_context.shell_context.plaintext_modulus
+    scaling_factor_squared = test_context.shell_context.scaling_factor**2
+
+    # Make sure not to exceed the range of the dtype.
+    min_plaintext_dtype = math.ceil(dtype.min / scaling_factor_squared)
+    min_plaintext_dtype = math.ceil(min_plaintext_dtype / (num_adds + 1))
+    max_plaintext_dtype = dtype.max // scaling_factor_squared
+    max_plaintext_dtype //= num_adds + 1
+
+    # Make sure not to exceed the range of the plaintext modulus.
+    if dtype.is_unsigned:
+        min_plaintext_modulus = 0
+        max_plaintext_modulus = plaintext_modulus // scaling_factor_squared
+        max_plaintext_modulus //= num_adds + 1
+    else:
+        range = plaintext_modulus // 2
+        range //= scaling_factor_squared
+        range /= num_adds + 1
+        min_plaintext_modulus = -range
+        max_plaintext_modulus = range
+
+    min_val = max(min_plaintext_dtype, min_plaintext_modulus)
+    max_val = min(max_plaintext_dtype, max_plaintext_modulus)
+
+    if min_val > max_val:
+        raise ValueError(
+            f"min_val {min_val} > max_val {max_val} for num_adds {num_adds}"
         )
 
-
-test_contexts = [
-    TestContext(
-        outer_shape=[3, 2, 3],
-        log_slots=11,
-        main_moduli=[8556589057, 8388812801],
-        plaintext_modulus=40961,
-    ),
-]
+    return min_val, max_val
 
 
-def get_bounds_for_n_muls(dtype, plaintext_modulus, num_frac_bits, num_muls):
+def get_bounds_for_n_muls(test_context, num_muls):
     """Returns a safe range for plaintext values when doing a given number of
     multiplications. The range is determined by both the plaintext modulus and
     the datatype."""
-    max_fractional_bits = 2**num_muls * num_frac_bits
-    max_fractional_value = 2**max_fractional_bits
+    dtype = test_context.plaintext_dtype
+    plaintext_modulus = test_context.shell_context.plaintext_modulus
+    scaling_factor_squared = test_context.shell_context.scaling_factor**2
 
     # Make sure not to exceed the range of the dtype.
-    min_plaintext_dtype = -math.floor(abs(dtype.min) ** (1.0 / (num_muls + 1)))
-    min_plaintext_dtype = math.floor(min_plaintext_dtype / max_fractional_value)
-    max_plaintext_dtype = math.floor(dtype.max ** (1.0 / (num_muls + 1)))
-    max_plaintext_dtype = math.floor(max_plaintext_dtype / max_fractional_value)
+    min_plaintext_dtype = math.ceil(dtype.min / scaling_factor_squared)
+    min_plaintext_dtype = -math.floor(
+        abs(min_plaintext_dtype) ** (1.0 / (num_muls + 1))
+    )
+    max_plaintext_dtype = dtype.max // scaling_factor_squared
+    max_plaintext_dtype **= 1.0 / (num_muls + 1)
 
     # Make sure not to exceed the range of the plaintext modulus.
     if dtype.is_unsigned:
         min_plaintext_modulus = 0
-        # max_plaintext_modulus = int(plaintext_modulus - 1)
-        max_plaintext_modulus = plaintext_modulus ** (1.0 / (num_muls + 1))
-        max_plaintext_modulus = math.floor(max_plaintext_modulus)
-        max_plaintext_modulus = math.floor(max_plaintext_modulus / max_fractional_value)
+        max_plaintext_modulus = plaintext_modulus // scaling_factor_squared
+        max_plaintext_modulus **= 1.0 / (num_muls + 1)
     else:
-        range = math.floor(plaintext_modulus / 2)
+        range = plaintext_modulus // 2
+        range //= scaling_factor_squared
         range **= 1.0 / (num_muls + 1)
-        range = math.floor(range / max_fractional_value)
         min_plaintext_modulus = -range
         max_plaintext_modulus = range
 
     min_val = max(min_plaintext_dtype, min_plaintext_modulus)
     max_val = min(max_plaintext_dtype, max_plaintext_modulus)
 
-    return min_val, max_val
-
-
-def get_bounds_for_n_adds(dtype, plaintext_modulus, num_frac_bits, num_adds):
-    """Returns a safe range for plaintext values when doing a given number of
-    additions."""
-    max_fractional_bits = num_frac_bits
-    max_fractional_value = 2**max_fractional_bits
-
-    # Make sure not to exceed the range of the dtype.
-    min_plaintext_dtype = math.ceil(dtype.min / (num_adds + 1))
-    min_plaintext_dtype = math.ceil(min_plaintext_dtype / max_fractional_value)
-    max_plaintext_dtype = math.floor(dtype.max / (num_adds + 1))
-    max_plaintext_dtype = math.floor(max_plaintext_dtype / max_fractional_value)
-
-    # Make sure not to exceed the range of the plaintext modulus.
-    if dtype.is_unsigned:
-        min_plaintext_modulus = 0
-        # max_plaintext_modulus = int(plaintext_modulus - 1)
-        max_plaintext_modulus = (plaintext_modulus - 1) / (num_adds + 1)
-        max_plaintext_modulus = math.floor(max_plaintext_modulus)
-        max_plaintext_modulus = math.floor(max_plaintext_modulus / max_fractional_value)
-    else:
-        range = math.floor(plaintext_modulus / 2)
-        range /= num_adds + 1
-        range = math.floor(range / max_fractional_value)
-        min_plaintext_modulus = -range
-        max_plaintext_modulus = range
-
-    min_val = max(min_plaintext_dtype, min_plaintext_modulus)
-    max_val = min(max_plaintext_dtype, max_plaintext_modulus)
+    if min_val > max_val:
+        raise ValueError(
+            f"min_val {min_val} > max_val {max_val} for num_muls {num_adds}"
+        )
 
     return min_val, max_val
 
 
-def uniform_for_n_adds(dtype, test_context, num_fxp_frac_bits, num_adds):
+def uniform_for_n_adds(test_context, num_adds, shape=None):
     """Returns a random tensor with values in the range of the datatype and
     plaintext modulus. The elements support n additions without overflowing
     either the datatype and plaintext modulus. Floating point datatypes return
     fractional values at the appropriate quantization."""
-    min_val, max_val = get_bounds_for_n_adds(
-        dtype, test_context.plaintext_modulus, num_fxp_frac_bits, num_adds
-    )
+    min_val, max_val = get_bounds_for_n_adds(test_context, num_adds)
 
-    if max_val < 2 ** (-num_fxp_frac_bits - 1):
-        return None
+    scaling_factor = test_context.shell_context.scaling_factor
 
-    if dtype.is_floating:
-        min_val *= 2**num_fxp_frac_bits
-        max_val *= 2**num_fxp_frac_bits
+    if max_val < 1 / scaling_factor:
+        raise ValueError(
+            f"Available plaintext range for the given number of additions [{min_val}, {max_val}] is too small. Must be larger than {1/scaling_factor}."
+        )
 
-    shape = test_context.outer_shape.copy()
-    shape.insert(0, test_context.slots)
+    if test_context.plaintext_dtype.is_floating:
+        min_val *= scaling_factor
+        max_val *= scaling_factor
+
+    if shape is None:
+        shape = test_context.outer_shape.copy()
+        shape.insert(0, test_context.shell_context.num_slots)
 
     rand = tf.random.uniform(
         shape,
         dtype=tf.int64,
-        maxval=max_val,
-        minval=min_val,
+        minval=math.ceil(min_val),
+        maxval=math.floor(max_val),
     )
 
-    rand = tf.cast(rand, dtype)
-    if dtype.is_floating:
-        rand /= 2**num_fxp_frac_bits
+    if test_context.plaintext_dtype.is_floating:
+        rand /= scaling_factor
+
+    rand = tf.cast(rand, test_context.plaintext_dtype)
 
     return rand
 
 
-def uniform_for_n_muls(
-    dtype, test_context, num_fxp_frac_bits, num_muls, shape=None, subsequent_adds=0
-):
+def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
     """Returns a random tensor with values in the range of the datatype and
     plaintext modulus. The elements support n additions without overflowing
     either the datatype and plaintext modulus. Floating point datatypes return
     fractional values at the appropriate quantization.
     """
-    min_val, max_val = get_bounds_for_n_muls(
-        dtype, test_context.plaintext_modulus, num_fxp_frac_bits, num_muls
-    )
+    scaling_factor = test_context.shell_context.scaling_factor
+    if scaling_factor > 1 and num_muls > test_context.shell_context.mul_depth_supported:
+        raise ValueError("Number of multiplications not supported by context.")
 
-    min_val = math.floor(min_val / (subsequent_adds + 1))
-    max_val = math.floor(max_val / (subsequent_adds + 1))
+    min_val, max_val = get_bounds_for_n_muls(test_context, num_muls)
 
-    if max_val < 2 ** (-num_fxp_frac_bits - 1):
-        return None
+    min_val = min_val / (subsequent_adds + 1)
+    max_val = max_val / (subsequent_adds + 1)
 
-    if dtype.is_floating:
-        min_val *= 2**num_fxp_frac_bits
-        max_val *= 2**num_fxp_frac_bits
+    if max_val < 1 / scaling_factor:
+        raise ValueError(
+            f"Available plaintext range for the given number of multiplications [{min_val}, {max_val}] is too small. Must be larger than {1/scaling_factor}."
+        )
+
+    if test_context.plaintext_dtype.is_floating:
+        min_val *= scaling_factor
+        max_val *= scaling_factor
 
     if shape is None:
         shape = test_context.outer_shape.copy()
-        shape.insert(0, test_context.slots)
+        shape.insert(0, test_context.shell_context.num_slots)
 
     rand = tf.random.uniform(
         shape,
         dtype=tf.int64,
-        maxval=max_val,
-        minval=min_val,
+        minval=math.ceil(min_val),
+        maxval=math.floor(max_val),
     )
 
-    rand = tf.cast(rand, dtype)
-    if dtype.is_floating:
-        rand /= 2**num_fxp_frac_bits
+    if test_context.plaintext_dtype.is_floating:
+        rand /= scaling_factor
+
+    rand = tf.cast(rand, test_context.plaintext_dtype)
 
     return rand

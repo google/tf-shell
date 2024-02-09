@@ -95,6 +95,8 @@ class AddCtCtOp : public OpKernel {
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
+    // Check the inputs have the same shape. This Op does not support
+    // broadcasting.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 

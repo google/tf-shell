@@ -7,6 +7,7 @@ cc_binary(
         "cc/kernels/add_kernels.cc",
         "cc/kernels/context_import_kernel.cc",
         "cc/kernels/context_variant.h",
+        "cc/kernels/mod_switch_kernels.cc",
         "cc/kernels/mul_kernels.cc",
         "cc/kernels/polynomial_kernels.cc",
         "cc/kernels/polynomial_variant.h",
@@ -80,6 +81,8 @@ py_library(
         "__init__.py",
         "python/__init__.py",
         "python/ops/__init__.py",
+        "python/shell_context.py",
+        "python/shell_key.py",
         "python/shell_tensor.py",
     ],
     data = [
