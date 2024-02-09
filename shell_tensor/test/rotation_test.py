@@ -21,16 +21,57 @@ from itertools import repeat
 
 
 class TestShellTensorRotation(tf.test.TestCase):
-    rotation_dtypes = [
-        tf.int32,
-        tf.int64,
-        tf.float32,
-        tf.float64,
-    ]
-    roll_test_outer_shape = [3, 3]
-    test_outer_shape = [2, 5, 4]
+    test_contexts = None
 
-    # TensorFlow's roll has slightly different sematics than encrypted roll.
+    @classmethod
+    def setUpClass(cls):
+        cls.test_contexts = []
+
+        # TensorFlow only supports rotation for int32 and int64 integer types.
+        # Create test contexts for all integer datatypes. While this test
+        # performs at most two multiplications, since the scaling factor is 1
+        # there are no restrictions on the main moduli.
+        for int_dtype in [tf.int32, tf.int64]:
+            cls.test_contexts.append(
+                test_utils.TestContext(
+                    outer_shape=[3, 2, 3],
+                    plaintext_dtype=int_dtype,
+                    log_n=11,
+                    main_moduli=[288230376151748609, 288230376151760897],
+                    aux_moduli=[],
+                    plaintext_modulus=65537,
+                    noise_variance=8,
+                    scaling_factor=1,
+                    mul_depth_supported=0,
+                    seed="",
+                )
+            )
+
+        # Create test contexts for floating point datatypes at a real-world
+        # scaling factor.
+        for float_dtype in [tf.float32, tf.float64]:
+            cls.test_contexts.append(
+                test_utils.TestContext(
+                    outer_shape=[3, 2, 3],
+                    plaintext_dtype=float_dtype,
+                    # Num plaintext bits: 40, noise bits: 70
+                    # Max plaintext value: 3640, est error: 0.000%
+                    log_n=11,
+                    main_moduli=[288230376151748609, 2251799813824513, 12289],
+                    aux_moduli=[],
+                    plaintext_modulus=1099511795713,
+                    noise_variance=8,
+                    scaling_factor=12289,
+                    mul_depth_supported=1,
+                    seed="",
+                )
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.test_contexts = None
+
+    # TensorFlow's roll has slightly different semantics than encrypted roll.
     # Encrypted rotation affects top and bottom halves independently.
     # This function emulates this in plaintext by splitting the tensor in half,
     # rotating each half, and then concatenating them back together.
@@ -41,14 +82,30 @@ class TestShellTensorRotation(tf.test.TestCase):
         rotated_tftensor = tf.concat([top, bottom], axis=0)
         return rotated_tftensor
 
-    def _test_roll(self, test_context, plaintext_dtype, roll_num):
+    def _test_roll(self, test_context, roll_num):
         # Create a tensor with the shape of slots x (outer_shape) where each
-        # column of the first dimensions counts from 0 to slots-1.
-        tftensor = tf.range(0, test_context.slots, delta=1, dtype=plaintext_dtype)
-        for i in range(len(self.roll_test_outer_shape)):
+        # column of the first dimensions counts from 0 to slots-1. First check
+        # if this tensor can actually be represented in the given context. A
+        # large scaling factor would be what reduced the maximal representable
+        # value.
+        _, max_val = test_utils.get_bounds_for_n_adds(test_context, 0)
+        if max_val < test_context.shell_context.num_slots:
+            print(
+                f"Note: Skipping test roll with context {test_context}. Not enough precision to support this test. Context supports max val of {max_val} but need {test_context.shell_context.num_slots}."
+            )
+            return
+
+        tftensor = tf.range(
+            0,
+            test_context.shell_context.num_slots,
+            delta=1,
+            dtype=test_context.plaintext_dtype,
+        )
+        # Expand dimensions to match the outer shape.
+        for i in range(len(test_context.outer_shape)):
             tftensor = tf.expand_dims(tftensor, axis=-1)
             tftensor = tf.tile(
-                tftensor, multiples=[1] * (i + 1) + [self.roll_test_outer_shape[i]]
+                tftensor, multiples=[1] * (i + 1) + [test_context.outer_shape[i]]
             )
 
         rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
@@ -58,18 +115,64 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         rolled_enc = enc.roll(test_context.rotation_key, roll_num)
         rolled_result = rolled_enc.get_decrypted(test_context.key)
-        self.assertAllClose(rolled_tftensor, rolled_result)
+        self.assertAllClose(rolled_tftensor, rolled_result, atol=1e-3)
 
     def test_roll(self):
-        for test_context in test_utils.test_contexts:
-            rotation_range = test_context.slots // 2 - 1
+        for test_context in self.test_contexts:
+            rotation_range = test_context.shell_context.num_slots // 2 - 1
+            for roll_num in range(-rotation_range, rotation_range, 1):
+                with self.subTest(
+                    f"roll with context {test_context}, rotating by {roll_num}"
+                ):
+                    self._test_roll(test_context, roll_num)
 
-            for test_dtype in self.rotation_dtypes:
-                for roll_num in range(-rotation_range, rotation_range, 1):
-                    with self.subTest(
-                        "rotate with dtype %s, rotating by %s" % (test_dtype, roll_num)
-                    ):
-                        self._test_roll(test_context, test_dtype, roll_num)
+    def _test_roll_mod_reduced(self, test_context, roll_num):
+        # Create a tensor with the shape of slots x (outer_shape) where each
+        # column of the first dimensions counts from 0 to slots-1. First check
+        # if this tensor can actually be represented in the given context. A
+        # large scaling factor would be what reduced the maximal representable
+        # value.
+        _, max_val = test_utils.get_bounds_for_n_adds(test_context, 0)
+        if max_val < test_context.shell_context.num_slots:
+            print(
+                f"Note: Skipping test roll with context {test_context}. Not enough precision to support this test. Context supports max val of {max_val} but need {test_context.shell_context.num_slots}."
+            )
+            return
+
+        tftensor = tf.range(
+            0,
+            test_context.shell_context.num_slots,
+            delta=1,
+            dtype=test_context.plaintext_dtype,
+        )
+        # Expand dimensions to match the outer shape.
+        for i in range(len(test_context.outer_shape)):
+            tftensor = tf.expand_dims(tftensor, axis=-1)
+            tftensor = tf.tile(
+                tftensor, multiples=[1] * (i + 1) + [test_context.outer_shape[i]]
+            )
+
+        rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
+
+        s = shell_tensor.to_shell_tensor(test_context.shell_context, tftensor)
+        enc = s.get_encrypted(test_context.key)
+
+        # Test roll on a mod reduced ciphertext.
+        enc_reduced = enc.get_mod_reduced()
+        rolled_enc_reduced = enc_reduced.roll(test_context.rotation_key, roll_num)
+        rolled_result_reduced = rolled_enc_reduced.get_decrypted(test_context.key)
+        self.assertAllClose(rolled_tftensor, rolled_result_reduced, atol=1e-3)
+
+    def test_roll_mod_reduced(self):
+        for test_context in self.test_contexts:
+            if test_context.shell_context.mul_depth_supported == 0:
+                continue
+            rotation_range = test_context.shell_context.num_slots // 2 - 1
+            for roll_num in range(-rotation_range, rotation_range, 1):
+                with self.subTest(
+                    f"roll_mod_reduced with context {test_context}, rotating by {roll_num}"
+                ):
+                    self._test_roll_mod_reduced(test_context, roll_num)
 
     # TensorFlow's reduce_sum has slightly different semantics than encrypted
     # reduce_sum. Encrypted reduce_sum affects top and bottom halves
@@ -85,83 +188,63 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         return tf.concat([repeated_bottom_answer, repeated_top_answer], 0)
 
-    def _test_reduce_sum_axis_0(self, test_context, plaintext_dtype, frac_bits):
+    def _test_reduce_sum_axis_0(self, test_context):
         # reduce_sum across axis 0 requires adding over all the slots.
-        tftensor = test_utils.uniform_for_n_adds(
-            plaintext_dtype, test_context, frac_bits, test_context.slots
-        )
-
-        if tftensor is None:
-            # Test parameters do not support reduce_sum at this precision.
-            print(
-                "Note: Skipping test reduce_sum_axis0 with dtype %s and frac_bits %d. Not enough precision to support this test."
-                % (plaintext_dtype, frac_bits)
+        try:
+            tftensor = test_utils.uniform_for_n_adds(
+                test_context, num_adds=test_context.shell_context.num_slots / 2
             )
+        except Exception as e:
+            print(
+                f"Note: Skipping test reduce_sum_axis_0 with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
             return
 
-        s = shell_tensor.to_shell_tensor(
-            test_context.shell_context, tftensor, frac_bits
-        )
+        s = shell_tensor.to_shell_tensor(test_context.shell_context, tftensor)
         enc = s.get_encrypted(test_context.key)
 
         enc_reduce_sum = enc.reduce_sum(axis=0, rotation_key=test_context.rotation_key)
 
         tftensor_out = enc_reduce_sum.get_decrypted(test_context.key)
-        self.assertAllClose(tftensor_out, self.plaintext_reduce_sum_axis_0(tftensor))
+        self.assertAllClose(
+            tftensor_out, self.plaintext_reduce_sum_axis_0(tftensor), atol=1e-3
+        )
 
     def test_reduce_sum_axis_0(self):
-        for test_context in test_utils.test_contexts:
-            for frac_bits in test_utils.test_fxp_fractional_bits:
-                for test_dtype in self.rotation_dtypes:
-                    with self.subTest(
-                        "reduce_sum_axis_0 with fractional bits %d and dtype %s"
-                        % (frac_bits, test_dtype)
-                    ):
-                        self._test_reduce_sum_axis_0(
-                            test_context, test_dtype, frac_bits
-                        )
+        for test_context in self.test_contexts:
+            with self.subTest(f"reduce_sum_axis_0 with context {test_context}"):
+                self._test_reduce_sum_axis_0(test_context)
 
-    def _test_reduce_sum_axis_n(
-        self, test_context, plaintext_dtype, frac_bits, outer_axis
-    ):
+    def _test_reduce_sum_axis_n(self, test_context, outer_axis):
         # reduce_sum across `axis` requires adding over that dimension.
-        tftensor = test_utils.uniform_for_n_adds(
-            plaintext_dtype, test_context, frac_bits, self.test_outer_shape[outer_axis]
-        )
-
-        if tftensor is None:
-            # Test parameters do not support reduce_sum at this precision.
+        try:
+            num_adds = test_context.outer_shape[outer_axis]
+            tftensor = test_utils.uniform_for_n_adds(test_context, num_adds)
+        except Exception as e:
             print(
-                "Note: Skipping test reduce_sum_axis0 with dtype %s and frac_bits %d. Not enough precision to support this test."
-                % (plaintext_dtype, frac_bits)
+                f"Note: Skipping test reduce_sum_axis_n with context {test_context}. Not enough precision to support this test."
             )
+            print(e)
             return
 
-        s = shell_tensor.to_shell_tensor(
-            test_context.shell_context, tftensor, frac_bits
-        )
+        s = shell_tensor.to_shell_tensor(test_context.shell_context, tftensor)
         enc = s.get_encrypted(test_context.key)
 
         enc_reduce_sum = enc.reduce_sum(axis=outer_axis + 1)
 
         tftensor_out = enc_reduce_sum.get_decrypted(test_context.key)
-        self.assertAllClose(tftensor_out, tf.reduce_sum(tftensor, axis=outer_axis + 1))
+        self.assertAllClose(
+            tftensor_out, tf.reduce_sum(tftensor, axis=outer_axis + 1), atol=1e-3
+        )
 
     def test_reduce_sum_axis_n(self):
-        for test_context in test_utils.test_contexts:
-            for frac_bits in test_utils.test_fxp_fractional_bits:
-                for test_dtype in self.rotation_dtypes:
-                    for outer_axis in range(len(self.test_outer_shape)):
-                        with self.subTest(
-                            "reduce_sum_axis_n with fractional bits %d, dtype %s, and axis %d"
-                            % (frac_bits, test_dtype, outer_axis + 1)
-                        ):
-                            self._test_reduce_sum_axis_n(
-                                test_context,
-                                test_dtype,
-                                frac_bits,
-                                outer_axis,
-                            )
+        for test_context in self.test_contexts:
+            for outer_axis in range(len(test_context.outer_shape)):
+                with self.subTest(
+                    f"reduce_sum_axis_n with context {test_context}, and axis {outer_axis+1}"
+                ):
+                    self._test_reduce_sum_axis_n(test_context, outer_axis)
 
 
 if __name__ == "__main__":

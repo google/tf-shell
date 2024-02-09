@@ -218,3 +218,23 @@ REGISTER_OP("ReduceSum64")
     .Input("axis: int64")
     .Output("repeated_reduce_sum: variant")
     .SetIsStateful();
+
+// Modulus switching.
+REGISTER_OP("ModulusReduceKey64")
+    .Input("key: variant")
+    .Output("reduced_key: variant")
+    .SetIsStateful();
+
+REGISTER_OP("ModulusReduceCt64")
+    .Input("context: variant")
+    .Input("value: variant")
+    .Input("preserve_plaintext: bool")
+    .Output("reduced_value: variant")
+    .SetIsStateful();
+
+REGISTER_OP("ModulusReducePt64")
+    .Input("context: variant")
+    .Input("value: variant")
+    .Input("preserve_plaintext: bool")
+    .Output("reduced_value: variant")
+    .SetIsStateful();
