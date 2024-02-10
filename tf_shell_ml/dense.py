@@ -15,7 +15,7 @@
 # limitations under the License.
 import tensorflow as tf
 from tensorflow.python.keras import initializers
-import shell_tensor
+import tf_shell
 
 
 class ShellDense:
@@ -93,7 +93,7 @@ class ShellDense:
         if self.activation_deriv is not None:
             dy = self.activation_deriv(z, dy)
 
-        if isinstance(dy, shell_tensor.ShellTensor64):
+        if isinstance(dy, tf_shell.ShellTensor64):
             # It is a good idea to reduce the multiplication count before
             # the multiplication with the kernel. Multiplying by the kernel
             # requires a reduce_sum operation which makes it easy to exceed
@@ -105,10 +105,10 @@ class ShellDense:
             d_x = None  # no gradient needed for first layer
         else:
             kernel_t = tf.transpose(kernel)
-            d_x = shell_tensor.matmul(dy, kernel_t)
+            d_x = tf_shell.matmul(dy, kernel_t)
 
         # Perform the fixed point multiplication.
-        d_weights = shell_tensor.matmul(tf.transpose(x), dy, rotation_key)
+        d_weights = tf_shell.matmul(tf.transpose(x), dy, rotation_key)
 
         if not self.skip_normalization:
             assert False, "Normalization not implemented yet."
@@ -120,7 +120,7 @@ class ShellDense:
             # TODO(jchoncholas): reduce_sum is very expensive and requires slot rotation.
             # Not implemented yet. A better way than the reduce sum is to set batch size to 1 less
             # and use that last slot as the bias with input 1.
-            # #d_bias = shell_tensor.reduce_sum(dy, axis=0)
+            # #d_bias = tf_shell.reduce_sum(dy, axis=0)
             # if not self.skip_normalization:
             #     d_bias = d_bias / batch_size
             # grad_weights.append(d_bias)

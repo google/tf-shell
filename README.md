@@ -32,11 +32,11 @@ bootstrapping, e.g. SHELL) outweight limitations in circuit depth.
 
 ## Design
 
-This library has two modules, `shell_tensor` which supports Tensorflow Tensors
-containing ciphertexts with homomorphic properties, and `shell_ml` some (very)
+This library has two modules, `tf_shell` which supports Tensorflow Tensors
+containing ciphertexts with homomorphic properties, and `tf_shell_ml` some (very)
 simple machine learning tools supporting privacy preserving training.
 
-`tf-shell` was designed for Label-DP SGD where training data is vertically
+`tf-shell` is designed for Label-DP SGD where training data is vertically
 partitioned, e.g. one party holds features while another party holds labels. The
 party who holds the features would like to train a model without learning the
 labels. The resultant trained model is differentially private with respect to

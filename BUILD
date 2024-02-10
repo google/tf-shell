@@ -120,7 +120,7 @@ py_wheel(
     summary = "TF-Shell: Privacy preserving machine learning with Tensorflow and the SHELL encryption library",
     version = VERSION_LABEL,
     deps = [
-        "//shell_ml:shell_ml_pkg",
-        "//shell_tensor:shell_tensor_pkg",
+        "//tf_shell:tf_shell_pkg",
+        "//tf_shell_ml:tf_shell_ml_pkg",
     ],
 )
