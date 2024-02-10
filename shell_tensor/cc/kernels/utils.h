@@ -32,6 +32,8 @@ using tensorflow::errors::InvalidArgument;
 
 using std::vector;
 
+// Given an OpKernelContext and an index, returns the scalar value at that index
+// in the context. If the tensor is not a scalar, returns an error.
 template <typename T>
 StatusOr<T> GetScalar(OpKernelContext* ctx, int index) {
   Tensor const& input = ctx->input(index);
@@ -43,6 +45,8 @@ StatusOr<T> GetScalar(OpKernelContext* ctx, int index) {
   return input.scalar<T>()(0);
 }
 
+// Given an OpKernelContext and an index, returns the vector value at that index
+// in the context. If the tensor is not a vector, returns an error.
 template <typename T>
 StatusOr<vector<T>> GetVector(OpKernelContext* ctx, int index) {
   Tensor const& input = ctx->input(index);

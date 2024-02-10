@@ -54,12 +54,14 @@ class KeyGenOp : public OpKernel {
   explicit KeyGenOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the context variant from the input which holds all the shell objects
+    // needed to sample a secret key.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
-
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
     Prng* prng = shell_ctx_var->prng_.get();
 
+    // Allocate output tensor which is a scalar holding the secret key.
     Tensor* out;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, TensorShape{}, &out));
 
@@ -87,10 +89,10 @@ class EncryptOp : public OpKernel {
   explicit EncryptOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
-    int num_slots = 1 << shell_ctx->LogN();
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
@@ -98,6 +100,8 @@ class EncryptOp : public OpKernel {
 
     Tensor const& input = op_ctx->input(2);
 
+    // Allocate the output tensor which is the same shape as the input
+    // tensor holding the shell polynomials.
     Tensor* output;
     auto output_shape = input.shape();
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
@@ -139,11 +143,11 @@ class DecryptOp : public OpKernel {
   explicit DecryptOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<From> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<From>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
     Encoder const* encoder = shell_ctx_var->encoder_.get();
-    size_t num_slots = 1 << shell_ctx->LogN();
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<From> const* key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<From>>(op_ctx, 1));
@@ -154,7 +158,11 @@ class DecryptOp : public OpKernel {
                 InvalidArgument("Cannot decrypt empty ciphertext"));
     auto flat_input = input.flat<Variant>();
 
-    // Set output shape to include polynomial slots as first dim.
+    size_t num_slots = 1 << shell_ctx->LogN();
+
+    // Allocate the output tensor so that the shape include an extra dimension
+    // at the beginning to hold values in the slots unpacked from the
+    // ciphertext.
     Tensor* output;
     auto output_shape = input.shape();
     OP_REQUIRES_OK(op_ctx, output_shape.InsertDimWithStatus(0, num_slots));
@@ -170,10 +178,10 @@ class DecryptOp : public OpKernel {
                                   " did not unwrap successfully."));
       SymmetricCt const& ct = ct_var->ct;
 
-      // Descrypt() returns coefficients in underlying (e.g. uint64) form after
-      // doing the outter modulo and inverse NTT.
+      // Decrypt() returns coefficients in underlying (e.g. uint64) form after
+      // doing the outer modulo and inverse NTT.
       // The current version of the shell library requires the plaintext modulus
-      // is 2^(log_t) + 1. The library does the mod 1 as part of decyption.
+      // is 2^(log_t) + 1. The library does the mod 1 as part of decryption.
       // TODO: above comment written for non-rns code. Is it still true?
       OP_REQUIRES_VALUE(std::vector<From> decryptions, op_ctx,
                         secret_key->template DecryptBgv<Encoder>(ct, encoder));

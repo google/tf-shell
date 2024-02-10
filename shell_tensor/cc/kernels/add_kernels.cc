@@ -36,6 +36,10 @@ using tensorflow::uint64;
 using tensorflow::Variant;
 using tensorflow::errors::InvalidArgument;
 
+// The TensorFlow custom Ops below use the same class for addition and
+// subtraction. To do so, they are templated on a functor that performs either
+// the addition or subtraction. These functors are defined below.
+
 template <typename OutT, typename LhsT, typename RhsT>
 struct ShellAddFunctor {
   constexpr rlwe::StatusOr<OutT> operator()(LhsT const& lhs,
@@ -92,6 +96,7 @@ class AddCtCtOp : public OpKernel {
   explicit AddCtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Unpack the input arguments.
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
@@ -100,9 +105,11 @@ class AddCtCtOp : public OpKernel {
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
+    // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up flat views of the inputs and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<Variant>();
     auto flat_output = output->flat<Variant>();
@@ -142,15 +149,20 @@ class AddCtPtOp : public OpKernel {
   explicit AddCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Unpack the input arguments.
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
+    // Check the inputs have the same shape. This Op does not support
+    // broadcasting.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
+    // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up flat views of the inputs and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<Variant>();
     auto flat_output = output->flat<Variant>();
@@ -190,6 +202,7 @@ class AddPtPtOp : public OpKernel {
   explicit AddPtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Unpack the input arguments.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
@@ -197,12 +210,16 @@ class AddPtPtOp : public OpKernel {
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
 
+    // Check the inputs have the same shape. This Op does not support
+    // broadcasting.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
+    // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up flat views of the inputs and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<Variant>();
     auto flat_output = output->flat<Variant>();
@@ -245,11 +262,14 @@ class NegCtOp : public OpKernel {
   explicit NegCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Unpack the input argument.
     Tensor const& a = op_ctx->input(0);
 
+    // Allocate the output tensor which is the same size as the input.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up flat views of the input and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_output = output->flat<Variant>();
 
@@ -280,15 +300,18 @@ class NegPtOp : public OpKernel {
   explicit NegPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Unpack the input arguments.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
 
     Tensor const& a = op_ctx->input(1);
 
+    // Allocate the output tensor which is the same size as the input.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up flat views of the input and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_output = output->flat<Variant>();
 

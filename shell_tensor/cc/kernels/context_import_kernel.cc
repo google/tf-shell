@@ -40,6 +40,7 @@ class ContextImportOp : public OpKernel {
   explicit ContextImportOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Unpack inputs.
     OP_REQUIRES_VALUE(size_t log_n, op_ctx, GetScalar<size_t>(op_ctx, 0));
     OP_REQUIRES_VALUE(std::vector<T> qs, op_ctx, GetVector<T>(op_ctx, 1));
     OP_REQUIRES_VALUE(std::vector<T> ps, op_ctx, GetVector<T>(op_ctx, 2));
@@ -49,9 +50,11 @@ class ContextImportOp : public OpKernel {
     OP_REQUIRES_VALUE(tstring t_seed, op_ctx, GetScalar<tstring>(op_ctx, 5));
     std::string seed(t_seed.c_str());
 
+    // Allocate the output.
     Tensor* out0;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, TensorShape{}, &out0));
 
+    // Initialize the context variant and store it in the output.
     ContextVariant<T> ctx_variant{};
     OP_REQUIRES_OK(op_ctx, ctx_variant.Initialize(log_n, qs, ps, pt_modulus,
                                                   noise_variance, seed));

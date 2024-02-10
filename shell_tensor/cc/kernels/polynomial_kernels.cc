@@ -59,22 +59,15 @@ class PolynomialImportOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<To> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<To>>(op_ctx, 0));
-
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
-    // TODO if debug
-    OP_REQUIRES(op_ctx, shell_ctx != nullptr,
-                InvalidArgument("Shell context object is empty."));
-
     Encoder const* encoder = shell_ctx_var->encoder_.get();
-    // TODO if debug
-    OP_REQUIRES(op_ctx, encoder != nullptr,
-                InvalidArgument("Shell encoder object is empty."));
-
-    int num_slots = 1 << shell_ctx->LogN();
 
     Tensor const& input = op_ctx->input(1);
+
+    int num_slots = 1 << shell_ctx->LogN();
 
     // First dimension of the shape must equal number of slots.
     OP_REQUIRES(
@@ -82,11 +75,15 @@ class PolynomialImportOp : public OpKernel {
         InvalidArgument("Dimensions expected to start with: ", num_slots,
                         " but got shape: ", input.shape().DebugString()));
 
+    // Allocate output tensor with the same shape as the input tensor except
+    // for the first dimension which is removed since it is a polynomial
+    // where each slot is packed by the first dimension of the tensor.
     Tensor* output;
     auto output_shape = input.shape();
     OP_REQUIRES_OK(op_ctx, output_shape.RemoveDimWithStatus(0));
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
 
+    // Set up flat views of the input and output tensors.
     auto flat_input = input.flat_outer_dims<From>();
     auto flat_output = output->flat<Variant>();
 
@@ -154,16 +151,18 @@ class PolynomialExportOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<From> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<From>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
     Encoder const* encoder = shell_ctx_var->encoder_.get();
 
-    size_t num_slots = 1 << shell_ctx->LogN();
-
     Tensor const& input = op_ctx->input(1);
 
-    // set output dim to include slots in the polynomial
+    size_t num_slots = 1 << shell_ctx->LogN();
+
+    // Allocate the output tensor including the first dimension which is the
+    // slots of the polynomial after unpacking.
     Tensor* output;
     auto output_shape = input.shape();
     OP_REQUIRES_OK(op_ctx, output_shape.InsertDimWithStatus(0, num_slots));

@@ -59,39 +59,48 @@ class RotationKeyGenOp : public OpKernel {
   explicit RotationKeyGenOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
+
     Key const* secret_key = &secret_key_var->key;
 
-    // Create the gadget.
-    int level = shell_ctx->NumMainPrimeModuli() - 1;
-    OP_REQUIRES_VALUE(auto q_hats, op_ctx,
-                      shell_ctx->MainPrimeModulusComplements(level));
-    OP_REQUIRES_VALUE(auto q_hat_invs, op_ctx,
-                      shell_ctx->MainPrimeModulusCrtFactors(level));
-    std::vector<size_t> log_bs(shell_ctx->NumMainPrimeModuli(), kLogGadgetBase);
-    OP_REQUIRES_VALUE(Gadget raw_gadget, op_ctx,
-                      Gadget::Create(shell_ctx->LogN(), log_bs, q_hats,
-                                     q_hat_invs, shell_ctx->MainPrimeModuli()));
-
-    // Store the gadget in a variant.
-    // Once it has been std::moved into it's final memory location, it can
-    // be used to create the rotation keys.
+    // Allocate the output tensor which is a scalar containing the rotation key.
     Tensor* out;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, TensorShape{}, &out));
-    RotationKeyVariant<T> v_out(std::move(raw_gadget));
-    out->scalar<Variant>()() = std::move(v_out);
-    RotationKeyVariant<T>* key_variant =
-        out->scalar<Variant>()(0).get<RotationKeyVariant<T>>();
+    Gadget* gadget = nullptr;
+    RotationKeyVariant<T>* key_variant = nullptr;
+    {  // Add a scope to ensure the gadget created on the stack cannot be used
+       // after it is std::moved into the output tensor.
+      // Create the gadget.
+      int level = shell_ctx->NumMainPrimeModuli() - 1;
+      OP_REQUIRES_VALUE(auto q_hats, op_ctx,
+                        shell_ctx->MainPrimeModulusComplements(level));
+      OP_REQUIRES_VALUE(auto q_hat_invs, op_ctx,
+                        shell_ctx->MainPrimeModulusCrtFactors(level));
+      std::vector<size_t> log_bs(shell_ctx->NumMainPrimeModuli(),
+                                 kLogGadgetBase);
+      OP_REQUIRES_VALUE(
+          Gadget raw_gadget, op_ctx,
+          Gadget::Create(shell_ctx->LogN(), log_bs, q_hats, q_hat_invs,
+                         shell_ctx->MainPrimeModuli()));
+
+      // Store the gadget in a variant. Once it has been std::moved into it's
+      // final memory location in the output tensor, it can be used to create
+      // the rotation keys.
+      RotationKeyVariant<T> v_out(std::move(raw_gadget));
+      out->scalar<Variant>()() = std::move(v_out);
+      key_variant = out->scalar<Variant>()(0).get<RotationKeyVariant<T>>();
+    }
     OP_REQUIRES(op_ctx, key_variant != nullptr,
                 InvalidArgument(
                     "RotationKeyVariant did not unwrap successfully. Saw: '",
                     out->scalar<Variant>()().DebugString(), "'"));
-    Gadget* gadget = &key_variant->gadget;
+    gadget = &key_variant->gadget;
 
     // The substitution power for Galois rotation by one slot.
     constexpr int base_power = 5;
@@ -100,7 +109,7 @@ class RotationKeyGenOp : public OpKernel {
     // This method of rotation only allows us to rotate within half of the
     // polynomial slots. E.g. for n slots, slot 0 can be rotated to at most
     // n/2-1 and n/2 to n-1. This has implications for how batching is done if
-    // performing backpropagation under encryption.
+    // performing back propagation under encryption.
     int num_rotation_keys = 1 << (shell_ctx->LogN() - 1);
     int two_n = 1 << (shell_ctx->LogN() + 1);
 
@@ -130,14 +139,14 @@ class RollOp : public OpKernel {
   explicit RollOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
-    OP_REQUIRES(
-        op_ctx, rotation_key_var != nullptr,
-        InvalidArgument("RotationKeyVariant a did not unwrap successfully."));
+
     std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
 
     Tensor const& value = op_ctx->input(1);
+
     OP_REQUIRES_VALUE(int64 shift, op_ctx, GetScalar<int64>(op_ctx, 2));
     shift = -shift;  // tensorflow.roll() uses negative shift for left shift.
 
@@ -146,7 +155,7 @@ class RollOp : public OpKernel {
 
     auto flat_value = value.flat<Variant>();
 
-    // Setup the output.
+    // Allocate the output tensor which is the same size as the input tensor.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, value.shape(), &output));
     auto flat_output = output->flat<Variant>();
@@ -223,11 +232,14 @@ class ReduceSumByRotationOp : public OpKernel {
     // Recover the input rotation keys.
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
-    OP_REQUIRES(
-        op_ctx, rotation_key_var != nullptr,
-        InvalidArgument("RotationKeyVariant a did not unwrap successfully."));
+
     std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
 
+    // Allocate the output tensor which is the same size as the input tensor,
+    // TensorFlow's reduce_sum has slightly different semantics than this
+    // operation. This operation affects top and bottom halves independently, as
+    // well as repeating the sum across the halves such that the output is
+    // the same shape as the input.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, value.shape(), &output));
     auto flat_output = output->flat<Variant>();
