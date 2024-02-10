@@ -18,7 +18,7 @@ import time
 import numpy as np
 import tensorflow as tf
 import keras
-import shell_tensor
+import tf_shell
 from datetime import datetime
 
 
@@ -26,7 +26,7 @@ log_slots = 11
 slots = 2**log_slots
 fxp_num_bits = 8  # number of fractional bits.
 
-context = shell_tensor.create_context64(
+context = tf_shell.create_context64(
     log_n=log_slots,
     main_moduli=[8556589057, 8388812801],
     aux_moduli=[34359709697],
@@ -34,7 +34,7 @@ context = shell_tensor.create_context64(
     noise_variance=8,
     seed="",
 )
-key = shell_tensor.create_key64(context)
+key = tf_shell.create_key64(context)
 
 # Set the batch size to be half the number of slots. This is the maximum
 # batch size that can be used with the current implementation of tf-shell
@@ -165,10 +165,10 @@ def train_step(x, y):
         packable_grad = tf.reshape(layer_grad_full, [batch_sz, num_output_classes, -1])
         # ^  batch_size x num output classes x flattened weights
 
-        if isinstance(scalars, shell_tensor.ShellTensor64):
+        if isinstance(scalars, tf_shell.ShellTensor64):
             raise NotImplementedError("Not implemented for shell tensors")
-            tiled_scalars = shell_tensor.tile(
-                shell_tensor.expand_dims(scalars, axis=-1),
+            tiled_scalars = tf_shell.tile(
+                tf_shell.expand_dims(scalars, axis=-1),
                 [1, 1, packable_grad.shape[-1]],
             )
         else:
@@ -182,7 +182,7 @@ def train_step(x, y):
         # ^ dy_pred/dW * dJ/dy_pred = dJ/dW
 
         # Sum over the output classes.
-        if isinstance(scaled_grad, shell_tensor.ShellTensor64):
+        if isinstance(scaled_grad, tf_shell.ShellTensor64):
             scaled_grad = scaled_grad.reduce_sum(axis=1)
         else:
             scaled_grad = tf.reduce_sum(scaled_grad, axis=1)
@@ -192,7 +192,7 @@ def train_step(x, y):
         # TODO Clip the gradient, add DP noise, and aggregate over the batch.
 
         # Decrypt and reshape to remove the '1' dimension in the middle.
-        if isinstance(scaled_grad, shell_tensor.ShellTensor64):
+        if isinstance(scaled_grad, tf_shell.ShellTensor64):
             scaled_grad = scaled_grad.get_decrypted(key)
         plaintext_grad = tf.reshape(scaled_grad, [batch_sz] + grad_shape)
 
@@ -207,15 +207,13 @@ class TestPlaintextPostScale(unittest.TestCase):
 
         (x_batch, y_batch) = next(iter(train_dataset))
 
-        print(
-            f"Starting Batch: {step} / {len(train_dataset)}, Stamp: {time.time() - start_time}"
-        )
+        print(f"Starting stamp: {time.time() - start_time}")
 
         # Plaintext
         ps_grads = train_step(x_batch, y_batch)
 
         # Encrypted
-        enc_y_batch = shell_tensor.to_shell_tensor(context, y_batch).get_encrypted(key)
+        enc_y_batch = tf_shell.to_shell_tensor(context, y_batch).get_encrypted(key)
 
         shell_ps_grads = train_step(x_batch, enc_y_batch)
 

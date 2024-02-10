@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import shell_tensor
+import tf_shell
 import math
 
 
@@ -35,7 +35,7 @@ class TestContext:
         self.outer_shape = outer_shape
         self.plaintext_dtype = plaintext_dtype
 
-        self.shell_context = shell_tensor.create_context64(
+        self.shell_context = tf_shell.create_context64(
             log_n=log_n,
             main_moduli=main_moduli,
             aux_moduli=aux_moduli,
@@ -46,14 +46,14 @@ class TestContext:
             seed=seed,
         )
 
-        self.key = shell_tensor.create_key64(self.shell_context)
+        self.key = tf_shell.create_key64(self.shell_context)
 
     @property
     def rotation_key(self):
         # Rotation keys are slow to generate. Only generate them on demand and
         # cache them.
         if not hasattr(self, "_rotation_key"):
-            self._rotation_key = shell_tensor.create_rotation_key64(
+            self._rotation_key = tf_shell.create_rotation_key64(
                 self.shell_context, self.key
             )
         return self._rotation_key

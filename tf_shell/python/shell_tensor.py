@@ -15,11 +15,11 @@
 # limitations under the License.
 import math
 import tensorflow as tf
-import shell_tensor.python.ops.shell_ops as shell_ops
-import shell_tensor.shell as raw_bindings
-from shell_tensor.python.shell_context import ShellContext64
-from shell_tensor.python.shell_key import ShellKey64
-from shell_tensor.python.shell_key import ShellRotationKey64
+import tf_shell.python.ops.shell_ops as shell_ops
+import tf_shell.shell as raw_bindings
+from tf_shell.python.shell_context import ShellContext64
+from tf_shell.python.shell_key import ShellKey64
+from tf_shell.python.shell_key import ShellRotationKey64
 
 
 class ShellTensor64(object):

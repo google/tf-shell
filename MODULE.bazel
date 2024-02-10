@@ -1,6 +1,6 @@
 module(
-    name = "tf_shell",
-    version = "0.0.2",
+    name = "tf-shell",
+    version = "0.0.3",  # Also in version.bzl
 )
 
 hermetic_python_version = "3.10"

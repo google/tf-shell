@@ -1,7 +1,7 @@
 load("@rules_python//python:packaging.bzl", "py_package")
 
 py_library(
-    name = "shell_ml",
+    name = "tf_shell_ml",
     srcs = [
         "__init__.py",
         "activation.py",
@@ -11,14 +11,14 @@ py_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
     ],
 )
 
 py_package(
-    name = "shell_ml_pkg",
+    name = "tf_shell_ml_pkg",
     visibility = ["//:__pkg__"],
     deps = [
-        ":shell_ml",
+        ":tf_shell_ml",
     ],
 )

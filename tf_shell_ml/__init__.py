@@ -15,17 +15,7 @@
 # limitations under the License.
 from __future__ import absolute_import
 
-from shell_tensor import shell
-from shell_tensor.python.shell_tensor import ShellTensor64
-from shell_tensor.python.shell_tensor import to_shell_tensor
-from shell_tensor.python.shell_tensor import from_shell_tensor
-from shell_tensor.python.shell_tensor import matmul
-
-from shell_tensor.python.shell_context import ShellContext64
-from shell_tensor.python.shell_context import create_context64
-
-from shell_tensor.python.shell_key import ShellKey64
-from shell_tensor.python.shell_key import create_key64
-
-from shell_tensor.python.shell_key import ShellRotationKey64
-from shell_tensor.python.shell_key import create_rotation_key64
+from tf_shell_ml.dense import ShellDense
+from tf_shell_ml.activation import relu, relu_deriv, sigmoid, sigmoid_deriv
+from tf_shell_ml.optimizer import Adam
+from tf_shell_ml.loss import CategoricalCrossentropy

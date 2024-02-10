@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import shell_tensor
+import tf_shell
 import test_utils
 
 
@@ -88,9 +88,9 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
         nsa = -sa
-        self.assertAllClose(-a, shell_tensor.from_shell_tensor(nsa))
+        self.assertAllClose(-a, tf_shell.from_shell_tensor(nsa))
 
         ea = sa.get_encrypted(test_context.key)
         nea = -ea
@@ -119,10 +119,10 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        ea = shell_tensor.to_shell_tensor(test_context.shell_context, a).get_encrypted(
+        ea = tf_shell.to_shell_tensor(test_context.shell_context, a).get_encrypted(
             test_context.key
         )
-        eb = shell_tensor.to_shell_tensor(test_context.shell_context, b).get_encrypted(
+        eb = tf_shell.to_shell_tensor(test_context.shell_context, b).get_encrypted(
             test_context.key
         )
 
@@ -136,7 +136,7 @@ class TestShellTensor(tf.test.TestCase):
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            eaa = shell_tensor.to_shell_tensor(
+            eaa = tf_shell.to_shell_tensor(
                 test_context.shell_context, a + max_val
             ).get_encrypted(test_context.key)
             ed = eaa - eb
@@ -165,8 +165,8 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
-        sb = shell_tensor.to_shell_tensor(test_context.shell_context, b)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
+        sb = tf_shell.to_shell_tensor(test_context.shell_context, b)
         ea = sa.get_encrypted(test_context.key)
 
         ec = ea + sb
@@ -180,7 +180,7 @@ class TestShellTensor(tf.test.TestCase):
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            eaa = shell_tensor.to_shell_tensor(
+            eaa = tf_shell.to_shell_tensor(
                 test_context.shell_context, a + max_val
             ).get_encrypted(test_context.key)
             ee = eaa - sb
@@ -188,7 +188,7 @@ class TestShellTensor(tf.test.TestCase):
                 a + max_val - b, ee.get_decrypted(test_context.key), atol=1e-3
             )
 
-            sbb = shell_tensor.to_shell_tensor(test_context.shell_context, b + max_val)
+            sbb = tf_shell.to_shell_tensor(test_context.shell_context, b + max_val)
             ef = sbb - ea
             self.assertAllClose(
                 b + max_val - a, ef.get_decrypted(test_context.key), atol=1e-3
@@ -202,7 +202,7 @@ class TestShellTensor(tf.test.TestCase):
 
         # Ensure initial arguments are not modified.
         self.assertAllClose(a, ea.get_decrypted(test_context.key))
-        self.assertAllClose(b, shell_tensor.from_shell_tensor(sb))
+        self.assertAllClose(b, tf_shell.from_shell_tensor(sb))
 
     def test_ct_pt_add(self):
         for test_context in self.test_contexts:
@@ -222,7 +222,7 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
         ea = sa.get_encrypted(test_context.key)
 
         ec = ea + b
@@ -237,7 +237,7 @@ class TestShellTensor(tf.test.TestCase):
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            eaa = shell_tensor.to_shell_tensor(
+            eaa = tf_shell.to_shell_tensor(
                 test_context.shell_context, a + max_val
             ).get_encrypted(test_context.key)
             ee = eaa - b
@@ -276,29 +276,29 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
-        sb = shell_tensor.to_shell_tensor(test_context.shell_context, b)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
+        sb = tf_shell.to_shell_tensor(test_context.shell_context, b)
 
         sc = sa + sb
-        self.assertAllClose(a + b, shell_tensor.from_shell_tensor(sc), atol=1e-3)
+        self.assertAllClose(a + b, tf_shell.from_shell_tensor(sc), atol=1e-3)
 
         if test_context.plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            saa = shell_tensor.to_shell_tensor(test_context.shell_context, a + max_val)
+            saa = tf_shell.to_shell_tensor(test_context.shell_context, a + max_val)
             ee = saa - sb
             self.assertAllClose(
-                a + max_val - b, shell_tensor.from_shell_tensor(ee), atol=1e-3
+                a + max_val - b, tf_shell.from_shell_tensor(ee), atol=1e-3
             )
         else:
             sd = sa - sb
-            self.assertAllClose(a - b, shell_tensor.from_shell_tensor(sd), atol=1e-3)
+            self.assertAllClose(a - b, tf_shell.from_shell_tensor(sd), atol=1e-3)
 
         # Ensure initial arguments are not modified.
-        self.assertAllClose(a, shell_tensor.from_shell_tensor(sa))
-        self.assertAllClose(b, shell_tensor.from_shell_tensor(sb))
+        self.assertAllClose(a, tf_shell.from_shell_tensor(sa))
+        self.assertAllClose(b, tf_shell.from_shell_tensor(sb))
 
     def test_pt_pt_add(self):
         for test_context in self.test_contexts:
@@ -318,37 +318,37 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
 
         sc = sa + b
-        self.assertAllClose(a + b, shell_tensor.from_shell_tensor(sc), atol=1e-3)
+        self.assertAllClose(a + b, tf_shell.from_shell_tensor(sc), atol=1e-3)
 
         sd = b + sa
-        self.assertAllClose(a + b, shell_tensor.from_shell_tensor(sd), atol=1e-3)
+        self.assertAllClose(a + b, tf_shell.from_shell_tensor(sd), atol=1e-3)
 
         if test_context.plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            saa = shell_tensor.to_shell_tensor(test_context.shell_context, a + max_val)
+            saa = tf_shell.to_shell_tensor(test_context.shell_context, a + max_val)
             se = saa - b
             self.assertAllClose(
-                a + max_val - b, shell_tensor.from_shell_tensor(se), atol=1e-3
+                a + max_val - b, tf_shell.from_shell_tensor(se), atol=1e-3
             )
 
             bb = b + max_val
             sf = bb - sa
-            self.assertAllClose(bb - a, shell_tensor.from_shell_tensor(sf), atol=1e-3)
+            self.assertAllClose(bb - a, tf_shell.from_shell_tensor(sf), atol=1e-3)
         else:
             se = sa - b
-            self.assertAllClose(a - b, shell_tensor.from_shell_tensor(se), atol=1e-3)
+            self.assertAllClose(a - b, tf_shell.from_shell_tensor(se), atol=1e-3)
 
             sf = b - sa
-            self.assertAllClose(b - a, shell_tensor.from_shell_tensor(sf), atol=1e-3)
+            self.assertAllClose(b - a, tf_shell.from_shell_tensor(sf), atol=1e-3)
 
         # Ensure initial arguments are not modified.
-        self.assertAllClose(a, shell_tensor.from_shell_tensor(sa))
+        self.assertAllClose(a, tf_shell.from_shell_tensor(sa))
 
     def test_pt_tf_add(self):
         for test_context in self.test_contexts:

@@ -14,14 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import shell_tensor
+import tf_shell
 
 
 class TestShellContext(tf.test.TestCase):
     def test_create_context(self):
         # Num plaintext bits: 48, noise bits: 65
         # Max plaintext value: 1, est error: 0.003%
-        context = shell_tensor.create_context64(
+        context = tf_shell.create_context64(
             log_n=11,
             main_moduli=[288230376151748609, 18014398509506561, 8404993, 8380417],
             aux_moduli=[],
@@ -47,7 +47,7 @@ class TestShellContext(tf.test.TestCase):
     def test_to_smaller_context(self):
         # Num plaintext bits: 48, noise bits: 65
         # Max plaintext value: 127, est error: 3.840%
-        context = shell_tensor.create_context64(
+        context = tf_shell.create_context64(
             log_n=11,
             main_moduli=[288230376151748609, 18014398509506561, 1073153, 1032193],
             aux_moduli=[],
@@ -57,10 +57,10 @@ class TestShellContext(tf.test.TestCase):
             mul_depth_supported=2,
             seed="",
         )
-        key = shell_tensor.create_key64(context)
+        key = tf_shell.create_key64(context)
 
         a = tf.ones([2**11], dtype=tf.float32) * 10
-        sa = shell_tensor.to_shell_tensor(context, a)
+        sa = tf_shell.to_shell_tensor(context, a)
         ea = sa.get_encrypted(key)
 
         # scaled_a = tf.cast(tf.round(a * 8392705 * 8392705), tf.int64)
@@ -82,7 +82,7 @@ class TestShellContext(tf.test.TestCase):
     def test_to_smaller_context_with_divide(self):
         # # Num plaintext bits: 48, noise bits: 65
         # # Max plaintext value: 127, est error: 3.840%
-        # context = shell_tensor.create_context64(
+        # context = tf_shell.create_context64(
         #     log_n=11,
         #     main_moduli=[288230376151748609, 18014398509506561, 1073153, 1032193],
         #     aux_moduli=[],
@@ -94,7 +94,7 @@ class TestShellContext(tf.test.TestCase):
         # )
         # Num plaintext bits: 48, noise bits: 30
         # Max plaintext value: 931915, est error: 0.000%
-        context = shell_tensor.create_context64(
+        context = tf_shell.create_context64(
             log_n=11,
             main_moduli=[288230376151748609, 557057, 12289],
             aux_moduli=[],
@@ -104,10 +104,10 @@ class TestShellContext(tf.test.TestCase):
             mul_depth_supported=1,
             seed="",
         )
-        key = shell_tensor.create_key64(context)
+        key = tf_shell.create_key64(context)
 
         a = tf.ones([2**11], dtype=tf.float32) * 931915
-        sa = shell_tensor.to_shell_tensor(context, a)
+        sa = tf_shell.to_shell_tensor(context, a)
         ea = sa.get_encrypted(key)
 
         # Switch context with preserve_plaintext=False should divide the

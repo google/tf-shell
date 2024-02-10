@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import shell_tensor
+import tf_shell
 import test_utils
 
 
@@ -131,8 +131,8 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
-        sb = shell_tensor.to_shell_tensor(test_context.shell_context, b)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
+        sb = tf_shell.to_shell_tensor(test_context.shell_context, b)
         ea = sa.get_encrypted(test_context.key)
         eb = sb.get_encrypted(test_context.key)
 
@@ -158,8 +158,8 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
-        sb = shell_tensor.to_shell_tensor(test_context.shell_context, b)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
+        sb = tf_shell.to_shell_tensor(test_context.shell_context, b)
         ea = sa.get_encrypted(test_context.key)
 
         ec = ea * sb
@@ -186,7 +186,7 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
         ea = sa.get_encrypted(test_context.key)
 
         ec = ea * b
@@ -213,7 +213,7 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
         ea = sa.get_encrypted(test_context.key)
 
         ec = ea * b
@@ -240,11 +240,11 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = shell_tensor.to_shell_tensor(test_context.shell_context, a)
-        sb = shell_tensor.to_shell_tensor(test_context.shell_context, b)
+        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
+        sb = tf_shell.to_shell_tensor(test_context.shell_context, b)
 
         sc = sa * sb
-        self.assertAllClose(a * b, shell_tensor.from_shell_tensor(sc))
+        self.assertAllClose(a * b, tf_shell.from_shell_tensor(sc))
 
     def test_pt_pt_mul(self):
         for test_context in self.test_contexts:
@@ -267,11 +267,11 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        ea = shell_tensor.to_shell_tensor(test_context.shell_context, a).get_encrypted(
+        ea = tf_shell.to_shell_tensor(test_context.shell_context, a).get_encrypted(
             test_context.key
         )
 
-        ec = shell_tensor.matmul(ea, b)
+        ec = tf_shell.matmul(ea, b)
         self.assertAllClose(a, ea.get_decrypted(test_context.key))
         c = tf.matmul(a, b)
         self.assertAllClose(
@@ -351,11 +351,11 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        eb = shell_tensor.to_shell_tensor(test_context.shell_context, b).get_encrypted(
+        eb = tf_shell.to_shell_tensor(test_context.shell_context, b).get_encrypted(
             test_context.key
         )
 
-        ec = shell_tensor.matmul(a, eb, test_context.rotation_key)
+        ec = tf_shell.matmul(a, eb, test_context.rotation_key)
         self.assertAllClose(
             b,
             eb.get_decrypted(test_context.key),

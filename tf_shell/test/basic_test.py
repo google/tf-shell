@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import shell_tensor
+import tf_shell
 
 import numpy as np
 import sys
@@ -27,7 +27,7 @@ class TestShellTensor(tf.test.TestCase):
     slots = 2**log_slots
 
     def get_context():
-        return shell_tensor.create_context64(
+        return tf_shell.create_context64(
             log_n=TestShellTensor.log_slots,
             main_moduli=[8556589057, 8388812801],
             aux_moduli=[34359709697],
@@ -41,8 +41,8 @@ class TestShellTensor(tf.test.TestCase):
         tftensor = tf.random.uniform(
             [TestShellTensor.slots, 3], dtype=tf.int32, maxval=100
         )
-        shelltensor = shell_tensor.to_shell_tensor(context, tftensor)
-        tftensor_out = shell_tensor.from_shell_tensor(shelltensor)
+        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
+        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
         self.assertAllClose(tftensor_out, tftensor)
 
     def test_create_shell_tensor_negative(self):
@@ -51,8 +51,8 @@ class TestShellTensor(tf.test.TestCase):
             tf.random.uniform([TestShellTensor.slots, 3], dtype=tf.int32, maxval=100)
             - 50
         )
-        shelltensor = shell_tensor.to_shell_tensor(context, tftensor)
-        tftensor_out = shell_tensor.from_shell_tensor(shelltensor)
+        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
+        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
         print(f"tftensor dtype {tftensor.dtype}")
         self.assertAllClose(tftensor_out, tftensor)
 
@@ -61,11 +61,11 @@ class TestShellTensor(tf.test.TestCase):
         tftensor = tf.random.uniform(
             [TestShellTensor.slots, 3], dtype=tf.int32, maxval=100
         )
-        shelltensor = shell_tensor.to_shell_tensor(context, tftensor)
+        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
         self.assertAllClose(tftensor.shape, shelltensor.shape)
         self.assertAllClose(tftensor.shape, shelltensor.shape)
 
-        tftensor_out = shell_tensor.from_shell_tensor(shelltensor)
+        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
         self.assertAllClose(tftensor.shape, tftensor_out.shape)
 
     def test_create_shell_tensor_multi_dim(self):
@@ -73,25 +73,25 @@ class TestShellTensor(tf.test.TestCase):
         tftensor = tf.random.uniform(
             [TestShellTensor.slots, 3, 5, 6], dtype=tf.int32, maxval=100
         )
-        shelltensor = shell_tensor.to_shell_tensor(context, tftensor)
-        tftensor_out = shell_tensor.from_shell_tensor(shelltensor)
+        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
+        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
         self.assertAllClose(tftensor_out, tftensor)
 
     def test_encrypt_decrypt_positive(self):
         context = TestShellTensor.get_context()
-        key = shell_tensor.create_key64(context)
+        key = tf_shell.create_key64(context)
         tftensor = tf.random.uniform(
             [TestShellTensor.slots, 3, 2, 12], dtype=tf.int32, maxval=100
         )
 
-        s = shell_tensor.to_shell_tensor(context, tftensor)
+        s = tf_shell.to_shell_tensor(context, tftensor)
         enc = s.get_encrypted(key)
         tftensor_out = enc.get_decrypted(key)
         self.assertAllClose(tftensor_out, tftensor)
 
     def test_encrypt_decrypt_negative(self):
         context = TestShellTensor.get_context()
-        key = shell_tensor.create_key64(context)
+        key = tf_shell.create_key64(context)
         tftensor = (
             tf.random.uniform(
                 [TestShellTensor.slots, 3, 2, 12], dtype=tf.int32, maxval=100
@@ -99,7 +99,7 @@ class TestShellTensor(tf.test.TestCase):
             - 50
         )
 
-        s = shell_tensor.to_shell_tensor(context, tftensor)
+        s = tf_shell.to_shell_tensor(context, tftensor)
         enc = s.get_encrypted(key)
         tftensor_out = enc.get_decrypted(key)
         self.assertAllClose(tftensor_out, tftensor)

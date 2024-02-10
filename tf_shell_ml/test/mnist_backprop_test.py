@@ -19,8 +19,8 @@ from datetime import datetime
 import tensorflow as tf
 import keras
 import numpy as np
-import shell_tensor
-import shell_ml
+import tf_shell
+import tf_shell_ml
 
 plaintext_dtype = tf.float32
 fxp_num_bits = 5  # number of fractional bits.
@@ -31,7 +31,7 @@ log_slots = 11
 slots = 2**log_slots
 
 # Num plaintext bits: 27, noise bits: 65, num rns moduli: 2
-context = shell_tensor.create_context64(
+context = tf_shell.create_context64(
     log_n=11,
     main_moduli=[140737488486401, 140737488498689],
     aux_moduli=[],
@@ -39,8 +39,8 @@ context = shell_tensor.create_context64(
     noise_variance=8,
     seed="",
 )
-key = shell_tensor.create_key64(context)
-rotation_key = shell_tensor.create_rotation_key64(context, key)
+key = tf_shell.create_key64(context)
+rotation_key = tf_shell.create_rotation_key64(context, key)
 
 # Training setup.
 epochs = 1
@@ -61,17 +61,17 @@ val_dataset = val_dataset.batch(batch_size)
 
 
 # Create the layers
-hidden_layer = shell_ml.ShellDense(
+hidden_layer = tf_shell_ml.ShellDense(
     64,
-    activation=shell_ml.relu,
-    activation_deriv=shell_ml.relu_deriv,
+    activation=tf_shell_ml.relu,
+    activation_deriv=tf_shell_ml.relu_deriv,
     fxp_fractional_bits=fxp_num_bits,
     weight_dtype=plaintext_dtype,
 )
-output_layer = shell_ml.ShellDense(
+output_layer = tf_shell_ml.ShellDense(
     10,
-    activation=shell_ml.sigmoid,
-    # activation_deriv=shell_ml.sigmoid_deriv,
+    activation=tf_shell_ml.sigmoid,
+    # activation_deriv=tf_shell_ml.sigmoid_deriv,
     fxp_fractional_bits=fxp_num_bits,
     weight_dtype=plaintext_dtype,
 )
@@ -80,8 +80,8 @@ output_layer = shell_ml.ShellDense(
 y1 = hidden_layer(tf.zeros((batch_size, 784)))
 y2 = output_layer(y1)
 
-loss_fn = shell_ml.CategoricalCrossentropy()
-optimizer = shell_ml.Adam()
+loss_fn = tf_shell_ml.CategoricalCrossentropy()
+optimizer = tf_shell_ml.Adam()
 optimizer.compile([hidden_layer.weights, output_layer.weights])
 
 
@@ -140,7 +140,7 @@ class TestMNISTBackprop(tf.test.TestCase):
         )
 
         # Encrypt y using fixed point representation.
-        enc_y_batch = shell_tensor.to_shell_tensor(
+        enc_y_batch = tf_shell.to_shell_tensor(
             context, y_batch, fxp_fractional_bits=fxp_num_bits
         ).get_encrypted(key)
 

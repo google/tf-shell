@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import shell_tensor
+import tf_shell
 import test_utils
 from multiprocessing import Pool
 from itertools import repeat
@@ -110,7 +110,7 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
 
-        s = shell_tensor.to_shell_tensor(test_context.shell_context, tftensor)
+        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
         enc = s.get_encrypted(test_context.key)
 
         rolled_enc = enc.roll(test_context.rotation_key, roll_num)
@@ -154,7 +154,7 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
 
-        s = shell_tensor.to_shell_tensor(test_context.shell_context, tftensor)
+        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
         enc = s.get_encrypted(test_context.key)
 
         # Test roll on a mod reduced ciphertext.
@@ -201,7 +201,7 @@ class TestShellTensorRotation(tf.test.TestCase):
             print(e)
             return
 
-        s = shell_tensor.to_shell_tensor(test_context.shell_context, tftensor)
+        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
         enc = s.get_encrypted(test_context.key)
 
         enc_reduce_sum = enc.reduce_sum(axis=0, rotation_key=test_context.rotation_key)
@@ -228,7 +228,7 @@ class TestShellTensorRotation(tf.test.TestCase):
             print(e)
             return
 
-        s = shell_tensor.to_shell_tensor(test_context.shell_context, tftensor)
+        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
         enc = s.get_encrypted(test_context.key)
 
         enc_reduce_sum = enc.reduce_sum(axis=outer_axis + 1)

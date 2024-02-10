@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import shell_tensor
+import tf_shell
 import test_utils
 
 
@@ -92,10 +92,10 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        ea = shell_tensor.to_shell_tensor(test_context.shell_context, a).get_encrypted(
+        ea = tf_shell.to_shell_tensor(test_context.shell_context, a).get_encrypted(
             test_context.key
         )
-        eb = shell_tensor.to_shell_tensor(test_context.shell_context, b).get_encrypted(
+        eb = tf_shell.to_shell_tensor(test_context.shell_context, b).get_encrypted(
             test_context.key
         )
 
@@ -128,10 +128,10 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        ea = shell_tensor.to_shell_tensor(test_context.shell_context, a).get_encrypted(
+        ea = tf_shell.to_shell_tensor(test_context.shell_context, a).get_encrypted(
             test_context.key
         )
-        eb = shell_tensor.to_shell_tensor(test_context.shell_context, b).get_encrypted(
+        eb = tf_shell.to_shell_tensor(test_context.shell_context, b).get_encrypted(
             test_context.key
         )
 

@@ -15,7 +15,7 @@
 # limitations under the License.
 import unittest
 from pybind11_abseil.pybind11_abseil import status
-import shell_tensor.shell as shell
+import tf_shell.shell as shell
 
 # Bindings tests merely exercise that library functions are exposed, but do not
 # additionally verify functionality, since that is the responsibility of the

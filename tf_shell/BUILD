@@ -76,7 +76,7 @@ pybind_extension(
 )
 
 py_library(
-    name = "shell_tensor_lib",
+    name = "tf_shell_lib",
     srcs = [
         "__init__.py",
         "python/__init__.py",
@@ -96,9 +96,9 @@ py_library(
 )
 
 py_package(
-    name = "shell_tensor_pkg",
+    name = "tf_shell_pkg",
     visibility = ["//:__pkg__"],
     deps = [
-        ":shell_tensor_lib",
+        ":tf_shell_lib",
     ],
 )

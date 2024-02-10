@@ -15,7 +15,7 @@
 # limitations under the License.
 import tensorflow as tf
 import numpy as np
-import shell_tensor
+import tf_shell
 
 
 def relu(x):
@@ -23,11 +23,11 @@ def relu(x):
 
 
 def relu_deriv(y, dy):
-    assert not isinstance(y, shell_tensor.ShellTensor64)
+    assert not isinstance(y, tf_shell.ShellTensor64)
     # Cannot operate on individual slots of a shell tensor.
     # Formulate the problem as element-wise multiplication.
     # t = np.dtype(dy.plaintext_dtype.as_numpy_dtype)
-    if isinstance(dy, shell_tensor.ShellTensor64):
+    if isinstance(dy, tf_shell.ShellTensor64):
         dy_dtype = dy.plaintext_dtype
     else:
         dy_dtype = dy.dtype

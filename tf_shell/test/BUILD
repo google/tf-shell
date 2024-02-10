@@ -4,7 +4,7 @@ py_test(
     name = "bindings_test",
     srcs = ["bindings_test.py"],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
     ],
 )
@@ -17,7 +17,7 @@ py_test(
         "test_utils.py",
     ],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
     ],
 )
@@ -29,7 +29,7 @@ py_test(
         "test_utils.py",
     ],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
     ],
 )
@@ -41,7 +41,7 @@ py_test(
         "test_utils.py",
     ],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
     ],
 )
@@ -53,7 +53,7 @@ py_test(
         "test_utils.py",
     ],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
     ],
 )
@@ -65,7 +65,7 @@ py_test(
         "test_utils.py",
     ],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
     ],
 )
@@ -78,7 +78,7 @@ py_test(
         "test_utils.py",
     ],
     deps = [
-        "//shell_tensor:shell_tensor_lib",
+        "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
     ],
 )
