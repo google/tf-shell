@@ -53,19 +53,25 @@ class MulCtCtOp : public OpKernel {
   explicit MulCtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
+    // Check that the inputs have the same shape because this Op does not
+    // support broadcasting.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
+    // Allocate the output tensor which is the same shape as each of the inputs.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up the flat views of the input and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<Variant>();
     auto flat_output = output->flat<Variant>();
 
+    // Multiply each pair of ciphertexts and store the result in the output.
     for (int i = 0; i < flat_output.dimension(0); ++i) {
       SymmetricCtVariant<T> const* ct_a_var =
           std::move(flat_a(i).get<SymmetricCtVariant<T>>());
@@ -100,15 +106,20 @@ class MulCtPtOp : public OpKernel {
   explicit MulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
+    // Check that the inputs have the same shape because this Op does not
+    // support broadcasting.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
+    // Allocate the output tensor which is the same shape as each of the inputs.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up the flat views of the inputs and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<Variant>();
     auto flat_output = output->flat<Variant>();
@@ -129,7 +140,7 @@ class MulCtPtOp : public OpKernel {
       RnsPolynomial const& pt_b = pv_b_var->poly;
 
       OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx,
-                        ct_a * pt_b);  // shell aborb operation
+                        ct_a * pt_b);  // shell absorb operation
 
       SymmetricCtVariant ct_c_var(std::move(ct_c));
       flat_output(i) = std::move(ct_c_var);
@@ -137,7 +148,8 @@ class MulCtPtOp : public OpKernel {
   }
 };
 
-// Multiply a ciphertext or a plaintext shell polynomial by a plaintext scalar.
+// This Op can multiply either a shell ciphertext or a plaintext polynomial by a
+// plaintext scalar, depending on the class template.
 template <typename T, typename PtT, typename CtOrPolyVariant>
 class MulShellTfScalarOp : public OpKernel {
  private:
@@ -152,19 +164,11 @@ class MulShellTfScalarOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Get the shell context object.
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
-    // TODO if debug
-    OP_REQUIRES(op_ctx, shell_ctx != nullptr,
-                InvalidArgument("Shell context object is empty."));
     Encoder const* encoder = shell_ctx_var->encoder_.get();
-    // TODO if debug
-    OP_REQUIRES(op_ctx, encoder != nullptr,
-                InvalidArgument("Shell encoder object is empty."));
-
-    int num_slots = 1 << shell_ctx->LogN();
 
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
@@ -173,12 +177,16 @@ class MulShellTfScalarOp : public OpKernel {
                 InvalidArgument("Plaintext must be scalar. Instead got shape:",
                                 b.shape().DebugString()));
 
+    // Allocate the output tensor which is the same shape as the first input.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up the flat views of the inputs and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<PtT>();
     auto flat_output = output->flat<Variant>();
+
+    int num_slots = 1 << shell_ctx->LogN();
 
     // First, create a polynomial out of the scalar b where every element is b.
     //
@@ -264,6 +272,7 @@ class MulPtPtOp : public OpKernel {
   explicit MulPtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
@@ -271,12 +280,16 @@ class MulPtPtOp : public OpKernel {
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
 
+    // Check that the inputs have the same shape because this Op does not
+    // support broadcasting.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
+    // Allocate the output tensor which is the same shape as each of the inputs.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
 
+    // Set up the flat views of the inputs and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<Variant>();
     auto flat_output = output->flat<Variant>();
@@ -337,6 +350,7 @@ class MatMulCtPtOp : public OpKernel {
   // TODO(jchoncholas): Support batching. a's dimension may be greater
   // than 2 and matmul is performed for each of the outer dims.
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
 
@@ -367,6 +381,7 @@ class MatMulCtPtOp : public OpKernel {
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(
                                0, TensorShape{b.dim_size(1)}, &output));
 
+    // Set up the flat views of the inputs and output tensors.
     auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat_outer_dims<PtT>();
     auto flat_output = output->flat<Variant>();
@@ -452,6 +467,7 @@ class MatMulPtCtOp : public OpKernel {
   explicit MatMulPtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
 
@@ -459,8 +475,6 @@ class MatMulPtCtOp : public OpKernel {
     // TODO if debug
     OP_REQUIRES(op_ctx, shell_ctx != nullptr,
                 InvalidArgument("Shell context object is empty."));
-
-    int num_slots = 1 << shell_ctx->LogN();
 
     Encoder const* encoder = shell_ctx_var->encoder_.get();
     // TODO if debug
@@ -479,6 +493,8 @@ class MatMulPtCtOp : public OpKernel {
     OP_REQUIRES(op_ctx, a.dims() >= 2 && b.dims() == 1,
                 InvalidArgument("Inputs must have dimension 2."));
 
+    // Extract the dimension sizes from the input tensors.
+    int num_slots = 1 << shell_ctx->LogN();
     int num_ct_cols = b.dim_size(0);
     int pt_total_size = a.NumElements();
     int num_pt_inner_rows = a.dim_size(a.dims() - 2);

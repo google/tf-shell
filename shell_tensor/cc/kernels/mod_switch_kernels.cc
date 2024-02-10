@@ -44,15 +44,18 @@ class ModulusReduceKeyOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    // Unpack the input arguments.
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 0));
     Key secret_key = secret_key_var->key;  // Deep copy.
 
+    // Allocate a scalar output tensor to store the reduced key.
     Tensor* out;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, TensorShape{}, &out));
 
     OP_REQUIRES_OK(op_ctx, secret_key.ModReduce());
 
+    // Store the reduced key in the output tensor.
     SymmetricKeyVariant<T> reduced_key_variant(std::move(secret_key));
     out->scalar<Variant>()() = std::move(reduced_key_variant);
   }
