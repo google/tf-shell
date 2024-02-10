@@ -31,11 +31,6 @@ class RotationKeyVariant {
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
 
  public:
-  typedef struct {
-    int substitution_power;
-    RotationKey key;
-  } PowerAndKey;
-
   RotationKeyVariant() {}
 
   // Create with gadget first, then create and add keys.
@@ -54,5 +49,31 @@ class RotationKeyVariant {
   std::string DebugString() const { return "ShellRotationKeyVariant"; }
 
   Gadget gadget;
-  std::map<int, PowerAndKey> keys;
+  std::vector<RotationKey> keys;
+};
+
+template <typename T>
+class SingleRotationKeyVariant {
+  using ModularInt = rlwe::MontgomeryInt<T>;
+  using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
+
+ public:
+  SingleRotationKeyVariant() {}
+
+  // Create with gadget first, then create and add keys.
+  SingleRotationKeyVariant(RotationKey key) : key(key) {}
+
+  static inline char const kTypeName[] = "SingleRotationKeyVariant";
+
+  std::string TypeName() const { return kTypeName; }
+
+  // TODO(jchoncholas): implement for networking
+  void Encode(VariantTensorData* data) const {};
+
+  // TODO(jchoncholas): implement for networking
+  bool Decode(VariantTensorData const& data) { return true; };
+
+  std::string DebugString() const { return "SingleRotationKeyVariant"; }
+
+  RotationKey key;
 };

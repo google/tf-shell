@@ -461,7 +461,6 @@ class MatMulPtCtOp : public OpKernel {
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
   using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
-  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
 
  public:
   explicit MatMulPtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -483,7 +482,7 @@ class MatMulPtCtOp : public OpKernel {
 
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
-    std::map<int, PowerAndKey> const* rot_keys = &rotation_key_var->keys;
+    std::vector<RotationKey> const& rot_keys = rotation_key_var->keys;
 
     Tensor const& a = op_ctx->input(2);
     Tensor const& b = op_ctx->input(3);
@@ -596,15 +595,14 @@ class MatMulPtCtOp : public OpKernel {
           // ciphertext separately. So the max rotatation is by half the
           // number of slots.
           for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
-            // TODO if debug
-            OP_REQUIRES(op_ctx, rot_keys->find(shift) != rot_keys->end(),
+            OP_REQUIRES(op_ctx, shift - 1 < rot_keys.size(),  // Skip key 0.
                         InvalidArgument("No key for shift of '", shift, "'"));
-            PowerAndKey const& p_and_k = rot_keys->at(shift);
+            RotationKey const* k = &rot_keys[shift - 1];  // Skip key 0.
 
             // Rotate by the shift.
             OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
-                              ct_result.Substitute(p_and_k.substitution_power));
-            OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
+                              ct_result.Substitute(k->SubstitutionPower()));
+            OP_REQUIRES_VALUE(auto ct_rot, op_ctx, k->ApplyTo(ct_sub));
 
             // Add to the sum.
             OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(ct_rot));

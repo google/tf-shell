@@ -53,7 +53,6 @@ class RotationKeyGenOp : public OpKernel {
   using Key = rlwe::RnsRlweSecretKey<ModularInt>;
   using Gadget = rlwe::RnsGadget<ModularInt>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
-  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
 
  public:
   explicit RotationKeyGenOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -73,7 +72,6 @@ class RotationKeyGenOp : public OpKernel {
     Tensor* out;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, TensorShape{}, &out));
     Gadget* gadget = nullptr;
-    RotationKeyVariant<T>* key_variant = nullptr;
     {  // Add a scope to ensure the gadget created on the stack cannot be used
        // after it is std::moved into the output tensor.
       // Create the gadget.
@@ -94,8 +92,9 @@ class RotationKeyGenOp : public OpKernel {
       // the rotation keys.
       RotationKeyVariant<T> v_out(std::move(raw_gadget));
       out->scalar<Variant>()() = std::move(v_out);
-      key_variant = out->scalar<Variant>()(0).get<RotationKeyVariant<T>>();
     }
+    RotationKeyVariant<T>* key_variant =
+        out->scalar<Variant>()(0).get<RotationKeyVariant<T>>();
     OP_REQUIRES(op_ctx, key_variant != nullptr,
                 InvalidArgument(
                     "RotationKeyVariant did not unwrap successfully. Saw: '",
@@ -104,7 +103,6 @@ class RotationKeyGenOp : public OpKernel {
 
     // The substitution power for Galois rotation by one slot.
     constexpr int base_power = 5;
-    int sub_power = base_power;
 
     // This method of rotation only allows us to rotate within half of the
     // polynomial slots. E.g. for n slots, slot 0 can be rotated to at most
@@ -113,16 +111,51 @@ class RotationKeyGenOp : public OpKernel {
     int num_rotation_keys = 1 << (shell_ctx->LogN() - 1);
     int two_n = 1 << (shell_ctx->LogN() + 1);
 
-    // TODO: baby-step giant-step.
+    // Create a temp Tensor to hold the individual rotation keys as they are
+    // generated. After they are all finished, they are moved into the scalar
+    // output tensor so they are all together and easier to keep track of.
+    Tensor individual_keys;
+    OP_REQUIRES_OK(
+        op_ctx, op_ctx->allocate_temp(tensorflow::DT_VARIANT,
+                                      {num_rotation_keys}, &individual_keys));
+    auto flat_key_buffer = individual_keys.flat<Variant>();
+
+    auto variance = secret_key->Variance();
+    auto t = shell_ctx->PlaintextModulus();
+
+    auto generate_keys_in_range = [&, secret_key, gadget](int start, int end) {
+      // Skip rotation key at zero.
+      if (start == 0) ++start;
+
+      int sub_power = base_power;
+      for (int i = 1; i < start; ++i) {
+        sub_power *= base_power;
+        sub_power %= two_n;
+      }
+
+      for (int i = start; i < end; ++i) {
+        OP_REQUIRES_VALUE(
+            RotationKey k, op_ctx,
+            RotationKey::CreateForBgv(*secret_key, sub_power, variance, gadget,
+                                      t, kPrngType));
+        SingleRotationKeyVariant<T> k_out(std::move(k));
+        flat_key_buffer(i) = std::move(k_out);
+        sub_power *= base_power;
+        sub_power %= two_n;
+      }
+    };
+
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_key = 70031909;  // ns measured on log_n = 11, 3 moduli
+    thread_pool->ParallelFor(num_rotation_keys, cost_per_key,
+                             generate_keys_in_range);
+
+    // Move the keys out of the buffer and into the output tensor.
+    key_variant->keys.reserve(num_rotation_keys);
     for (int i = 1; i < num_rotation_keys; ++i) {
-      OP_REQUIRES_VALUE(RotationKey k, op_ctx,
-                        RotationKey::CreateForBgv(
-                            *secret_key, sub_power, secret_key->Variance(),
-                            gadget, shell_ctx->PlaintextModulus(), kPrngType));
-      PowerAndKey p_and_k{sub_power, std::move(k)};
-      key_variant->keys.emplace(i, std::move(p_and_k));
-      sub_power *= base_power;
-      sub_power %= two_n;
+      key_variant->keys.push_back(std::move(
+          flat_key_buffer(i).get<SingleRotationKeyVariant<T>>()->key));
     }
   }
 };
@@ -133,7 +166,6 @@ class RollOp : public OpKernel {
   using ModularInt = rlwe::MontgomeryInt<T>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
-  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
 
  public:
   explicit RollOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -143,7 +175,7 @@ class RollOp : public OpKernel {
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
 
-    std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
+    std::vector<RotationKey> const& keys = rotation_key_var->keys;
 
     Tensor const& value = op_ctx->input(1);
 
@@ -179,33 +211,42 @@ class RollOp : public OpKernel {
       shift += num_slots / 2;
     }
 
-    PowerAndKey const* p_and_k;
+    RotationKey const* key;
     if (shift != 0) {
-      OP_REQUIRES(op_ctx, keys->find(shift) != keys->end(),
+      OP_REQUIRES(op_ctx, shift - 1 < keys.size(),  // Skip key at zero.
                   InvalidArgument("No key for shift of '", shift, "'"));
-      p_and_k = &keys->at(shift);
+      key = &keys[shift - 1];  // Skip key at zero.
     }
 
-    for (int i = 0; i < flat_output.dimension(0); ++i) {
-      SymmetricCtVariant<T> const* ct_var =
-          std::move(flat_value(i).get<SymmetricCtVariant<T>>());
-      OP_REQUIRES(op_ctx, ct_var != nullptr,
-                  InvalidArgument("SymmetricCtVariant at flat index: ", i,
-                                  " for input a did not unwrap successfully."));
-      SymmetricCt const& ct = ct_var->ct;
+    auto roll_in_range = [&](int start, int end) {
+      for (int i = start; i < end; ++i) {
+        SymmetricCtVariant<T> const* ct_var =
+            std::move(flat_value(i).get<SymmetricCtVariant<T>>());
+        OP_REQUIRES(
+            op_ctx, ct_var != nullptr,
+            InvalidArgument("SymmetricCtVariant at flat index: ", i,
+                            " for input a did not unwrap successfully."));
+        SymmetricCt const& ct = ct_var->ct;
 
-      if (shift == 0) {
-        SymmetricCtVariant ct_out_var(ct);
-        flat_output(i) = std::move(ct_out_var);
-      } else {
-        OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
-                          ct.Substitute(p_and_k->substitution_power));
-        OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k->key.ApplyTo(ct_sub));
+        if (shift == 0) {
+          SymmetricCtVariant ct_out_var(ct);
+          flat_output(i) = std::move(ct_out_var);
+        } else {
+          OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
+                            ct.Substitute(key->SubstitutionPower()));
+          OP_REQUIRES_VALUE(auto ct_rot, op_ctx, key->ApplyTo(ct_sub));
 
-        SymmetricCtVariant ct_out_var(std::move(ct_rot));
-        flat_output(i) = std::move(ct_out_var);
+          SymmetricCtVariant ct_out_var(std::move(ct_rot));
+          flat_output(i) = std::move(ct_out_var);
+        }
       }
-    }
+    };
+
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_rot = 2532269;  // ns, measured on log_n = 11
+    thread_pool->ParallelFor(flat_output.dimension(0), cost_per_rot,
+                             roll_in_range);
   }
 };
 
@@ -215,7 +256,6 @@ class ReduceSumByRotationOp : public OpKernel {
   using ModularInt = rlwe::MontgomeryInt<T>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
-  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
 
  public:
   explicit ReduceSumByRotationOp(OpKernelConstruction* op_ctx)
@@ -233,7 +273,7 @@ class ReduceSumByRotationOp : public OpKernel {
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
 
-    std::map<int, PowerAndKey> const* keys = &rotation_key_var->keys;
+    std::vector<RotationKey> const& keys = rotation_key_var->keys;
 
     // Allocate the output tensor which is the same size as the input tensor,
     // TensorFlow's reduce_sum has slightly different semantics than this
@@ -244,38 +284,46 @@ class ReduceSumByRotationOp : public OpKernel {
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, value.shape(), &output));
     auto flat_output = output->flat<Variant>();
 
-    for (int i = 0; i < flat_output.dimension(0); ++i) {
-      // Learn how many slots there are from first ciphertext and create a
-      // deep copy to hold the sum.
-      SymmetricCtVariant<T> const* ct_var =
-          std::move(flat_value(i).get<SymmetricCtVariant<T>>());
-      OP_REQUIRES(
-          op_ctx, ct_var != nullptr,
-          InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
-      SymmetricCt sum = ct_var->ct;  // deep copy to start the sum.
-      int const num_slots = 1 << sum.LogN();
+    auto reduce_in_range = [&](int start, int end) {
+      for (int i = start; i < end; ++i) {
+        // Learn how many slots there are from first ciphertext and create a
+        // deep copy to hold the sum.
+        SymmetricCtVariant<T> const* ct_var =
+            std::move(flat_value(i).get<SymmetricCtVariant<T>>());
+        OP_REQUIRES(op_ctx, ct_var != nullptr,
+                    InvalidArgument(
+                        "SymmetricCtVariant a did not unwrap successfully."));
+        SymmetricCt sum = ct_var->ct;  // deep copy to start the sum.
+        int const num_slots = 1 << sum.LogN();
 
-      // Add the rotations to the sum.
-      // Note the ciphertext rotations operate on each half of the ciphertext
-      // separately. So the max rotation is by half the number of slots.
-      for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
-        // TODO if debug
-        OP_REQUIRES(op_ctx, keys->find(shift) != keys->end(),
-                    InvalidArgument("No key for shift of '", shift, "'"));
-        PowerAndKey const& p_and_k = keys->at(shift);
+        // Add the rotations to the sum.
+        // Note the ciphertext rotations operate on each half of the
+        // ciphertext separately. So the max rotation is by half the number
+        // of slots.
+        for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+          OP_REQUIRES(op_ctx, shift - 1 < keys.size(),  // Skip key at zero.
+                      InvalidArgument("No key for shift of '", shift, "'"));
+          RotationKey const* key = &keys[shift - 1];  // Skip key at zero.
 
-        // Rotate by the shift.
-        OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
-                          sum.Substitute(p_and_k.substitution_power));
-        OP_REQUIRES_VALUE(auto ct_rot, op_ctx, p_and_k.key.ApplyTo(ct_sub));
+          // Rotate by the shift.
+          OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
+                            sum.Substitute(key->SubstitutionPower()));
+          OP_REQUIRES_VALUE(auto ct_rot, op_ctx, key->ApplyTo(ct_sub));
 
-        // Add to the sum.
-        OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct_rot));
+          // Add to the sum.
+          OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct_rot));
+        }
+
+        SymmetricCtVariant ct_out_var(std::move(sum));
+        flat_output(i) = std::move(ct_out_var);
       }
+    };
 
-      SymmetricCtVariant ct_out_var(std::move(sum));
-      flat_output(i) = std::move(ct_out_var);
-    }
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_reduce = 38306686;  // ns measured on log_n = 11
+    thread_pool->ParallelFor(flat_output.dimension(0), cost_per_reduce,
+                             reduce_in_range);
   }
 };
 
@@ -285,7 +333,6 @@ class ReduceSumOp : public OpKernel {
   using ModularInt = rlwe::MontgomeryInt<T>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
-  using PowerAndKey = typename RotationKeyVariant<T>::PowerAndKey;
 
  public:
   explicit ReduceSumOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -323,8 +370,6 @@ class ReduceSumOp : public OpKernel {
                                                  intermediate_sums_shape,
                                                  &intermediate_sums));
 
-    auto flat_intermediate_sums =
-        intermediate_sums.flat_inner_outer_dims<Variant>(dim_to_reduce - 1);
     auto flat_value = value.flat_inner_outer_dims<Variant>(dim_to_reduce - 1);
 
     // Setup the output.
