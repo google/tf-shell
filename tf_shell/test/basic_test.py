@@ -32,77 +32,73 @@ class TestShellTensor(tf.test.TestCase):
             main_moduli=[8556589057, 8388812801],
             aux_moduli=[34359709697],
             plaintext_modulus=40961,
-            noise_variance=8,
-            seed="",
         )
 
     def test_create_shell_tensor_positive(self):
         context = TestShellTensor.get_context()
-        tftensor = tf.random.uniform(
+        tf_tensor = tf.random.uniform(
             [TestShellTensor.slots, 3], dtype=tf.int32, maxval=100
         )
-        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
-        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
-        self.assertAllClose(tftensor_out, tftensor)
+        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
+        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
+        self.assertAllClose(tf_tensor_out, tf_tensor)
 
     def test_create_shell_tensor_negative(self):
         context = TestShellTensor.get_context()
-        tftensor = (
+        tf_tensor = (
             tf.random.uniform([TestShellTensor.slots, 3], dtype=tf.int32, maxval=100)
             - 50
         )
-        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
-        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
-        print(f"tftensor dtype {tftensor.dtype}")
-        self.assertAllClose(tftensor_out, tftensor)
+        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
+        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
+        print(f"tf_tensor dtype {tf_tensor.dtype}")
+        self.assertAllClose(tf_tensor_out, tf_tensor)
 
     def test_shape(self):
         context = TestShellTensor.get_context()
-        tftensor = tf.random.uniform(
+        tf_tensor = tf.random.uniform(
             [TestShellTensor.slots, 3], dtype=tf.int32, maxval=100
         )
-        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
-        self.assertAllClose(tftensor.shape, shelltensor.shape)
-        self.assertAllClose(tftensor.shape, shelltensor.shape)
+        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
+        self.assertAllClose(tf_tensor.shape, shell_tensor.shape)
+        self.assertAllClose(tf_tensor.shape, shell_tensor.shape)
 
-        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
-        self.assertAllClose(tftensor.shape, tftensor_out.shape)
+        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
+        self.assertAllClose(tf_tensor.shape, tf_tensor_out.shape)
 
     def test_create_shell_tensor_multi_dim(self):
         context = TestShellTensor.get_context()
-        tftensor = tf.random.uniform(
+        tf_tensor = tf.random.uniform(
             [TestShellTensor.slots, 3, 5, 6], dtype=tf.int32, maxval=100
         )
-        shelltensor = tf_shell.to_shell_tensor(context, tftensor)
-        tftensor_out = tf_shell.from_shell_tensor(shelltensor)
-        self.assertAllClose(tftensor_out, tftensor)
+        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
+        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
+        self.assertAllClose(tf_tensor_out, tf_tensor)
 
     def test_encrypt_decrypt_positive(self):
         context = TestShellTensor.get_context()
         key = tf_shell.create_key64(context)
-        tftensor = tf.random.uniform(
+        tf_tensor = tf.random.uniform(
             [TestShellTensor.slots, 3, 2, 12], dtype=tf.int32, maxval=100
         )
 
-        s = tf_shell.to_shell_tensor(context, tftensor)
-        enc = s.get_encrypted(key)
-        tftensor_out = enc.get_decrypted(key)
-        self.assertAllClose(tftensor_out, tftensor)
+        enc = tf_shell.to_encrypted(tf_tensor, key, context)
+        tf_tensor_out = tf_shell.to_tensorflow(enc, key)
+        self.assertAllClose(tf_tensor_out, tf_tensor)
 
     def test_encrypt_decrypt_negative(self):
         context = TestShellTensor.get_context()
         key = tf_shell.create_key64(context)
-        tftensor = (
+        tf_tensor = (
             tf.random.uniform(
                 [TestShellTensor.slots, 3, 2, 12], dtype=tf.int32, maxval=100
             )
             - 50
         )
 
-        s = tf_shell.to_shell_tensor(context, tftensor)
-        enc = s.get_encrypted(key)
-        tftensor_out = enc.get_decrypted(key)
-        self.assertAllClose(tftensor_out, tftensor)
+        enc = tf_shell.to_encrypted(tf_tensor, key, context)
+        tf_tensor_out = tf_shell.to_tensorflow(enc, key)
+        self.assertAllClose(tf_tensor_out, tf_tensor)
 
 
 if __name__ == "__main__":

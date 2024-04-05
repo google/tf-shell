@@ -180,9 +180,6 @@ class DecryptOp : public OpKernel {
 
       // Decrypt() returns coefficients in underlying (e.g. uint64) form after
       // doing the outer modulo and inverse NTT.
-      // The current version of the shell library requires the plaintext modulus
-      // is 2^(log_t) + 1. The library does the mod 1 as part of decryption.
-      // TODO: above comment written for non-rns code. Is it still true?
       OP_REQUIRES_VALUE(std::vector<From> decryptions, op_ctx,
                         secret_key->template DecryptBgv<Encoder>(ct, encoder));
 

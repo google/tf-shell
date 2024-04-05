@@ -30,7 +30,7 @@ class TestContext:
         noise_variance=8,
         scaling_factor=1,
         mul_depth_supported=0,
-        seed="",
+        seed="test seed".ljust(64),
     ):
         self.outer_shape = outer_shape
         self.plaintext_dtype = plaintext_dtype
@@ -67,22 +67,24 @@ def get_bounds_for_n_adds(test_context, num_adds):
     additions."""
     dtype = test_context.plaintext_dtype
     plaintext_modulus = test_context.shell_context.plaintext_modulus
-    scaling_factor_squared = test_context.shell_context.scaling_factor**2
+    scaling_factor = test_context.shell_context.scaling_factor
 
     # Make sure not to exceed the range of the dtype.
-    min_plaintext_dtype = math.ceil(dtype.min / scaling_factor_squared)
+    # Allow the plaintext to be multiplied by the scaling factor.
+    min_plaintext_dtype = math.ceil(dtype.min / scaling_factor)
+    max_plaintext_dtype = dtype.max // scaling_factor
+    # Allow `num_adds` additions without overflowing the datatype.
     min_plaintext_dtype = math.ceil(min_plaintext_dtype / (num_adds + 1))
-    max_plaintext_dtype = dtype.max // scaling_factor_squared
     max_plaintext_dtype //= num_adds + 1
 
     # Make sure not to exceed the range of the plaintext modulus.
     if dtype.is_unsigned:
         min_plaintext_modulus = 0
-        max_plaintext_modulus = plaintext_modulus // scaling_factor_squared
+        max_plaintext_modulus = plaintext_modulus // scaling_factor
         max_plaintext_modulus //= num_adds + 1
     else:
         range = plaintext_modulus // 2
-        range //= scaling_factor_squared
+        range //= scaling_factor
         range /= num_adds + 1
         min_plaintext_modulus = -range
         max_plaintext_modulus = range
@@ -100,28 +102,30 @@ def get_bounds_for_n_adds(test_context, num_adds):
 
 def get_bounds_for_n_muls(test_context, num_muls):
     """Returns a safe range for plaintext values when doing a given number of
-    multiplications. The range is determined by both the plaintext modulus and
-    the datatype."""
+    multiplications. The range is determined by minimum range of either the
+    plaintext modulus or the datatype."""
     dtype = test_context.plaintext_dtype
     plaintext_modulus = test_context.shell_context.plaintext_modulus
-    scaling_factor_squared = test_context.shell_context.scaling_factor**2
+
+    # Each multiplication doubles the number of scaling factors in the result.
+    max_scaling_factor = test_context.shell_context.scaling_factor ** (2 ** num_muls)
 
     # Make sure not to exceed the range of the dtype.
-    min_plaintext_dtype = math.ceil(dtype.min / scaling_factor_squared)
+    min_plaintext_dtype = math.ceil(dtype.min / max_scaling_factor)
     min_plaintext_dtype = -math.floor(
         abs(min_plaintext_dtype) ** (1.0 / (num_muls + 1))
     )
-    max_plaintext_dtype = dtype.max // scaling_factor_squared
+    max_plaintext_dtype = dtype.max // max_scaling_factor
     max_plaintext_dtype **= 1.0 / (num_muls + 1)
 
     # Make sure not to exceed the range of the plaintext modulus.
     if dtype.is_unsigned:
         min_plaintext_modulus = 0
-        max_plaintext_modulus = plaintext_modulus // scaling_factor_squared
+        max_plaintext_modulus = plaintext_modulus // max_scaling_factor
         max_plaintext_modulus **= 1.0 / (num_muls + 1)
     else:
         range = plaintext_modulus // 2
-        range //= scaling_factor_squared
+        range //= max_scaling_factor
         range **= 1.0 / (num_muls + 1)
         min_plaintext_modulus = -range
         max_plaintext_modulus = range
@@ -131,7 +135,7 @@ def get_bounds_for_n_muls(test_context, num_muls):
 
     if min_val > max_val:
         raise ValueError(
-            f"min_val {min_val} > max_val {max_val} for num_muls {num_adds}"
+            f"min_val {min_val} > max_val {max_val} for num_muls {num_muls}"
         )
 
     return min_val, max_val
@@ -176,9 +180,9 @@ def uniform_for_n_adds(test_context, num_adds, shape=None):
 
 def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
     """Returns a random tensor with values in the range of the datatype and
-    plaintext modulus. The elements support n additions without overflowing
-    either the datatype and plaintext modulus. Floating point datatypes return
-    fractional values at the appropriate quantization.
+    plaintext modulus. The elements support n multiplications without
+    overflowing either the datatype and plaintext modulus. Floating point
+    datatypes return fractional values at the appropriate quantization.
     """
     scaling_factor = test_context.shell_context.scaling_factor
     if scaling_factor > 1 and num_muls > test_context.shell_context.mul_depth_supported:
@@ -191,13 +195,18 @@ def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
 
     if max_val < 1 / scaling_factor:
         raise ValueError(
-            f"Available plaintext range for the given number of multiplications [{min_val}, {max_val}] is too small. Must be larger than {1/scaling_factor}."
+            f"Available plaintext range for `{num_muls}` multiplications [{min_val}, {max_val}] is too small. Must be larger than {1/scaling_factor}."
         )
+    print(f"Available plaintext range for `{test_context.plaintext_dtype}`number of multiplications [{min_val}, {max_val}].")
 
+    # Now generate the random tensor by first increasing the range to include
+    # the scaling factor, then divide by the scaling factor after generation to
+    # get the correct range.
     if test_context.plaintext_dtype.is_floating:
         min_val *= scaling_factor
         max_val *= scaling_factor
 
+    # Insert the slotting dimension.
     if shape is None:
         shape = test_context.outer_shape.copy()
         shape.insert(0, test_context.shell_context.num_slots)

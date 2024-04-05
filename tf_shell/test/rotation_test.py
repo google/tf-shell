@@ -25,25 +25,23 @@ class TestShellTensorRotation(tf.test.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # TensorFlow only supports rotation for int32, int64, float32, and float64 types.
+        # Create test contexts for all integer datatypes.
         cls.test_contexts = []
 
-        # TensorFlow only supports rotation for int32 and int64 integer types.
-        # Create test contexts for all integer datatypes. While this test
-        # performs at most two multiplications, since the scaling factor is 1
-        # there are no restrictions on the main moduli.
         for int_dtype in [tf.int32, tf.int64]:
             cls.test_contexts.append(
                 test_utils.TestContext(
-                    outer_shape=[3, 2, 3],
+                    outer_shape=[3, 3],
                     plaintext_dtype=int_dtype,
+                    # Num plaintext bits: 22, noise bits: 64
+                    # Max representable value: 65728
                     log_n=11,
-                    main_moduli=[288230376151748609, 288230376151760897],
+                    main_moduli=[144115188076060673, 268460033],
                     aux_moduli=[],
-                    plaintext_modulus=65537,
-                    noise_variance=8,
+                    plaintext_modulus=4206593,
                     scaling_factor=1,
-                    mul_depth_supported=0,
-                    seed="",
+                    mul_depth_supported=1,
                 )
             )
 
@@ -54,16 +52,14 @@ class TestShellTensorRotation(tf.test.TestCase):
                 test_utils.TestContext(
                     outer_shape=[3, 2, 3],
                     plaintext_dtype=float_dtype,
-                    # Num plaintext bits: 40, noise bits: 70
-                    # Max plaintext value: 3640, est error: 0.000%
+                    # Num plaintext bits: 22, noise bits: 64
+                    # Max representable value: 65728
                     log_n=11,
-                    main_moduli=[288230376151748609, 2251799813824513, 12289],
+                    main_moduli=[144115188076060673, 268460033, 12289],
                     aux_moduli=[],
-                    plaintext_modulus=1099511795713,
-                    noise_variance=8,
-                    scaling_factor=12289,
+                    plaintext_modulus=4206593,
+                    scaling_factor=8,
                     mul_depth_supported=1,
-                    seed="",
                 )
             )
 
@@ -110,11 +106,11 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
 
-        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
-        enc = s.get_encrypted(test_context.key)
+        s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
+        enc = tf_shell.to_encrypted(s, test_context.key)
 
-        rolled_enc = enc.roll(test_context.rotation_key, roll_num)
-        rolled_result = rolled_enc.get_decrypted(test_context.key)
+        rolled_enc = tf_shell.roll(enc, test_context.rotation_key, roll_num)
+        rolled_result = tf_shell.to_tensorflow(rolled_enc, test_context.key)
         self.assertAllClose(rolled_tftensor, rolled_result, atol=1e-3)
 
     def test_roll(self):
@@ -154,13 +150,15 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
 
-        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
-        enc = s.get_encrypted(test_context.key)
+        s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
+        enc = tf_shell.to_encrypted(s, test_context.key)
 
         # Test roll on a mod reduced ciphertext.
         enc_reduced = enc.get_mod_reduced()
-        rolled_enc_reduced = enc_reduced.roll(test_context.rotation_key, roll_num)
-        rolled_result_reduced = rolled_enc_reduced.get_decrypted(test_context.key)
+        rolled_enc_reduced = tf_shell.roll(
+            enc_reduced, test_context.rotation_key, roll_num
+        )
+        rolled_result_reduced = tf_shell.to_tensorflow(rolled_enc_reduced, test_context.key)
         self.assertAllClose(rolled_tftensor, rolled_result_reduced, atol=1e-3)
 
     def test_roll_mod_reduced(self):
@@ -201,12 +199,14 @@ class TestShellTensorRotation(tf.test.TestCase):
             print(e)
             return
 
-        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
-        enc = s.get_encrypted(test_context.key)
+        s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
+        enc = tf_shell.to_encrypted(s, test_context.key)
 
-        enc_reduce_sum = enc.reduce_sum(axis=0, rotation_key=test_context.rotation_key)
+        enc_reduce_sum = tf_shell.reduce_sum(
+            enc, axis=0, rotation_key=test_context.rotation_key
+        )
 
-        tftensor_out = enc_reduce_sum.get_decrypted(test_context.key)
+        tftensor_out = tf_shell.to_tensorflow(enc_reduce_sum, test_context.key)
         self.assertAllClose(
             tftensor_out, self.plaintext_reduce_sum_axis_0(tftensor), atol=1e-3
         )
@@ -228,12 +228,12 @@ class TestShellTensorRotation(tf.test.TestCase):
             print(e)
             return
 
-        s = tf_shell.to_shell_tensor(test_context.shell_context, tftensor)
-        enc = s.get_encrypted(test_context.key)
+        s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
+        enc = tf_shell.to_encrypted(s, test_context.key)
 
-        enc_reduce_sum = enc.reduce_sum(axis=outer_axis + 1)
+        enc_reduce_sum = tf_shell.reduce_sum(enc, axis=outer_axis + 1)
 
-        tftensor_out = enc_reduce_sum.get_decrypted(test_context.key)
+        tftensor_out = tf_shell.to_tensorflow(enc_reduce_sum, test_context.key)
         self.assertAllClose(
             tftensor_out, tf.reduce_sum(tftensor, axis=outer_axis + 1), atol=1e-3
         )

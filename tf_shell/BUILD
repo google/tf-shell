@@ -5,7 +5,7 @@ cc_binary(
     name = "python/ops/_shell_ops.so",
     srcs = [
         "cc/kernels/add_kernels.cc",
-        "cc/kernels/context_import_kernel.cc",
+        "cc/kernels/context_kernels.cc",
         "cc/kernels/context_variant.h",
         "cc/kernels/mod_switch_kernels.cc",
         "cc/kernels/mul_kernels.cc",
