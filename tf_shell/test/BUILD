@@ -59,6 +59,18 @@ py_test(
 )
 
 py_test(
+    name = "mat_mul_test",
+    srcs = [
+        "mat_mul_test.py",
+        "test_utils.py",
+    ],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
     name = "composite_test",
     srcs = [
         "composite_test.py",

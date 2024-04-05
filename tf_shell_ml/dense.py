@@ -28,7 +28,6 @@ class ShellDense:
         kernel_initializer="glorot_uniform",
         bias_initializer="zeros",
         skip_normalization=True,
-        fxp_fractional_bits=1,
         weight_dtype=tf.int64,
     ):
         self.units = int(units)
@@ -39,7 +38,6 @@ class ShellDense:
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
         self.skip_normalization = skip_normalization
-        self.fxp_fractional_bits = fxp_fractional_bits
         self.weight_dtype = weight_dtype
 
         self.built = False
@@ -93,30 +91,23 @@ class ShellDense:
         if self.activation_deriv is not None:
             dy = self.activation_deriv(z, dy)
 
-        if isinstance(dy, tf_shell.ShellTensor64):
-            # It is a good idea to reduce the multiplication count before
-            # the multiplication with the kernel. Multiplying by the kernel
-            # requires a reduce_sum operation which makes it easy to exceed
-            # the plaintext modulus by the fixed point fractional bits, if
-            # the multiplication count is too high.
-            dy = dy.get_at_multiplication_count(0)
-
         if is_first_layer:
             d_x = None  # no gradient needed for first layer
         else:
+            # Perform the multiplication for dy/dx.
             kernel_t = tf.transpose(kernel)
             d_x = tf_shell.matmul(dy, kernel_t)
 
-        # Perform the fixed point multiplication.
+        # Perform the multiplication for dy/dw.
         d_weights = tf_shell.matmul(tf.transpose(x), dy, rotation_key)
 
         if not self.skip_normalization:
-            assert False, "Normalization not implemented yet."
+            assert False, "Normalization not implemented."
             # d_weights = d_weights / batch_size
         grad_weights.append(d_weights)
 
         if self.use_bias:
-            assert False, "Bias not implemented yet"
+            assert False, "Bias not implemented."
             # TODO(jchoncholas): reduce_sum is very expensive and requires slot rotation.
             # Not implemented yet. A better way than the reduce sum is to set batch size to 1 less
             # and use that last slot as the bias with input 1.

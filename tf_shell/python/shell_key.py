@@ -77,7 +77,7 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
                 context._raw_context, key._raw_key
             )
 
-        if context.mul_depth_supported == 0:
+        if context.mul_depth_supported == 0 or context.level == 1:
             break
         context = context.get_mod_reduced()
         key = key.get_mod_reduced()

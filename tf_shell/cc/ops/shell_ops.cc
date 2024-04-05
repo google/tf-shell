@@ -220,6 +220,11 @@ REGISTER_OP("ReduceSum64")
     .SetIsStateful();
 
 // Modulus switching.
+REGISTER_OP("ModulusReduceContext64")
+    .Input("context: variant")
+    .Output("reduced_context: variant")
+    .SetIsStateful();
+
 REGISTER_OP("ModulusReduceKey64")
     .Input("key: variant")
     .Output("reduced_key: variant")
@@ -228,13 +233,11 @@ REGISTER_OP("ModulusReduceKey64")
 REGISTER_OP("ModulusReduceCt64")
     .Input("context: variant")
     .Input("value: variant")
-    .Input("preserve_plaintext: bool")
     .Output("reduced_value: variant")
     .SetIsStateful();
 
 REGISTER_OP("ModulusReducePt64")
     .Input("context: variant")
     .Input("value: variant")
-    .Input("preserve_plaintext: bool")
     .Output("reduced_value: variant")
     .SetIsStateful();

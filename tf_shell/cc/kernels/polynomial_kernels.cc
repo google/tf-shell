@@ -95,7 +95,7 @@ class PolynomialImportOp : public OpKernel {
       if constexpr (std::is_signed<From>::value) {
         // SHELL is built on the assumption that the plaintext type (in this
         // case `From`) will always fit into the ciphertext underlying type
-        // (in this case `To`). E.g. the plaintext modulus is stored as the
+        // (in this case `To`). I.e. the plaintext modulus is stored as the
         // ciphertext type. This is true even in the RNS code paths. This means
         // that this function can convert `From` to a signed version of `To`,
         // then modulus switch into plaintext field t and type `To` without

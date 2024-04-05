@@ -99,20 +99,12 @@ class ShellContext64(object):
         if hasattr(self, "_mod_reduced"):
             return self._mod_reduced
 
-        fewer_moduli = self.main_moduli[:-1]
-        smaller_context = shell_ops.context_import64(
-            log_n=self.log_n,
-            main_moduli=fewer_moduli,
-            aux_moduli=self.aux_moduli,
-            plaintext_modulus=self.plaintext_modulus,
-            noise_variance=self.noise_variance,
-            seed=self.seed,
-        )
+        smaller_context = shell_ops.modulus_reduce_context64(self._raw_context)
 
         self._mod_reduced = ShellContext64(
             shell_context=smaller_context,
             log_n=self.log_n,
-            main_moduli=fewer_moduli,
+            main_moduli=self.main_moduli[:-1],
             aux_moduli=self.aux_moduli,
             plaintext_modulus=self.plaintext_modulus,
             noise_variance=self.noise_variance,
@@ -129,11 +121,15 @@ def create_context64(
     main_moduli,
     aux_moduli,
     plaintext_modulus,
-    noise_variance,
+    noise_variance=8,
     scaling_factor=1,
     mul_depth_supported=0,
     seed="",
 ):
+    if len(seed) > 64:
+        raise ValueError("Seed must be at most 64 characters long.")
+    seed = seed.ljust(64)
+
     shell_context = shell_ops.context_import64(
         log_n=log_n,
         main_moduli=main_moduli,

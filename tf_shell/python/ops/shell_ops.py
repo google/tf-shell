@@ -57,6 +57,7 @@ reduce_sum_by_rotation64 = shell_ops.reduce_sum_by_rotation64
 reduce_sum64 = shell_ops.reduce_sum64
 
 # Modulus switching.
+modulus_reduce_context64 = shell_ops.modulus_reduce_context64
 modulus_reduce_key64 = shell_ops.modulus_reduce_key64
 modulus_reduce_ct64 = shell_ops.modulus_reduce_ct64
 modulus_reduce_pt64 = shell_ops.modulus_reduce_pt64

@@ -47,10 +47,8 @@ class TestShellTensor(tf.test.TestCase):
                     main_moduli=[8556589057, 8388812801],
                     aux_moduli=[],
                     plaintext_modulus=40961,
-                    noise_variance=8,
                     scaling_factor=1,
                     mul_depth_supported=0,
-                    seed="",
                 )
             )
 
@@ -69,10 +67,8 @@ class TestShellTensor(tf.test.TestCase):
                     main_moduli=[288230376151748609, 2147565569, 147457, 114689],
                     aux_moduli=[],
                     plaintext_modulus=1099511795713,
-                    noise_variance=8,
                     scaling_factor=131073,
                     mul_depth_supported=2,
-                    seed="",
                 )
             )
 
@@ -92,24 +88,21 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        ea = tf_shell.to_shell_tensor(test_context.shell_context, a).get_encrypted(
-            test_context.key
-        )
-        eb = tf_shell.to_shell_tensor(test_context.shell_context, b).get_encrypted(
-            test_context.key
-        )
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+        eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
 
         ec = ea * eb
-        self.assertAllClose(a * b, ec.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3)
 
         # Here, ec has a mul depth of 1 while eb has a mul depth of 0. To
         # multiply them, eb needs to be mod reduced to match ec. ShellTensor
         # should handle this automatically.
         ed = ec * eb
-        self.assertAllClose(a * b * b, ed.get_decrypted(test_context.key))
+        self.assertAllClose(a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3)
 
-        self.assertAllClose(a, ea.get_decrypted(test_context.key), atol=1e-3)
-        self.assertAllClose(a, ea.get_decrypted(test_context.key), atol=1e-3)
+        # Make sure the original ciphertexts are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key), atol=1e-3)
+        self.assertAllClose(b, tf_shell.to_tensorflow(eb, test_context.key), atol=1e-3)
 
     def test_ct_ct_mulmul(self):
         for test_context in self.test_contexts:
@@ -128,24 +121,22 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        ea = tf_shell.to_shell_tensor(test_context.shell_context, a).get_encrypted(
-            test_context.key
-        )
-        eb = tf_shell.to_shell_tensor(test_context.shell_context, b).get_encrypted(
-            test_context.key
-        )
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+        eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
 
         ec = ea * eb
-        self.assertAllClose(a * b, ec.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3)
 
-        # Here, ec has a mul depth of 1 while eb has a mul depth of 0. To
-        # multiply them, eb needs to be mod reduced to match ec. ShellTensor
-        # should handle this automatically.
+        # Here, ec has a mul depth of 1 while b is has a mul depth of 0. To
+        # multiply them, b needs to be encoded as a shell plaintext with
+        # moduli which match the now-mod-reduced ec. ShellTensor should handle
+        # this automatically.
         ed = ec * b
-        self.assertAllClose(a * b, ec.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3)
 
-        self.assertAllClose(a, ea.get_decrypted(test_context.key), atol=1e-3)
-        self.assertAllClose(a, ea.get_decrypted(test_context.key), atol=1e-3)
+        # Make sure the original ciphertexts are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key), atol=1e-3)
+        self.assertAllClose(b, tf_shell.to_tensorflow(eb, test_context.key), atol=1e-3)
 
     def test_ct_pt_mulmul(self):
         for test_context in self.test_contexts:

@@ -183,7 +183,7 @@ def train_step(x, y):
 
         # Sum over the output classes.
         if isinstance(scaled_grad, tf_shell.ShellTensor64):
-            scaled_grad = scaled_grad.reduce_sum(axis=1)
+            scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=1)
         else:
             scaled_grad = tf.reduce_sum(scaled_grad, axis=1)
         # scaled_grad is shape
@@ -193,7 +193,7 @@ def train_step(x, y):
 
         # Decrypt and reshape to remove the '1' dimension in the middle.
         if isinstance(scaled_grad, tf_shell.ShellTensor64):
-            scaled_grad = scaled_grad.get_decrypted(key)
+            scaled_grad = tf_shell.to_tensorflow(scaled_grad, key)
         plaintext_grad = tf.reshape(scaled_grad, [batch_sz] + grad_shape)
 
         ps_grads.append(plaintext_grad)
@@ -213,7 +213,7 @@ class TestPlaintextPostScale(unittest.TestCase):
         ps_grads = train_step(x_batch, y_batch)
 
         # Encrypted
-        enc_y_batch = tf_shell.to_shell_tensor(context, y_batch).get_encrypted(key)
+        enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
 
         shell_ps_grads = train_step(x_batch, enc_y_batch)
 

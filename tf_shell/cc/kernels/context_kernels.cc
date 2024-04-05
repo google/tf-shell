@@ -58,6 +58,7 @@ class ContextImportOp : public OpKernel {
     ContextVariant<T> ctx_variant{};
     OP_REQUIRES_OK(op_ctx, ctx_variant.Initialize(log_n, qs, ps, pt_modulus,
                                                   noise_variance, seed));
+
     out0->scalar<Variant>()() = std::move(ctx_variant);
   }
 };

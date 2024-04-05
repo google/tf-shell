@@ -45,10 +45,8 @@ class TestShellTensor(tf.test.TestCase):
                     main_moduli=[8556589057, 8388812801],
                     aux_moduli=[],
                     plaintext_modulus=40961,
-                    noise_variance=8,
                     scaling_factor=1,
                     mul_depth_supported=0,
-                    seed="",
                 )
             )
 
@@ -66,10 +64,8 @@ class TestShellTensor(tf.test.TestCase):
                         main_moduli=[8556589057, 8388812801],
                         aux_moduli=[],
                         plaintext_modulus=40961,
-                        noise_variance=8,
                         scaling_factor=scaling_factor,
                         mul_depth_supported=0,
-                        seed="",
                     )
                 )
 
@@ -88,15 +84,16 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
         nsa = -sa
-        self.assertAllClose(-a, tf_shell.from_shell_tensor(nsa))
+        self.assertAllClose(-a, tf_shell.to_tensorflow(nsa))
 
-        ea = sa.get_encrypted(test_context.key)
+        ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
         nea = -ea
-        self.assertAllClose(-a, nea.get_decrypted(test_context.key))
+        self.assertAllClose(-a, tf_shell.to_tensorflow(nea, test_context.key))
 
-        self.assertAllClose(a, ea.get_decrypted(test_context.key))
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
     def test_neg(self):
         for test_context in self.test_contexts:
@@ -119,33 +116,33 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        ea = tf_shell.to_shell_tensor(test_context.shell_context, a).get_encrypted(
-            test_context.key
-        )
-        eb = tf_shell.to_shell_tensor(test_context.shell_context, b).get_encrypted(
-            test_context.key
-        )
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+        eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
 
         ec = ea + eb
-        self.assertAllClose(a, ea.get_decrypted(test_context.key))
-        self.assertAllClose(b, eb.get_decrypted(test_context.key))
-        self.assertAllClose(a + b, ec.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3)
+
+        # Make sure the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+        self.assertAllClose(b, tf_shell.to_tensorflow(eb, test_context.key))
 
         if test_context.plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid overflow.
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            eaa = tf_shell.to_shell_tensor(
-                test_context.shell_context, a + max_val
-            ).get_encrypted(test_context.key)
+            eaa = tf_shell.to_encrypted(
+                a + max_val, test_context.key, test_context.shell_context
+            )
             ed = eaa - eb
             self.assertAllClose(
-                a + max_val - b, ed.get_decrypted(test_context.key), atol=1e-3
+                a + max_val - b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
             )
         else:
             ed = ea - eb
-            self.assertAllClose(a - b, ed.get_decrypted(test_context.key), atol=1e-3)
+            self.assertAllClose(
+                a - b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+            )
 
     def test_ct_ct_add(self):
         for test_context in self.test_contexts:
@@ -165,44 +162,56 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
-        sb = tf_shell.to_shell_tensor(test_context.shell_context, b)
-        ea = sa.get_encrypted(test_context.key)
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key)
 
         ec = ea + sb
-        self.assertAllClose(a + b, ec.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
 
         ed = sb + ea
-        self.assertAllClose(a + b, ed.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+        )
+
+        # Make sure the arguments were not modified.
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
         if test_context.plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            eaa = tf_shell.to_shell_tensor(
-                test_context.shell_context, a + max_val
-            ).get_encrypted(test_context.key)
+            eaa = tf_shell.to_encrypted(
+                a + max_val, test_context.key, test_context.shell_context
+            )
             ee = eaa - sb
             self.assertAllClose(
-                a + max_val - b, ee.get_decrypted(test_context.key), atol=1e-3
+                a + max_val - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
             )
 
-            sbb = tf_shell.to_shell_tensor(test_context.shell_context, b + max_val)
+            sbb = tf_shell.to_shell_plaintext(b + max_val, test_context.shell_context)
             ef = sbb - ea
             self.assertAllClose(
-                b + max_val - a, ef.get_decrypted(test_context.key), atol=1e-3
+                b + max_val - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
             )
         else:
             ee = ea - sb
-            self.assertAllClose(a - b, ee.get_decrypted(test_context.key), atol=1e-3)
+            self.assertAllClose(
+                a - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
 
             ef = sb - ea
-            self.assertAllClose(b - a, ef.get_decrypted(test_context.key), atol=1e-3)
+            self.assertAllClose(
+                b - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
 
         # Ensure initial arguments are not modified.
-        self.assertAllClose(a, ea.get_decrypted(test_context.key))
-        self.assertAllClose(b, tf_shell.from_shell_tensor(sb))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
 
     def test_ct_pt_add(self):
         for test_context in self.test_contexts:
@@ -222,41 +231,49 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
-        ea = sa.get_encrypted(test_context.key)
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
 
         ec = ea + b
-        self.assertAllClose(a, ea.get_decrypted(test_context.key))
-        self.assertAllClose(a + b, ec.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
 
         ed = b + ea
-        self.assertAllClose(a + b, ed.get_decrypted(test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+        )
 
         if test_context.plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            eaa = tf_shell.to_shell_tensor(
-                test_context.shell_context, a + max_val
-            ).get_encrypted(test_context.key)
+            eaa = tf_shell.to_encrypted(
+                a + max_val, test_context.key, test_context.shell_context
+            )
             ee = eaa - b
             self.assertAllClose(
-                a + max_val - b, ee.get_decrypted(test_context.key), atol=1e-3
+                a + max_val - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
             )
 
             bb = b + max_val
             ef = bb - ea
-            self.assertAllClose(bb - a, ef.get_decrypted(test_context.key), atol=1e-3)
+            self.assertAllClose(
+                bb - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
         else:
             ee = ea - b
-            self.assertAllClose(a - b, ee.get_decrypted(test_context.key), atol=1e-3)
+            self.assertAllClose(
+                a - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
 
             ef = b - ea
-            self.assertAllClose(b - a, ef.get_decrypted(test_context.key), atol=1e-3)
+            self.assertAllClose(
+                b - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
 
         # Ensure initial arguments are not modified.
-        self.assertAllClose(a, ea.get_decrypted(test_context.key))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
     def test_ct_tf_add(self):
         for test_context in self.test_contexts:
@@ -276,29 +293,29 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
-        sb = tf_shell.to_shell_tensor(test_context.shell_context, b)
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
 
         sc = sa + sb
-        self.assertAllClose(a + b, tf_shell.from_shell_tensor(sc), atol=1e-3)
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sc), atol=1e-3)
 
         if test_context.plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            saa = tf_shell.to_shell_tensor(test_context.shell_context, a + max_val)
+            saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
             ee = saa - sb
             self.assertAllClose(
-                a + max_val - b, tf_shell.from_shell_tensor(ee), atol=1e-3
+                a + max_val - b, tf_shell.to_tensorflow(ee), atol=1e-3
             )
         else:
             sd = sa - sb
-            self.assertAllClose(a - b, tf_shell.from_shell_tensor(sd), atol=1e-3)
+            self.assertAllClose(a - b, tf_shell.to_tensorflow(sd), atol=1e-3)
 
         # Ensure initial arguments are not modified.
-        self.assertAllClose(a, tf_shell.from_shell_tensor(sa))
-        self.assertAllClose(b, tf_shell.from_shell_tensor(sb))
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
 
     def test_pt_pt_add(self):
         for test_context in self.test_contexts:
@@ -318,37 +335,37 @@ class TestShellTensor(tf.test.TestCase):
             print(e)
             return
 
-        sa = tf_shell.to_shell_tensor(test_context.shell_context, a)
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
 
         sc = sa + b
-        self.assertAllClose(a + b, tf_shell.from_shell_tensor(sc), atol=1e-3)
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sc), atol=1e-3)
 
         sd = b + sa
-        self.assertAllClose(a + b, tf_shell.from_shell_tensor(sd), atol=1e-3)
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sd), atol=1e-3)
 
         if test_context.plaintext_dtype.is_unsigned:
             # To test subtraction, ensure that a > b to avoid underflow.
             # a + max_val is safe, because max_val is the total range / 2 and
             # a is less than max_val.
             max_val = int(max_val)
-            saa = tf_shell.to_shell_tensor(test_context.shell_context, a + max_val)
+            saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
             se = saa - b
             self.assertAllClose(
-                a + max_val - b, tf_shell.from_shell_tensor(se), atol=1e-3
+                a + max_val - b, tf_shell.to_tensorflow(se), atol=1e-3
             )
 
             bb = b + max_val
             sf = bb - sa
-            self.assertAllClose(bb - a, tf_shell.from_shell_tensor(sf), atol=1e-3)
+            self.assertAllClose(bb - a, tf_shell.to_tensorflow(sf), atol=1e-3)
         else:
             se = sa - b
-            self.assertAllClose(a - b, tf_shell.from_shell_tensor(se), atol=1e-3)
+            self.assertAllClose(a - b, tf_shell.to_tensorflow(se), atol=1e-3)
 
             sf = b - sa
-            self.assertAllClose(b - a, tf_shell.from_shell_tensor(sf), atol=1e-3)
+            self.assertAllClose(b - a, tf_shell.to_tensorflow(sf), atol=1e-3)
 
         # Ensure initial arguments are not modified.
-        self.assertAllClose(a, tf_shell.from_shell_tensor(sa))
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
 
     def test_pt_tf_add(self):
         for test_context in self.test_contexts:

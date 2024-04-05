@@ -17,8 +17,11 @@ from __future__ import absolute_import
 
 from tf_shell import shell
 from tf_shell.python.shell_tensor import ShellTensor64
-from tf_shell.python.shell_tensor import to_shell_tensor
-from tf_shell.python.shell_tensor import from_shell_tensor
+from tf_shell.python.shell_tensor import to_shell_plaintext
+from tf_shell.python.shell_tensor import to_encrypted
+from tf_shell.python.shell_tensor import to_tensorflow
+from tf_shell.python.shell_tensor import roll
+from tf_shell.python.shell_tensor import reduce_sum
 from tf_shell.python.shell_tensor import matmul
 
 from tf_shell.python.shell_context import ShellContext64

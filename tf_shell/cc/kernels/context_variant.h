@@ -46,7 +46,6 @@ using tensorflow::VariantTensorData;
 template <typename T>
 class ContextVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
-  // static_assert(std::is_same<T, typename ModularInt::Int>::value);
   using ModularIntParams = typename rlwe::MontgomeryInt<T>::Params;
   using NttParams = rlwe::NttParameters<ModularInt>;
   using Context = rlwe::RnsContext<ModularInt>;
@@ -59,76 +58,56 @@ class ContextVariant {
  public:
   ContextVariant() = default;
 
-  ~ContextVariant() = default;
-
-  ContextVariant(ContextVariant const& other) : ContextVariant() {
-    // TODO(jchoncholas): Consider seeding new prng with value from current prng
-    // on copy to preserve seed-like behavior for initially seeded prngs.
-    std::string seed{};
-    Initialize(other.log_n_, other.qs_, other.ps_, other.pt_modulus_,
-               other.noise_variance_, seed)
-        .ok();
-  }
-
-  ContextVariant& operator=(ContextVariant const& other) {
-    // if (*this == other) return *this;  // guard self-assignment
-
-    // TODO(jchoncholas): Consider seeding new prng with value from current prng
-    // on copy to preserve seed-like behavior for initially seeded prngs.
-    std::string seed{};
-    Initialize(other.log_n_, other.qs_, other.ps_, other.pt_modulus_,
-               other.noise_variance_, seed)
-        .ok();
-
-    return *this;
-  }
-
   absl::Status Initialize(size_t log_n, std::vector<T> qs, std::vector<T> ps,
                           T pt_modulus, size_t noise_variance,
-                          std::string& seed = {}) {
-    // Store necessary information for copy constructor.
+                          std::string seed = {}) {
+    // Store miminum necessary information for encode.
     log_n_ = log_n;
     qs_ = qs;
     ps_ = ps;
     pt_modulus_ = pt_modulus;
     noise_variance_ = noise_variance;
+    seed_ = seed;
 
     // Create plaintext context objects
     TF_SHELL_ASSIGN_OR_RETURN(pt_params_, ModularIntParams::Create(pt_modulus));
     TF_SHELL_ASSIGN_OR_RETURN(
-        pt_ntt_params_,
+        auto pt_ntt_params,
         rlwe::InitializeNttParameters<ModularInt>(log_n, pt_params_.get()));
+    pt_ntt_params_ =
+        std::make_shared<NttParams const>(std::move(pt_ntt_params));
 
-    // Create ciphertext context objects
-    TF_SHELL_ASSIGN_OR_RETURN(
-        auto ct_context,
-        Context::CreateForBgvFiniteFieldEncoding(log_n, qs, ps, pt_modulus));
-    ct_context_ = std::make_unique<Context const>(std::move(ct_context));
+    // Create ciphertext context objects.
+    TF_SHELL_ASSIGN_OR_RETURN(auto ct_context,
+                              Context::CreateForBgvFiniteFieldEncoding(
+                                  log_n_, qs_, ps_, pt_modulus_));
+    ct_context_ = std::make_shared<Context const>(std::move(ct_context));
 
     int log_t = floor(std::log2(static_cast<double>(pt_modulus)));
     TF_SHELL_ASSIGN_OR_RETURN(
         auto error_params,
-        ErrorParams::Create(
-            log_n, ct_context_->MainPrimeModuli(),
-            /*aux_moduli=*/{},  // TODO(jchoncholas): should this be ps?
-            log_t, sqrt(noise_variance)));
+        ErrorParams::Create(log_n, ct_context_->MainPrimeModuli(),
+                            ct_context_->AuxPrimeModuli(), log_t,
+                            sqrt(noise_variance)));
     error_params_ =
-        std::make_unique<ErrorParams const>(std::move(error_params));
+        std::make_shared<ErrorParams const>(std::move(error_params));
 
     TF_SHELL_ASSIGN_OR_RETURN(auto encoder, Encoder::Create(ct_context_.get()));
-    encoder_ = std::make_unique<Encoder const>(std::move(encoder));
+    encoder_ = std::make_shared<Encoder const>(std::move(encoder));
 
-    int level = qs.size() - 1;
+    // Create the gadget.
+    int level = qs_.size() - 1;
     TF_SHELL_ASSIGN_OR_RETURN(auto q_hats,
                               ct_context_->MainPrimeModulusComplements(level));
     TF_SHELL_ASSIGN_OR_RETURN(auto q_hat_invs,
                               ct_context_->MainPrimeModulusCrtFactors(level));
-    std::vector<size_t> log_bs(qs.size(), ContextVariant<T>::kLogGadgetBase);
+    std::vector<size_t> log_bs(qs_.size(), ContextVariant<T>::kLogGadgetBase);
     TF_SHELL_ASSIGN_OR_RETURN(auto gadget,
-                              Gadget::Create(log_n, log_bs, q_hats, q_hat_invs,
+                              Gadget::Create(log_n_, log_bs, q_hats, q_hat_invs,
                                              ct_context_->MainPrimeModuli()));
-    gadget_ = std::make_unique<Gadget const>(std::move(gadget));
+    gadget_ = std::make_shared<Gadget const>(std::move(gadget));
 
+    // Create the PRNG with the given or generated seed.
     if (seed.empty()) {
       TF_SHELL_ASSIGN_OR_RETURN(auto gen_seed, HkdfPrng::GenerateSeed());
       TF_SHELL_ASSIGN_OR_RETURN(prng_, HkdfPrng::Create(gen_seed));
@@ -158,15 +137,16 @@ class ContextVariant {
   std::vector<T> ps_;
   T pt_modulus_;
   size_t noise_variance_;
+  std::string seed_;
 
   // Ideally these members wouldn't be smart pointers (plain pointers or even
   // just the objects), but many of them don't have default constructors and
   // in some places SHELL expects callers to use smart pointers.
-  std::unique_ptr<ModularIntParams const> pt_params_;
-  NttParams pt_ntt_params_;
-  std::unique_ptr<Context const> ct_context_;
-  std::unique_ptr<ErrorParams const> error_params_;
-  std::unique_ptr<Encoder const> encoder_;
-  std::unique_ptr<Gadget const> gadget_;
-  std::unique_ptr<Prng> prng_;
+  std::shared_ptr<ModularIntParams const> pt_params_;
+  std::shared_ptr<NttParams const> pt_ntt_params_;
+  std::shared_ptr<Context const> ct_context_;
+  std::shared_ptr<ErrorParams const> error_params_;
+  std::shared_ptr<Encoder const> encoder_;
+  std::shared_ptr<Gadget const> gadget_;
+  std::shared_ptr<Prng> prng_;
 };

@@ -30,6 +30,7 @@ class ShellTensor64(object):
         value,
         context,
         underlying_dtype,
+        scaling_factor,
         is_enc,
         noise_bit_count,
     ):
@@ -46,10 +47,10 @@ class ShellTensor64(object):
         self._raw = value
         self._context = context
         self._underlying_dtype = underlying_dtype
+        self._scaling_factor = scaling_factor
         self._is_enc = is_enc
 
         self._noise_bit_count = noise_bit_count
-        self._mod_reduced = None
 
     @property
     def shape(self):
@@ -75,76 +76,32 @@ class ShellTensor64(object):
     def noise_bits(self):
         return self._noise_bit_count + 1
 
+    @property
+    def level(self):
+        return self._context.level
+
+    @property
+    def mul_depth_left(self):
+        return self._context.mul_depth_supported
+
     def __getitem__(self, slice):
         slots = slice[0]
         if slots.start != None or slots.stop != None or slots.step != None:
             raise ValueError(
-                f"ShellTensor does not support intra-slot slicing. Be sure to use `:` on the first dimension. Got {slice}"
+                f"ShellTensor does not support intra-slot slicing. Use `:` on the first dimension. Got {slice}"
             )
         return ShellTensor64(
             value=self._raw[slice[1:]],
             context=self._context,
             underlying_dtype=self._underlying_dtype,
+            scaling_factor=self._scaling_factor,
             is_enc=self.is_encrypted,
             noise_bit_count=self._noise_bit_count,
         )
 
-    def get_encrypted(self, key):
-        if not isinstance(key, ShellKey64):
-            raise ValueError("Key must be a ShellKey64")
-
-        if self._is_enc:
-            return self
-        else:
-            return ShellTensor64(
-                value=shell_ops.encrypt64(
-                    self._context._raw_context,
-                    key._raw_key,
-                    self._raw,
-                ),
-                context=self._context,
-                underlying_dtype=self._underlying_dtype,
-                is_enc=True,
-                noise_bit_count=self._noise_bit_count,
-            )
-
-    def get_decrypted(self, key=None):
-        if not self._is_enc:
-            return from_shell_tensor(self)
-        else:
-            if not isinstance(key, ShellKey64):
-                raise ValueError("Key must be a ShellKey64")
-
-            # Find out what dtype shell thinks the plaintext is.
-            shell_dtype = _get_shell_dtype_from_underlying(self._underlying_dtype)
-
-            while key.level > self._context.level:
-                key = key.get_mod_reduced()
-
-            # Decrypt op returns a tf Tensor.
-            tf_tensor = shell_ops.decrypt64(
-                self._context._raw_context,
-                key._raw_key,
-                self._raw,
-                dtype=shell_dtype,
-            )
-
-            # Convert back to the underlying dtype.
-            return _decode_scaling(
-                tf_tensor,
-                self._underlying_dtype,
-                self._context.scaling_factor * self._context.scaling_factor,
-            )
-
     def __add__(self, other):
         if isinstance(other, ShellTensor64):
-            # Mod switch to the smaller modulus of the two.
-            matched_self = self
-            matched_other = other
-            while matched_self._context.level > matched_other._context.level:
-                matched_self = matched_self.get_mod_reduced()
-            while matched_self._context.level < matched_other._context.level:
-                matched_other = matched_other.get_mod_reduced()
+            matched_self, matched_other = _match_moduli_and_scaling(self, other)
 
             if self.is_encrypted and other.is_encrypted:
                 result_raw = shell_ops.add_ct_ct64(
@@ -171,6 +128,7 @@ class ShellTensor64(object):
                 value=result_raw,
                 context=matched_self._context,
                 underlying_dtype=self._underlying_dtype,
+                scaling_factor=self._scaling_factor,
                 is_enc=self._is_enc or other._is_enc,
                 noise_bit_count=self._noise_bit_count + 1,
             )
@@ -183,24 +141,18 @@ class ShellTensor64(object):
 
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self.
-            so = to_shell_tensor(self._context, other)
+            so = to_shell_plaintext(other, self._context)
             return self + so
 
         else:
-            return NotImplemented
+            return NotImplementedError
 
     def __radd__(self, other):
         return self + other
 
     def __sub__(self, other):
         if isinstance(other, ShellTensor64):
-            # Mod switch to the smaller modulus of the two.
-            matched_self = self
-            matched_other = other
-            while matched_self._context.level > matched_other._context.level:
-                matched_self = matched_self.get_mod_reduced()
-            while matched_self._context.level < matched_other._context.level:
-                matched_other = matched_other.get_mod_reduced()
+            matched_self, matched_other = _match_moduli_and_scaling(self, other)
 
             if self.is_encrypted and other.is_encrypted:
                 result_raw = shell_ops.sub_ct_ct64(
@@ -228,6 +180,7 @@ class ShellTensor64(object):
                 value=result_raw,
                 context=matched_self._context,
                 underlying_dtype=self._underlying_dtype,
+                scaling_factor=self._scaling_factor,
                 is_enc=self._is_enc or other._is_enc,
                 noise_bit_count=self._noise_bit_count + 1,
             )
@@ -237,16 +190,16 @@ class ShellTensor64(object):
             if other.shape == []:
                 raise ValueError("Scalar subtraction not yet implemented.")
 
-            # Lift tensorflow tensor to shell tensor with the same number
-            # fractional bits as self.
-            so = to_shell_tensor(self._context, other)
+            # Lift tensorflow tensor to shell tensor with the same scaling
+            # factor as self.
+            so = to_shell_plaintext(other, self._context)
             return self - so
         else:
-            return NotImplemented
+            return NotImplementedError
 
     def __rsub__(self, other):
         if isinstance(other, tf.Tensor):
-            shell_other = to_shell_tensor(self._context, other)
+            shell_other = to_shell_plaintext(other, self._context)
 
             if self.is_encrypted:
                 negative_self = -self
@@ -260,11 +213,12 @@ class ShellTensor64(object):
                 value=raw_result,
                 context=self._context,
                 underlying_dtype=self._underlying_dtype,
+                scaling_factor=self._scaling_factor,
                 is_enc=self._is_enc,
                 noise_bit_count=self._noise_bit_count + 1,
             )
         else:
-            return NotImplemented
+            return NotImplementedError
 
     def __neg__(self):
         if self.is_encrypted:
@@ -276,27 +230,14 @@ class ShellTensor64(object):
             value=raw_result,
             context=self._context,
             underlying_dtype=self._underlying_dtype,
+            scaling_factor=self._scaling_factor,
             is_enc=self._is_enc,
             noise_bit_count=self._noise_bit_count + 1,
         )
 
     def __mul__(self, other):
         if isinstance(other, ShellTensor64):
-            # First mod switch to the smaller modulus of the two.
-            matched_self = self
-            matched_other = other
-            while matched_self._context.level > matched_other._context.level:
-                matched_self = matched_self.get_mod_reduced()
-            while matched_self._context.level < matched_other._context.level:
-                matched_other = matched_other.get_mod_reduced()
-
-            # Next, reduce the scaling factor of each operand from 2x to 1x so
-            # that after multiplication, the result is back to 2x the scaling
-            # factor. This division is done by mod switching. Only required
-            # when the scaling factor is greater than 1.
-            if matched_self._context.scaling_factor > 1:
-                matched_self = matched_self.get_mod_reduced(preserve_plaintext=False)
-                matched_other = matched_other.get_mod_reduced(preserve_plaintext=False)
+            matched_self, matched_other = _match_moduli_and_scaling(self, other)
 
             if self.is_encrypted and other.is_encrypted:
                 raw_result = shell_ops.mul_ct_ct64(
@@ -323,29 +264,14 @@ class ShellTensor64(object):
                 value=raw_result,
                 context=matched_self._context,
                 underlying_dtype=self._underlying_dtype,
+                scaling_factor=matched_self._scaling_factor**2,
                 is_enc=self._is_enc or other._is_enc,
                 noise_bit_count=matched_self._noise_bit_count
                 + matched_other._noise_bit_count,
             )
         elif isinstance(other, tf.Tensor):
-            # Here we will take a shortcut since the other tensor has not yet
-            # been encoded as a shell tensor. Naively, one would encode the
-            # other tensor to the scaling factor**2, as usual, then reduce it
-            # back down to 1x the scaling factor before multiplying. Instead,
-            # here we lift the plaintext directly to 1x the scaling factor.
-            # When the scaling factor is 1, this only performs a cast.
-            single_scaled_other = _encode_scaling(other, self._context.scaling_factor)
-
-            if self._context.scaling_factor > 1:
-                # Switch self to the smaller context without scaling the
-                # plaintext. This divides the plaintext by the scaling factor.
-                # The moduli in the new context have one fewer elements than the
-                # original context.
-                single_scaled_self = self.get_mod_reduced(preserve_plaintext=False)
-            else:
-                # When the scaling factor is 1, there is no need for any
-                # division or mod switching.
-                single_scaled_self = self
+            # Encode the other tensor to the same scaling factor as self.
+            other = _encode_scaling(other, self._scaling_factor)
 
             if other.shape == []:
                 # Multiplying by a scalar uses a special op which is more
@@ -353,80 +279,65 @@ class ShellTensor64(object):
                 # same dimensions as self and multiplying.
                 if self.is_encrypted:
                     raw_result = shell_ops.mul_ct_tf_scalar64(
-                        single_scaled_self._context._raw_context,
-                        single_scaled_self,
-                        single_scaled_other,
+                        self._context._raw_context, self.raw, other
                     )
                 else:
                     raw_result = shell_ops.mul_pt_tf_scalar64(
-                        single_scaled_self._context._raw_context,
-                        single_scaled_self,
-                        single_scaled_other,
+                        self._context._raw_context, self.raw, other
                     )
                 return ShellTensor64(
                     value=raw_result,
-                    context=single_scaled_self._context,
+                    context=self._context,
                     underlying_dtype=self._underlying_dtype,
+                    scaling_factor=self._scaling_factor**2,
                     is_enc=self._is_enc,
-                    noise_bit_count=single_scaled_self.noise_bits + other.noise_bits,
+                    noise_bit_count=self.noise_bits + other.noise_bits,
                 )
 
             else:
-                shell_other = ShellTensor64(
-                    value=shell_ops.polynomial_import64(
-                        single_scaled_self._context._raw_context, single_scaled_other
-                    ),
-                    context=single_scaled_self._context,
-                    underlying_dtype=self._underlying_dtype,
-                    is_enc=False,
-                    noise_bit_count=self.noise_bits,
+                shell_other_raw = shell_ops.polynomial_import64(
+                    self._context._raw_context, other
                 )
                 return ShellTensor64(
-                    value=shell_ops.mul_ct_pt64(
-                        single_scaled_self._raw, shell_other._raw
-                    ),
-                    context=single_scaled_self._context,
+                    value=shell_ops.mul_ct_pt64(self._raw, shell_other_raw),
+                    context=self._context,
                     underlying_dtype=self._underlying_dtype,
+                    scaling_factor=self._scaling_factor**2,
                     is_enc=self._is_enc or other._is_enc,
-                    noise_bit_count=single_scaled_self.noise_bits
-                    + self._context.noise_bits,
+                    noise_bit_count=self.noise_bits + self._context.noise_bits,
                 )
 
         else:
-            return NotImplemented
+            return NotImplementedError
 
     def __rmul__(self, other):
         return self * other
 
-    def get_mod_reduced(self, preserve_plaintext=True):
+    def get_mod_reduced(self):
         """Switches the ShellTensor to a new context with different moduli. If
         preserve_plaintext is True (default), the plaintext value will be
         maintained through the modulus switch. If preserve_plaintext is False,
         the plaintext will be divided by the ratio of the new and old moduli."""
 
-        if preserve_plaintext and hasattr(self, "_mod_reduced_pt_preserved"):
-            return self._mod_reduced_pt_preserved
-        if not preserve_plaintext and hasattr(self, "_mod_reduced_pt_divided"):
-            return self._mod_reduced_pt_divided
+        if hasattr(self, "_mod_reduced"):
+            return self._mod_reduced
 
         # Switch to the new context and moduli.
         if self.is_encrypted:
-            raw_result = shell_ops.modulus_reduce_ct64(
-                self._context._raw_context,
-                self._raw,
-                preserve_plaintext,
-            )
+            op = shell_ops.modulus_reduce_ct64
         else:
-            raw_result = shell_ops.modulus_reduce_pt64(
-                self._context._raw_context,
-                self._raw,
-                preserve_plaintext,
-            )
+            op = shell_ops.modulus_reduce_pt64
+
+        raw_result = op(
+            self._context._raw_context,
+            self._raw,
+        )
 
         reduced_self = ShellTensor64(
             value=raw_result,
             context=self._context.get_mod_reduced(),
             underlying_dtype=self._underlying_dtype,
+            scaling_factor=self._scaling_factor,
             is_enc=self._is_enc,
             noise_bit_count=self.noise_bits
             - self._context.main_moduli[-1].bit_length()
@@ -434,80 +345,9 @@ class ShellTensor64(object):
         )
 
         # Cache the result.
-        if preserve_plaintext:
-            self._mod_reduced_pt_preserved = reduced_self
-        else:
-            self._mod_reduced_pt_divided = reduced_self
+        self._mod_reduced = reduced_self
 
         return reduced_self
-
-    def roll(self, rotation_key, shift):
-        if not isinstance(rotation_key, ShellRotationKey64):
-            raise ValueError(
-                "Rotation key must be provided. Instead saw {rotation_key}."
-            )
-
-        if not self._is_enc:
-            raise ValueError("Unencrypted ShellTensor rotation not supported yet.")
-
-        # Get the correct rotation key for the level of this ciphertext.
-        raw_rotation_key = rotation_key._get_key_at_level(self._context.level)
-
-        shift = tf.cast(shift, tf.int64)
-
-        return ShellTensor64(
-            value=shell_ops.roll64(raw_rotation_key, self._raw, shift),
-            context=self._context,
-            underlying_dtype=self._underlying_dtype,
-            is_enc=True,
-            noise_bit_count=self._noise_bit_count + 6,  # TODO correct?
-        )
-
-    def reduce_sum(self, axis, rotation_key=None):
-        if not self._is_enc:
-            raise ValueError("Unencrypted ShellTensor reduce_sum not supported yet.")
-
-        # Check axis is a scalar
-        if isinstance(axis, tf.Tensor) and not axis.shape != []:
-            raise ValueError("Only scalar `axis` is supported.")
-
-        if axis == 0:
-            if not isinstance(rotation_key, ShellRotationKey64):
-                raise ValueError(
-                    "Rotation key must be provided to reduce_sum over the first axis. Instead saw {rotation_key}."
-                )
-
-            # Get the correct rotation key for the level of this ciphertext.
-            raw_rotation_key = rotation_key._get_key_at_level(self._context.level)
-
-            # reduce sum does log2(num_slots) rotations and additions.
-            # TODO: add noise from rotations?
-            result_noise_bits = (
-                self._noise_bit_count + self._context.num_slots.bit_length() + 1,
-            )
-
-            return ShellTensor64(
-                value=shell_ops.reduce_sum_by_rotation64(self._raw, raw_rotation_key),
-                context=self._context,
-                underlying_dtype=self._underlying_dtype,
-                is_enc=True,
-                noise_bit_count=result_noise_bits,
-            )
-        else:
-            if axis >= len(self.shape):
-                raise ValueError("Axis greater than number of dimensions")
-
-            result_noise_bits = (
-                self._noise_bit_count + self.shape[axis].bit_length() + 1
-            )
-
-            return ShellTensor64(
-                value=shell_ops.reduce_sum64(self._raw, axis),
-                context=self._context,
-                underlying_dtype=self._underlying_dtype,
-                is_enc=True,
-                noise_bit_count=result_noise_bits,
-            )
 
 
 def _get_shell_dtype_from_underlying(type):
@@ -548,29 +388,36 @@ def _decode_scaling(scaled_tensor, output_dtype, scaling_factor):
         raise ValueError(f"Unsupported dtype {output_dtype}")
 
 
-def to_shell_tensor(context, tensor):
-    if isinstance(tensor, ShellTensor64):
-        return tensor
-    if isinstance(tensor, tf.Tensor):
-        assert isinstance(
-            context, ShellContext64
-        ), f"Context must be a ShellContext64, instead got {type(context)}"
+def to_shell_plaintext(tensor, context):
+    """Converts a Tensorflow tensor to a ShellTensor which holds a plaintext.
+    Under the hood, this means encoding the Tensorflow tensor to a BGV style
+    polynomial representation with the sign and scaling factor encoded as
+    appropriate."""
+    assert isinstance(
+        context, ShellContext64
+    ), f"Context must be a ShellContext64, instead got {type(context)}"
 
+    if isinstance(tensor, ShellTensor64):
+        if tensor.is_encrypted:
+            raise ValueError(
+                "Cannot use to_plaintext() on an encrypted ShellTensor. Use to_tensorflow() with a key to decrypt."
+            )
+        return tensor  # Do nothing, already a shell plaintext.
+
+    elif isinstance(tensor, tf.Tensor):
         if not tensor.dtype.is_floating and context.scaling_factor != 1:
             raise ValueError(
                 "Scaling factor only supported for floating point datatypes."
             )
 
-        # Shell tensor keeps all plaintexts at scaling_factor**2, so multiply by
-        # scaling_factor**2 to get the plaintext that shell should see.
-        scaled_tensor = _encode_scaling(
-            tensor, context.scaling_factor * context.scaling_factor
-        )
+        # Shell tensor represents floats as integers * scaling_factor.
+        scaled_tensor = _encode_scaling(tensor, context.scaling_factor)
 
         return ShellTensor64(
             value=shell_ops.polynomial_import64(context._raw_context, scaled_tensor),
             context=context,
             underlying_dtype=tensor.dtype,
+            scaling_factor=context.scaling_factor,
             is_enc=False,
             noise_bit_count=context.noise_bits,
         )
@@ -578,32 +425,157 @@ def to_shell_tensor(context, tensor):
         raise ValueError("Cannot convert to ShellTensor64")
 
 
-def from_shell_tensor(s_tensor):
+def to_encrypted(x, key, context=None):
+    """Encrypts a plaintext tensor or ShellTensor using the provided key. If
+    the input is a Tensorflow tensor, a context must also be provided. If the
+    input is a ShellTensor, the context is ignored and the context stored
+    in the input ShellTensor is used."""
+    if not isinstance(key, ShellKey64):
+        raise ValueError("Key must be a ShellKey64")
+
+    if isinstance(x, tf.Tensor):
+        if not isinstance(context, ShellContext64):
+            raise ValueError(
+                "ShellContext64 must be provided when encrypting a tf.Tensor"
+            )
+
+        # Encode the Tensorflow tensor to a shell plaintext using the provided
+        # context and call ourself.
+        return to_encrypted(to_shell_plaintext(x, context), key)
+
+    elif isinstance(x, ShellTensor64):
+        if x._is_enc:
+            return x  # Do nothing, already encrypted.
+        else:
+            return ShellTensor64(
+                value=shell_ops.encrypt64(
+                    x._context._raw_context,
+                    key._raw_key,
+                    x._raw,
+                ),
+                context=x._context,
+                underlying_dtype=x._underlying_dtype,
+                scaling_factor=x._scaling_factor,
+                is_enc=True,
+                noise_bit_count=x._noise_bit_count,
+            )
+    else:
+        raise ValueError("Cannot convert to ShellTensor64")
+
+
+def to_tensorflow(s_tensor, key=None):
+    """Converts a ShellTensor to a Tensorflow tensor. If the ShellTensor is
+    encrypted, a key must be provided to decrypt it. If the ShellTensor is
+    plaintext, the key is ignored."""
     assert isinstance(
         s_tensor, ShellTensor64
     ), f"Should be ShellTensor, instead got {type(s_tensor)}"
 
+    # Find out what dtype shell thinks the plaintext is.
+    shell_dtype = _get_shell_dtype_from_underlying(s_tensor._underlying_dtype)
+
     if s_tensor.is_encrypted:
-        # return NotImplemented  # may allow other conversions
-        raise ValueError("Cannot convert encrypted ShellTensor to tf. Decrypt first.")
+        if not isinstance(key, ShellKey64):
+            raise ValueError(
+                "Key must be provided to decrypt an encrypted ShellTensor."
+            )
 
-    shell_export_type = _get_shell_dtype_from_underlying(s_tensor._underlying_dtype)
+        # Mod reduce the key to match the level of the ciphertext.
+        while key.level > s_tensor._context.level:
+            key = key.get_mod_reduced()
 
-    # Convert from polynomial representation to plaintext tensorflow tensor.
-    # Always convert to int64, then handle the fixed point as appropriate.
-    tf_tensor = shell_ops.polynomial_export64(
-        s_tensor._context._raw_context,
-        s_tensor._raw,
-        dtype=shell_export_type,
-    )
+        # Decrypt op returns a tf Tensor.
+        tf_tensor = shell_ops.decrypt64(
+            s_tensor._context._raw_context,
+            key._raw_key,
+            s_tensor._raw,
+            dtype=shell_dtype,
+        )
 
-    # Shell tensor keeps all plaintexts at scaling_factor**2, so divide by
-    # scaling_factor**2 to get the original plaintext.
+    else:
+        # Convert from polynomial representation to plaintext tensorflow tensor.
+        # Always convert to int64, then handle the fixed point as appropriate.
+        tf_tensor = shell_ops.polynomial_export64(
+            s_tensor._context._raw_context,
+            s_tensor._raw,
+            dtype=shell_dtype,
+        )
+
+    # Shell tensor represents floats as integers * scaling_factor.
     return _decode_scaling(
         tf_tensor,
         s_tensor._underlying_dtype,
-        s_tensor._context.scaling_factor * s_tensor._context.scaling_factor,
+        s_tensor._scaling_factor,
     )
+
+
+def roll(x, rotation_key, shift):
+    if not isinstance(rotation_key, ShellRotationKey64):
+        raise ValueError("Rotation key must be provided. Instead saw {rotation_key}.")
+
+    if not x._is_enc:
+        raise ValueError("Unencrypted ShellTensor rotation not supported yet.")
+
+    # Get the correct rotation key for the level of this ciphertext.
+    raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
+
+    shift = tf.cast(shift, tf.int64)
+
+    return ShellTensor64(
+        value=shell_ops.roll64(raw_rotation_key, x._raw, shift),
+        context=x._context,
+        underlying_dtype=x._underlying_dtype,
+        scaling_factor=x._scaling_factor,
+        is_enc=True,
+        noise_bit_count=x._noise_bit_count + 6,  # TODO correct?
+    )
+
+
+def reduce_sum(x, axis, rotation_key=None):
+    if not x._is_enc:
+        raise ValueError("Unencrypted ShellTensor reduce_sum not supported yet.")
+
+    # Check axis is a scalar
+    if isinstance(axis, tf.Tensor) and not axis.shape != []:
+        raise ValueError("Only scalar `axis` is supported.")
+
+    if axis == 0:
+        if not isinstance(rotation_key, ShellRotationKey64):
+            raise ValueError(
+                "Rotation key must be provided to reduce_sum over the first axis. Instead saw {rotation_key}."
+            )
+
+        # Get the correct rotation key for the level of this ciphertext.
+        raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
+
+        # reduce sum does log2(num_slots) rotations and additions.
+        # TODO: add noise from rotations?
+        result_noise_bits = (
+            x._noise_bit_count + x._context.num_slots.bit_length() + 1,
+        )
+
+        return ShellTensor64(
+            value=shell_ops.reduce_sum_by_rotation64(x._raw, raw_rotation_key),
+            context=x._context,
+            underlying_dtype=x._underlying_dtype,
+            scaling_factor=x._scaling_factor,
+            is_enc=True,
+            noise_bit_count=result_noise_bits,
+        )
+    else:
+        if axis >= len(x.shape):
+            raise ValueError("Axis greater than number of dimensions")
+
+        result_noise_bits = x._noise_bit_count + x.shape[axis].bit_length() + 1
+
+        return ShellTensor64(
+            value=shell_ops.reduce_sum64(x._raw, axis),
+            context=x._context,
+            underlying_dtype=x._underlying_dtype,
+            scaling_factor=x._scaling_factor,
+            is_enc=True,
+            noise_bit_count=result_noise_bits,
+        )
 
 
 def matmul(x, y, rotation_key=None):
@@ -622,13 +594,13 @@ def matmul(x, y, rotation_key=None):
                 f"Underlying dtypes must match. Got {x._underlying_dtype} and {y.dtype}"
             )
 
-        # Convert y to 1x the scaling factor.
-        single_scaled_y = _encode_scaling(y, x._context.scaling_factor)
+        if x.mul_depth_left <= 0:
+            raise ValueError(
+                "Insufficient multiplication depth remaining to perform matmul."
+            )
 
-        # Switch x to a smaller context without scaling the plaintext. This
-        # divides the plaintext by the scaling factor. The moduli in the new
-        # context have one fewer elements than the original context.
-        single_scaled_x = x.get_mod_reduced(preserve_plaintext=False)
+        # Encode the plaintext y to the same scaling factor as x.
+        scaled_y = _encode_scaling(y, x._scaling_factor)
 
         # Noise grows from one multiplication then a sum over that dimension.
         multiplication_noise = x.noise_bits + x._context.noise_bits
@@ -636,12 +608,13 @@ def matmul(x, y, rotation_key=None):
 
         return ShellTensor64(
             value=shell_ops.mat_mul_ct_pt64(
-                single_scaled_x._context._raw_context,
-                single_scaled_x._raw,
-                single_scaled_y,
+                x._context._raw_context,
+                x._raw,
+                scaled_y,
             ),
-            context=single_scaled_x._context,
+            context=x._context,
             underlying_dtype=x._underlying_dtype,
+            scaling_factor=x._scaling_factor**2,
             is_enc=True,
             noise_bit_count=reduce_sum_noise,
         )
@@ -657,18 +630,16 @@ def matmul(x, y, rotation_key=None):
                 f"Underlying dtypes must match. Got {x.dtype} and {y._underlying_dtype}"
             )
 
-        # Convert x to 1x the scaling factor.
-        single_scaled_x = _encode_scaling(x, y._context.scaling_factor)
+        if y.mul_depth_left <= 0:
+            raise ValueError(
+                "Insufficient multiplication depth remaining to perform matmul."
+            )
 
-        # Switch y to a smaller context without scaling the plaintext. This
-        # divides the plaintext by the scaling factor. The moduli in the new
-        # context have one fewer elements than the original context.
-        single_scaled_y = y.get_mod_reduced(preserve_plaintext=False)
+        # Encode the plaintext x to the same scaling factor as y.
+        scaled_x = _encode_scaling(x, y._scaling_factor)
 
         # Get the correct rotation key for the level of y.
-        raw_rotation_key = rotation_key._get_key_at_level(
-            single_scaled_y._context.level
-        )
+        raw_rotation_key = rotation_key._get_key_at_level(y._context.level)
 
         # Noise grows from doing one multiplication then a reduce_sum operation
         # over the outer (ciphertext) dimension. dimension. The noise from the
@@ -679,19 +650,20 @@ def matmul(x, y, rotation_key=None):
 
         return ShellTensor64(
             value=shell_ops.mat_mul_pt_ct64(
-                single_scaled_y._context._raw_context,
+                y._context._raw_context,
                 raw_rotation_key,
-                single_scaled_x,
-                single_scaled_y._raw,
+                scaled_x,
+                y._raw,
             ),
-            context=single_scaled_y._context,
+            context=y._context,
             underlying_dtype=y._underlying_dtype,
+            scaling_factor=y._scaling_factor**2,
             is_enc=True,
             noise_bit_count=reduce_sum_noise,
         )
 
     elif isinstance(x, ShellTensor64) and isinstance(y, ShellTensor64):
-        return NotImplemented
+        return NotImplementedError
 
     elif isinstance(x, tf.Tensor) and isinstance(y, tf.Tensor):
         return tf.matmul(x, y)
@@ -700,3 +672,26 @@ def matmul(x, y, rotation_key=None):
         raise ValueError(
             f"Unsupported types for matmul. Got {type(x)} and {type(y)}. If multiplying by a plaintext, pass it as a plain TensorFlow tensor, not a ShellTensor."
         )
+
+
+def _match_moduli_and_scaling(x, y):
+    # Mod switch to the smaller modulus of the two.
+    while x._context.level > y._context.level:
+        x = x.get_mod_reduced()
+    while x._context.level < y._context.level:
+        y = y.get_mod_reduced()
+
+    # Match the scaling factors.
+    # First make sure the scaling factors are compatible.
+    frac = x._scaling_factor / y._scaling_factor
+    if abs(frac - int(frac)) != 0:
+        raise ValueError(
+            f"Scaling factors must be compatible. Got {x._scaling_factor} and {y._scaling_factor}"
+        )
+
+    while x._scaling_factor > y._scaling_factor:
+        y = y * x._scaling_factor
+    while x._scaling_factor < y._scaling_factor:
+        x = x * y._scaling_factor
+
+    return x, y

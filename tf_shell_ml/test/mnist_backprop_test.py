@@ -23,31 +23,27 @@ import tf_shell
 import tf_shell_ml
 
 plaintext_dtype = tf.float32
-fxp_num_bits = 5  # number of fractional bits.
-
 
 # Shell setup.
 log_slots = 11
 slots = 2**log_slots
-
-# Num plaintext bits: 27, noise bits: 65, num rns moduli: 2
+# Num plaintext bits: 52, noise bits: 128
+# Max representable value: 1048576
 context = tf_shell.create_context64(
     log_n=11,
-    main_moduli=[140737488486401, 140737488498689],
+    main_moduli=[288230376151748609, 288230376151760897, 288230376151994369],
     aux_moduli=[],
-    plaintext_modulus=134246401,
-    noise_variance=8,
-    seed="",
+    plaintext_modulus=4503599627481089,
+    scaling_factor=4,
+    mul_depth_supported=3,
+    seed='test_seed',
 )
+
 key = tf_shell.create_key64(context)
 rotation_key = tf_shell.create_rotation_key64(context, key)
 
-# Training setup.
-epochs = 1
-batch_size = slots
-stop_after_n_batches = 1
-
 # Prepare the dataset.
+batch_size = slots
 (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
 x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
 x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
@@ -65,14 +61,17 @@ hidden_layer = tf_shell_ml.ShellDense(
     64,
     activation=tf_shell_ml.relu,
     activation_deriv=tf_shell_ml.relu_deriv,
-    fxp_fractional_bits=fxp_num_bits,
     weight_dtype=plaintext_dtype,
 )
 output_layer = tf_shell_ml.ShellDense(
     10,
     activation=tf_shell_ml.sigmoid,
-    # activation_deriv=tf_shell_ml.sigmoid_deriv,
-    fxp_fractional_bits=fxp_num_bits,
+    # Do not set the derivative of the activation function for the last layer
+    # in the model. The derivative of the categorical crossentropy loss function
+    # times the derivative of a softmax is just y_pred - y (which is much easier
+    # to compute than each of them individually). So instead just let the
+    # loss function derivative incorporate y_pred - y and let the derivative
+    # of this last layer's activation be a no-op.
     weight_dtype=plaintext_dtype,
 )
 
@@ -86,19 +85,23 @@ optimizer.compile([hidden_layer.weights, output_layer.weights])
 
 
 def train_step(x, y):
-    # Forward pass always in plaintext.
+    # Forward pass.
     y_1 = hidden_layer(x)
     y_pred = output_layer(y_1)
-    # loss = loss_fn(y, y_pred) # this is expensive and not needed for training
+    # loss = loss_fn(y, y_pred)  # Expensive and not needed for this test.
 
     # Backward pass.
     dJ_dy_pred = loss_fn.grad(y, y_pred)
 
-    (dJ_dw1, dJ_dx1) = output_layer.backward(
+    dJ_dw1, dJ_dx1 = output_layer.backward(
         dJ_dy_pred, rotation_key, is_first_layer=False
     )
 
-    (dJ_dw0, dJ_dx0_unused) = hidden_layer.backward(
+    # Mod reduce to control noise
+    if isinstance(dJ_dx1, tf_shell.ShellTensor64):
+        dJ_dx1.get_mod_reduced()
+
+    dJ_dw0, dJ_dx0_unused = hidden_layer.backward(
         dJ_dx1, rotation_key, is_first_layer=True
     )
 
@@ -139,27 +142,19 @@ class TestMNISTBackprop(tf.test.TestCase):
             axis=0,
         )
 
-        # Encrypt y using fixed point representation.
-        enc_y_batch = tf_shell.to_shell_tensor(
-            context, y_batch, fxp_fractional_bits=fxp_num_bits
-        ).get_encrypted(key)
+        # Encrypt y.
+        enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
 
         # Backprop.
         enc_output_layer_grad, enc_hidden_layer_grad = train_step(x_batch, enc_y_batch)
 
         # Decrypt the gradients.
-        repeated_output_layer_grad = enc_output_layer_grad.get_decrypted(key)
-        repeated_hidden_layer_grad = enc_hidden_layer_grad.get_decrypted(key)
+        repeated_output_layer_grad = tf_shell.to_tensorflow(enc_output_layer_grad, key)
+        repeated_hidden_layer_grad = tf_shell.to_tensorflow(enc_hidden_layer_grad, key)
 
         print(f"\tFinished Stamp: {time.time() - start_time}")
         print(f"\tOutput Layer Noise: {enc_output_layer_grad.noise_bits}")
         print(f"\tHidden Layer Noise: {enc_hidden_layer_grad.noise_bits}")
-        print(
-            f"\tOutput Layer fxp bits: {enc_output_layer_grad.num_fxp_fractional_bits}"
-        )
-        print(
-            f"\tHidden Layer fxp bits: {enc_hidden_layer_grad.num_fxp_fractional_bits}"
-        )
 
         shell_output_layer_grad = tf.concat(
             [
@@ -180,13 +175,13 @@ class TestMNISTBackprop(tf.test.TestCase):
         self.assertAllClose(
             output_layer_grad,
             shell_output_layer_grad,
-            atol=slots * 2.0 ** (-fxp_num_bits),
+            atol=1e-3,
         )
 
         self.assertAllClose(
             hidden_layer_grad,
             shell_hidden_layer_grad,
-            atol=slots * 2.0 ** (-fxp_num_bits - 2),
+            atol=1e-3,
         )
 
         print(f"Total plaintext training time: {time.time() - start_time} seconds")
