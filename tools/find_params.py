@@ -11,16 +11,16 @@ from statistics import mean
 # enough to hold the plaintext * (scaling_factor ** (2 ** num_muls) ).
 
 log_n = 11
-plaintext_bits = 16  # not including scaling factor or mul_depth
+plaintext_bits = 8  # not including scaling factor or mul_depth
 
-mul_depth = 1
-scaling_factor = 8
+mul_depth = 3
+scaling_factor = 16
 
-total_noise_bits = 56
+total_noise_bits = 128
 
 
 # Some constants dictated by SHELL.
-max_prime_bits = 57
+max_prime_bits = 58
 two_n = 2 ** (log_n + 1)
 
 
