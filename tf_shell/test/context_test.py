@@ -56,7 +56,7 @@ class TestShellContext(tf.test.TestCase):
         )
         key = tf_shell.create_key64(context)
 
-        a = tf.ones([2**11], dtype=tf.float32) * 10
+        a = tf.ones([2**11, 2, 3], dtype=tf.float32) * 10
         sa = tf_shell.to_shell_plaintext(a, context)
         ea = tf_shell.to_encrypted(sa, key)
 
