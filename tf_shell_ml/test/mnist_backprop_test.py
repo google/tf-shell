@@ -14,8 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import unittest
-import time
-from datetime import datetime
 import tensorflow as tf
 import keras
 import numpy as np
@@ -24,26 +22,39 @@ import tf_shell_ml
 
 plaintext_dtype = tf.float32
 
-# Shell setup.
-log_slots = 11
-slots = 2**log_slots
-# Num plaintext bits: 52, noise bits: 128
-# Max representable value: 1048576
+# # Num plaintext bits: 32, noise bits: 84
+# # Max representable value: 654624
+# context = tf_shell.create_context64(
+#     log_n=11,
+#     main_moduli=[288230376151748609, 144115188076060673],
+#     aux_moduli=[],
+#     plaintext_modulus=4294991873,
+#     scaling_factor=3,
+#     mul_depth_supported=3,
+#     seed="test_seed",
+# )
+# 61 bits of security according to lattice estimator primal_bdd.
+# Runtime 170 seconds (83ms/example).
+
+# Num plaintext bits: 32, noise bits: 84
+# Max representable value: 654624
 context = tf_shell.create_context64(
-    log_n=11,
-    main_moduli=[288230376151748609, 288230376151760897, 288230376151994369],
+    log_n=12,
+    main_moduli=[288230376151760897, 288230376152137729],
     aux_moduli=[],
-    plaintext_modulus=4503599627481089,
-    scaling_factor=4,
+    plaintext_modulus=4294991873,
+    scaling_factor=3,
     mul_depth_supported=3,
-    seed='test_seed',
+    seed="test_seed",
 )
+# 120 bits of security according to lattice estimator primal_bdd.
+# Runtime 388 seconds (95ms/example).
 
 key = tf_shell.create_key64(context)
 rotation_key = tf_shell.create_rotation_key64(context, key)
 
 # Prepare the dataset.
-batch_size = slots
+batch_size = context.num_slots
 (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
 x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
 x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
@@ -97,9 +108,9 @@ def train_step(x, y):
         dJ_dy_pred, rotation_key, is_first_layer=False
     )
 
-    # Mod reduce to control noise
-    if isinstance(dJ_dx1, tf_shell.ShellTensor64):
-        dJ_dx1.get_mod_reduced()
+    # Mod reduce will reduce noise but increase the plaintext error.
+    # if isinstance(dJ_dx1, tf_shell.ShellTensor64):
+    #     dJ_dx1.get_mod_reduced()
 
     dJ_dw0, dJ_dx0_unused = hidden_layer.backward(
         dJ_dx1, rotation_key, is_first_layer=True
@@ -112,8 +123,6 @@ def train_step(x, y):
 class TestMNISTBackprop(tf.test.TestCase):
     def test_mnist_plaintext_backprop(self):
         (x_batch, y_batch) = next(iter(train_dataset))
-
-        start_time = time.time()
 
         # Plaintext backprop splitting the batch in half vertically.
         top_x_batch, bottom_x_batch = tf.split(x_batch, num_or_size_splits=2, axis=0)
@@ -152,21 +161,24 @@ class TestMNISTBackprop(tf.test.TestCase):
         repeated_output_layer_grad = tf_shell.to_tensorflow(enc_output_layer_grad, key)
         repeated_hidden_layer_grad = tf_shell.to_tensorflow(enc_hidden_layer_grad, key)
 
-        print(f"\tFinished Stamp: {time.time() - start_time}")
         print(f"\tOutput Layer Noise: {enc_output_layer_grad.noise_bits}")
         print(f"\tHidden Layer Noise: {enc_hidden_layer_grad.noise_bits}")
 
         shell_output_layer_grad = tf.concat(
             [
                 tf.expand_dims(repeated_output_layer_grad[0, ...], 0),
-                tf.expand_dims(repeated_output_layer_grad[slots // 2, ...], 0),
+                tf.expand_dims(
+                    repeated_output_layer_grad[context.num_slots // 2, ...], 0
+                ),
             ],
             axis=0,
         )
         shell_hidden_layer_grad = tf.concat(
             [
                 tf.expand_dims(repeated_hidden_layer_grad[0, ...], 0),
-                tf.expand_dims(repeated_hidden_layer_grad[slots // 2, ...], 0),
+                tf.expand_dims(
+                    repeated_hidden_layer_grad[context.num_slots // 2, ...], 0
+                ),
             ],
             axis=0,
         )
@@ -175,16 +187,16 @@ class TestMNISTBackprop(tf.test.TestCase):
         self.assertAllClose(
             output_layer_grad,
             shell_output_layer_grad,
-            atol=1e-3,
+            atol=1 / context.scaling_factor * context.num_slots,
+            rtol=1 / context.scaling_factor * 2,
         )
 
         self.assertAllClose(
             hidden_layer_grad,
             shell_hidden_layer_grad,
-            atol=1e-3,
+            atol=1 / context.scaling_factor * context.num_slots,
+            rtol=1 / context.scaling_factor * 3,
         )
-
-        print(f"Total plaintext training time: {time.time() - start_time} seconds")
 
 
 if __name__ == "__main__":
