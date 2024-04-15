@@ -57,8 +57,7 @@ class MulCtCtOp : public OpKernel {
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
-    // Check that the inputs have the same shape because this Op does not
-    // support broadcasting.
+    // Check that the inputs have the same shape.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
@@ -110,8 +109,7 @@ class MulCtPtOp : public OpKernel {
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
-    // Check that the inputs have the same shape because this Op does not
-    // support broadcasting.
+    // Check that the inputs have the same shape.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 
@@ -280,8 +278,7 @@ class MulPtPtOp : public OpKernel {
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
 
-    // Check that the inputs have the same shape because this Op does not
-    // support broadcasting.
+    // Check that the inputs have the same shape.
     OP_REQUIRES(op_ctx, a.shape() == b.shape(),
                 InvalidArgument("Inputs must have the same shape."));
 

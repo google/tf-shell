@@ -120,7 +120,9 @@ class TestShellTensor(tf.test.TestCase):
         eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
 
         ec = ea + eb
-        self.assertAllClose(a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
 
         # Make sure the arguments were not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
@@ -148,6 +150,58 @@ class TestShellTensor(tf.test.TestCase):
         for test_context in self.test_contexts:
             with self.subTest(f"ct_ct_add with context `{test_context}`."):
                 self._test_ct_ct_add(test_context)
+
+    def _test_ct_ct_add_with_broadcasting(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_ct_add_with_broadcasting with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+        eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
+
+        ec = ea + eb
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
+
+        # Make sure the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+        self.assertAllClose(b, tf_shell.to_tensorflow(eb, test_context.key))
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid overflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            eaa = tf_shell.to_encrypted(
+                a + max_val, test_context.key, test_context.shell_context
+            )
+            ed = eaa - eb
+            self.assertAllClose(
+                a + max_val - b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+            )
+        else:
+            ed = ea - eb
+            self.assertAllClose(
+                a - b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+            )
+
+    def test_ct_ct_add_with_broadcasting(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"ct_ct_add_with_broadcasting with context `{test_context}`."
+            ):
+                self._test_ct_ct_add_with_broadcasting(test_context)
 
     def _test_ct_pt_add(self, test_context):
         try:
@@ -218,6 +272,79 @@ class TestShellTensor(tf.test.TestCase):
             with self.subTest(f"ct_pt_add with context `{test_context}`."):
                 self._test_ct_pt_add(test_context)
 
+    def _test_ct_pt_add_with_broadcasting(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_pt_add_with_broadcasting with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key)
+
+        ec = ea + sb
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
+
+        ed = sb + ea
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+        )
+
+        # Make sure the arguments were not modified.
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid underflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            eaa = tf_shell.to_encrypted(
+                a + max_val, test_context.key, test_context.shell_context
+            )
+            ee = eaa - sb
+            self.assertAllClose(
+                a + max_val - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
+
+            sbb = tf_shell.to_shell_plaintext(b + max_val, test_context.shell_context)
+            ef = sbb - ea
+            self.assertAllClose(
+                b + max_val - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
+        else:
+            ee = ea - sb
+            self.assertAllClose(
+                a - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
+
+            ef = sb - ea
+            self.assertAllClose(
+                b - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
+
+    def test_ct_pt_add_with_broadcasting(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"ct_pt_add_with_broadcasting with context `{test_context}`."
+            ):
+                self._test_ct_pt_add_with_broadcasting(test_context)
+
     def _test_ct_tf_add(self, test_context):
         try:
             # This test performs one addition.
@@ -280,6 +407,72 @@ class TestShellTensor(tf.test.TestCase):
             with self.subTest(f"ct_tf_add with context `{test_context}`."):
                 self._test_ct_tf_add(test_context)
 
+    def _test_ct_tf_add_with_broadcasting(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_tf_add_with_broadcasting with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+
+        ec = ea + b
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
+
+        ed = b + ea
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+        )
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid underflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            eaa = tf_shell.to_encrypted(
+                a + max_val, test_context.key, test_context.shell_context
+            )
+            ee = eaa - b
+            self.assertAllClose(
+                a + max_val - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
+
+            bb = b + max_val
+            ef = bb - ea
+            self.assertAllClose(
+                bb - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
+        else:
+            ee = ea - b
+            self.assertAllClose(
+                a - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
+
+            ef = b - ea
+            self.assertAllClose(
+                b - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_ct_tf_add_with_broadcasting(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"ct_tf_add_with_broadcasting with context `{test_context}`."
+            ):
+                self._test_ct_tf_add_with_broadcasting(test_context)
+
     def _test_pt_pt_add(self, test_context):
         try:
             # This test performs one addition.
@@ -306,9 +499,7 @@ class TestShellTensor(tf.test.TestCase):
             max_val = int(max_val)
             saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
             ee = saa - sb
-            self.assertAllClose(
-                a + max_val - b, tf_shell.to_tensorflow(ee), atol=1e-3
-            )
+            self.assertAllClose(a + max_val - b, tf_shell.to_tensorflow(ee), atol=1e-3)
         else:
             sd = sa - sb
             self.assertAllClose(a - b, tf_shell.to_tensorflow(sd), atol=1e-3)
@@ -321,6 +512,50 @@ class TestShellTensor(tf.test.TestCase):
         for test_context in self.test_contexts:
             with self.subTest(f"pt_pt_add with context `{test_context}`."):
                 self._test_pt_pt_add(test_context)
+
+    def _test_pt_pt_add_with_broadcast(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test pt_pt_add_with_broadcast with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+
+        sc = sa + sb
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sc), atol=1e-3)
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid underflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
+            ee = saa - sb
+            self.assertAllClose(a + max_val - b, tf_shell.to_tensorflow(ee), atol=1e-3)
+        else:
+            sd = sa - sb
+            self.assertAllClose(a - b, tf_shell.to_tensorflow(sd), atol=1e-3)
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
+
+    def test_pt_pt_add_with_broadcast(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"pt_pt_add_with_broadcast with context `{test_context}`."
+            ):
+                self._test_pt_pt_add_with_broadcast(test_context)
 
     def _test_pt_tf_add(self, test_context):
         try:
@@ -350,9 +585,7 @@ class TestShellTensor(tf.test.TestCase):
             max_val = int(max_val)
             saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
             se = saa - b
-            self.assertAllClose(
-                a + max_val - b, tf_shell.to_tensorflow(se), atol=1e-3
-            )
+            self.assertAllClose(a + max_val - b, tf_shell.to_tensorflow(se), atol=1e-3)
 
             bb = b + max_val
             sf = bb - sa
@@ -371,6 +604,58 @@ class TestShellTensor(tf.test.TestCase):
         for test_context in self.test_contexts:
             with self.subTest(f"pt_tf_add with context `{test_context}`."):
                 self._test_pt_tf_add(test_context)
+
+    def _test_pt_tf_add_with_broadcast(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test pt_tf_add_with_broadcast with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+
+        sc = sa + b
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sc), atol=1e-3)
+
+        sd = b + sa
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sd), atol=1e-3)
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid underflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
+            se = saa - b
+            self.assertAllClose(a + max_val - b, tf_shell.to_tensorflow(se), atol=1e-3)
+
+            bb = b + max_val
+            sf = bb - sa
+            self.assertAllClose(bb - a, tf_shell.to_tensorflow(sf), atol=1e-3)
+        else:
+            se = sa - b
+            self.assertAllClose(a - b, tf_shell.to_tensorflow(se), atol=1e-3)
+
+            sf = b - sa
+            self.assertAllClose(b - a, tf_shell.to_tensorflow(sf), atol=1e-3)
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+
+    def test_pt_tf_add_with_broadcast(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"pt_tf_add_with_broadcast with context `{test_context}`."
+            ):
+                self._test_pt_tf_add_with_broadcast(test_context)
 
 
 if __name__ == "__main__":

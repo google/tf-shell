@@ -158,7 +158,9 @@ class TestShellTensorRotation(tf.test.TestCase):
         rolled_enc_reduced = tf_shell.roll(
             enc_reduced, test_context.rotation_key, roll_num
         )
-        rolled_result_reduced = tf_shell.to_tensorflow(rolled_enc_reduced, test_context.key)
+        rolled_result_reduced = tf_shell.to_tensorflow(
+            rolled_enc_reduced, test_context.key
+        )
         self.assertAllClose(rolled_tftensor, rolled_result_reduced, atol=1e-3)
 
     def test_roll_mod_reduced(self):

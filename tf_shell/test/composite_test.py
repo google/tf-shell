@@ -92,13 +92,17 @@ class TestShellTensor(tf.test.TestCase):
         eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
 
         ec = ea * eb
-        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a * b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
 
         # Here, ec has a mul depth of 1 while eb has a mul depth of 0. To
         # multiply them, eb needs to be mod reduced to match ec. ShellTensor
         # should handle this automatically.
         ed = ec * eb
-        self.assertAllClose(a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+        )
 
         # Make sure the original ciphertexts are not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key), atol=1e-3)
@@ -125,14 +129,18 @@ class TestShellTensor(tf.test.TestCase):
         eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
 
         ec = ea * eb
-        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a * b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
 
         # Here, ec has a mul depth of 1 while b is has a mul depth of 0. To
         # multiply them, b needs to be encoded as a shell plaintext with
         # moduli which match the now-mod-reduced ec. ShellTensor should handle
         # this automatically.
         ed = ec * b
-        self.assertAllClose(a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3)
+        self.assertAllClose(
+            a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+        )
 
         # Make sure the original ciphertexts are not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key), atol=1e-3)

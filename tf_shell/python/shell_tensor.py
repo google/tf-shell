@@ -192,21 +192,33 @@ class ShellTensor64(object):
 
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self.
-            so = to_shell_plaintext(other, self._context)
-            return self - so
+            shell_other = to_shell_plaintext(other, self._context)
+
+            # Match the shapes via broadcasting. This is after importing to
+            # save NTTs.
+            self_matched, other_matched = _match_shape(self, shell_other)
+
+            return self_matched - other_matched
         else:
             return NotImplementedError
 
     def __rsub__(self, other):
         if isinstance(other, tf.Tensor):
+            # First import to a shell plaintext.
             shell_other = to_shell_plaintext(other, self._context)
 
-            if self.is_encrypted:
-                negative_self = -self
-                raw_result = shell_ops.add_ct_pt64(negative_self._raw, shell_other._raw)
+            # Match the shapes via broadcasting. This is after importing to
+            # save NTTs.
+            self_matched, other_matched = _match_shape(self, shell_other)
+
+            if self_matched.is_encrypted:
+                negative_self_matched = -self_matched
+                raw_result = shell_ops.add_ct_pt64(
+                    negative_self_matched._raw, other_matched._raw
+                )
             else:
                 raw_result = shell_ops.sub_pt_pt64(
-                    self._context._raw_context, shell_other._raw, self._raw
+                    self._context._raw_context, other_matched._raw, self_matched._raw
                 )
 
             return ShellTensor64(
@@ -295,11 +307,15 @@ class ShellTensor64(object):
                 )
 
             else:
-                shell_other_raw = shell_ops.polynomial_import64(
-                    self._context._raw_context, other
-                )
+                # First import to a shell plaintext.
+                shell_other = to_shell_plaintext(other, self._context)
+
+                # Match the shapes via broadcasting. This is after importing to
+                # save NTTs.
+                x, y = _match_shape(self, shell_other)
+
                 return ShellTensor64(
-                    value=shell_ops.mul_ct_pt64(self._raw, shell_other_raw),
+                    value=shell_ops.mul_ct_pt64(x._raw, y._raw),
                     context=self._context,
                     underlying_dtype=self._underlying_dtype,
                     scaling_factor=self._scaling_factor**2,
@@ -348,6 +364,55 @@ class ShellTensor64(object):
         self._mod_reduced = reduced_self
 
         return reduced_self
+
+
+def _match_moduli_and_scaling(x, y):
+    # Mod switch to the smaller modulus of the two.
+    while x._context.level > y._context.level:
+        x = x.get_mod_reduced()
+    while x._context.level < y._context.level:
+        y = y.get_mod_reduced()
+
+    # Match the scaling factors.
+    # First make sure the scaling factors are compatible.
+    frac = x._scaling_factor / y._scaling_factor
+    if abs(frac - int(frac)) != 0:
+        raise ValueError(
+            f"Scaling factors must be compatible. Got {x._scaling_factor} and {y._scaling_factor}"
+        )
+
+    while x._scaling_factor > y._scaling_factor:
+        y = y * x._scaling_factor
+    while x._scaling_factor < y._scaling_factor:
+        x = x * y._scaling_factor
+
+    x, y = _match_shape(x, y)
+
+    return x, y
+
+
+def _match_shape(x, y):
+    # Match the shape of x and y via broadcasting.
+    if tf.size(x._raw) > tf.size(y._raw):
+        y = ShellTensor64(
+            value=tf.broadcast_to(y._raw, tf.shape(x._raw)),
+            context=y._context,
+            underlying_dtype=y._underlying_dtype,
+            scaling_factor=y._scaling_factor,
+            is_enc=y._is_enc,
+            noise_bit_count=y._noise_bit_count,
+        )
+    elif tf.size(x._raw) < tf.size(y._raw):
+        x = ShellTensor64(
+            value=tf.broadcast_to(x._raw, tf.shape(y._raw)),
+            context=y._context,
+            underlying_dtype=y._underlying_dtype,
+            scaling_factor=y._scaling_factor,
+            is_enc=y._is_enc,
+            noise_bit_count=y._noise_bit_count,
+        )
+
+    return x, y
 
 
 def _get_shell_dtype_from_underlying(type):
@@ -405,11 +470,6 @@ def to_shell_plaintext(tensor, context):
         return tensor  # Do nothing, already a shell plaintext.
 
     elif isinstance(tensor, tf.Tensor):
-        if not tensor.dtype.is_floating and context.scaling_factor != 1:
-            raise ValueError(
-                "Scaling factor only supported for floating point datatypes."
-            )
-
         # Shell tensor represents floats as integers * scaling_factor.
         scaled_tensor = _encode_scaling(tensor, context.scaling_factor)
 
@@ -672,26 +732,3 @@ def matmul(x, y, rotation_key=None):
         raise ValueError(
             f"Unsupported types for matmul. Got {type(x)} and {type(y)}. If multiplying by a plaintext, pass it as a plain TensorFlow tensor, not a ShellTensor."
         )
-
-
-def _match_moduli_and_scaling(x, y):
-    # Mod switch to the smaller modulus of the two.
-    while x._context.level > y._context.level:
-        x = x.get_mod_reduced()
-    while x._context.level < y._context.level:
-        y = y.get_mod_reduced()
-
-    # Match the scaling factors.
-    # First make sure the scaling factors are compatible.
-    frac = x._scaling_factor / y._scaling_factor
-    if abs(frac - int(frac)) != 0:
-        raise ValueError(
-            f"Scaling factors must be compatible. Got {x._scaling_factor} and {y._scaling_factor}"
-        )
-
-    while x._scaling_factor > y._scaling_factor:
-        y = y * x._scaling_factor
-    while x._scaling_factor < y._scaling_factor:
-        x = x * y._scaling_factor
-
-    return x, y
