@@ -732,3 +732,24 @@ def matmul(x, y, rotation_key=None):
         raise ValueError(
             f"Unsupported types for matmul. Got {type(x)} and {type(y)}. If multiplying by a plaintext, pass it as a plain TensorFlow tensor, not a ShellTensor."
         )
+
+
+def expand_dims(x, axis=-1):
+    if isinstance(x, ShellTensor64):
+        # Perform some checks on the axis.
+        if axis == 0:
+            raise ValueError(
+                "Cannot expand dims at axis 0 for ShellTensor64, this is the batching dimension."
+            )
+        return ShellTensor64(
+            value=shell_ops.expand_dims_variant(x._raw, axis),
+            context=x._context,
+            underlying_dtype=x._underlying_dtype,
+            scaling_factor=x._scaling_factor,
+            is_enc=x._is_enc,
+            noise_bit_count=x._noise_bit_count + 1,
+        )
+    elif isinstance(x, tf.Tensor):
+        return tf.expand_dims(x, axis)
+    else:
+        raise ValueError("Unsupported type for expand_dims")

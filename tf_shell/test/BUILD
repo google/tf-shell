@@ -94,3 +94,16 @@ py_test(
         requirement("tensorflow-cpu"),
     ],
 )
+
+py_test(
+    name = "shape_test",
+    size = "small",
+    srcs = [
+        "shape_test.py",
+        "test_utils.py",
+    ],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)

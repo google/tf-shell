@@ -61,3 +61,6 @@ modulus_reduce_context64 = shell_ops.modulus_reduce_context64
 modulus_reduce_key64 = shell_ops.modulus_reduce_key64
 modulus_reduce_ct64 = shell_ops.modulus_reduce_ct64
 modulus_reduce_pt64 = shell_ops.modulus_reduce_pt64
+
+# Shape manipulation.
+expand_dims_variant = shell_ops.expand_dims_variant
