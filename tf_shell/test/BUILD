@@ -2,6 +2,7 @@ load("@pip//:requirements.bzl", "requirement")
 
 py_test(
     name = "bindings_test",
+    size = "small",
     srcs = ["bindings_test.py"],
     deps = [
         "//tf_shell:tf_shell_lib",
@@ -24,6 +25,7 @@ py_test(
 
 py_test(
     name = "basic_test",
+    size = "small",
     srcs = [
         "basic_test.py",
         "test_utils.py",
@@ -36,6 +38,7 @@ py_test(
 
 py_test(
     name = "add_test",
+    size = "small",
     srcs = [
         "add_test.py",
         "test_utils.py",
@@ -48,6 +51,7 @@ py_test(
 
 py_test(
     name = "mul_test",
+    size = "small",
     srcs = [
         "mul_test.py",
         "test_utils.py",
@@ -60,6 +64,7 @@ py_test(
 
 py_test(
     name = "mat_mul_test",
+    size = "medium",
     srcs = [
         "mat_mul_test.py",
         "test_utils.py",
@@ -72,6 +77,7 @@ py_test(
 
 py_test(
     name = "composite_test",
+    size = "small",
     srcs = [
         "composite_test.py",
         "test_utils.py",
