@@ -200,6 +200,7 @@ class RollOp : public OpKernel {
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
     SymmetricCt const& ct = ct_var->ct;
     int num_slots = 1 << ct.LogN();
+    int num_components = ct.NumModuli();
 
     OP_REQUIRES(op_ctx, abs(shift) < num_slots / 2,
                 InvalidArgument("Shifting by too many slots, shift of '", shift,
@@ -244,7 +245,8 @@ class RollOp : public OpKernel {
 
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    int const cost_per_rot = 2532269;  // ns, measured on log_n = 11
+    int const cost_per_rot =
+        1000000 * num_components;  // ns, measured on log_n = 11
     thread_pool->ParallelFor(flat_output.dimension(0), cost_per_rot,
                              roll_in_range);
   }
@@ -362,14 +364,7 @@ class ReduceSumOp : public OpKernel {
 
     uint8_t dim_sz_to_reduce = value.dim_size(dim_to_reduce);
 
-    // Create a temp Tensor to hold intermediate sums during the reduction.
-    // It is the same size as the input Tensor.
-    Tensor intermediate_sums;
-    auto intermediate_sums_shape = value.shape();
-    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_temp(tensorflow::DT_VARIANT,
-                                                 intermediate_sums_shape,
-                                                 &intermediate_sums));
-
+    // Since the first dimension is the batching dimension, subtract 1.
     auto flat_value = value.flat_inner_outer_dims<Variant>(dim_to_reduce - 1);
 
     // Setup the output.
@@ -383,35 +378,63 @@ class ReduceSumOp : public OpKernel {
     int outer_shape = flat_value.dimension(2);
     auto flat_output = output->shaped<Variant, 2>({inner_shape, outer_shape});
 
-    // Take the first ciphertext in the chip and add all the other chips to it.
-    for (int i = 0; i < flat_output.dimension(0); ++i) {
-      for (int j = 0; j < flat_output.dimension(1); ++j) {
-        // Get the first chip.
-        SymmetricCtVariant<T> const* first_ct_var =
-            std::move(flat_value(i, 0, j).get<SymmetricCtVariant<T>>());
-        OP_REQUIRES(op_ctx, first_ct_var != nullptr,
-                    InvalidArgument(
-                        "SymmetricCtVariant a did not unwrap successfully."));
-        SymmetricCt sum = first_ct_var->ct;  // deep copy to start the sum.
+    auto reduce_in_range = [&](int start, int end) {
+      int i_start = start / outer_shape;
+      int i_end = end / outer_shape;
+      int j_start = start % outer_shape;
+      int j_end = end % outer_shape;
 
-        // Add the remaining chips.
-        for (int chip_dim = 1; chip_dim < dim_sz_to_reduce; ++chip_dim) {
-          SymmetricCtVariant<T> const* ct_var = std::move(
-              flat_value(i, chip_dim, j).get<SymmetricCtVariant<T>>());
-          OP_REQUIRES(op_ctx, ct_var != nullptr,
-                      InvalidArgument(
-                          "SymmetricCtVariant a did not unwrap successfully."));
-          SymmetricCt const& ct = ct_var->ct;
+      int j_end_wrapped = j_end;
+      if (i_start != i_end) {  // Handle wrap around.
+        j_end = outer_shape;
+      }
 
-          // Perform the addition.
-          OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct));
+      // Take the first ciphertext in the chip and add all the other chips to
+      // it.
+      for (int i = i_start; i <= i_end; ++i) {
+        if (i == i_end) {  // Last row needs special end column;
+          j_end = j_end_wrapped;
         }
 
-        // Store in the output.
-        SymmetricCtVariant res_var(std::move(sum));
-        flat_output(i, j) = std::move(res_var);
+        for (int j = j_start; j < j_end; ++j) {
+          // Get the first chip.
+          SymmetricCtVariant<T> const* first_ct_var =
+              std::move(flat_value(i, 0, j).get<SymmetricCtVariant<T>>());
+          OP_REQUIRES(op_ctx, first_ct_var != nullptr,
+                      InvalidArgument(
+                          "SymmetricCtVariant a did not unwrap successfully."));
+          SymmetricCt sum = first_ct_var->ct;  // deep copy to start the sum.
+
+          // Add the remaining chips.
+          for (int chip_dim = 1; chip_dim < dim_sz_to_reduce; ++chip_dim) {
+            SymmetricCtVariant<T> const* ct_var = std::move(
+                flat_value(i, chip_dim, j).get<SymmetricCtVariant<T>>());
+            OP_REQUIRES(
+                op_ctx, ct_var != nullptr,
+                InvalidArgument(
+                    "SymmetricCtVariant a did not unwrap successfully."));
+            SymmetricCt const& ct = ct_var->ct;
+
+            // Perform the addition.
+            OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct));
+          }
+
+          // Store in the output.
+          SymmetricCtVariant res_var(std::move(sum));
+          flat_output(i, j) = std::move(res_var);
+        }
+
+        // Reset the starting column for the next row.
+        j_start = 0;
       }
-    }
+    };
+
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_reduce =
+        10000 * dim_sz_to_reduce;  // ns measured on log_n = 11
+    thread_pool->ParallelFor(inner_shape * outer_shape, cost_per_reduce,
+                             reduce_in_range);
   }
 };
 
