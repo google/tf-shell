@@ -241,3 +241,10 @@ REGISTER_OP("ModulusReducePt64")
     .Input("value: variant")
     .Output("reduced_value: variant")
     .SetIsStateful();
+
+// Shape kernels.
+REGISTER_OP("ExpandDimsVariant")
+    .Input("value: variant")
+    .Input("axis: int32")
+    .Output("expanded_value: variant")
+    .SetIsStateful();

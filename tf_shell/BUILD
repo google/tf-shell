@@ -13,6 +13,7 @@ cc_binary(
         "cc/kernels/polynomial_variant.h",
         "cc/kernels/rotation_kernels.cc",
         "cc/kernels/rotation_variants.h",
+        "cc/kernels/shape_kernels.cc",
         "cc/kernels/symmetric_kernels.cc",
         "cc/kernels/symmetric_variants.h",
         "cc/kernels/utils.h",
