@@ -103,6 +103,41 @@ class TestShellTensor(tf.test.TestCase):
             with self.subTest(f"ct_ct_mul with context `{test_context}`."):
                 self._test_ct_ct_mul(test_context)
 
+    def _test_ct_ct_mul_with_broadcast(self, test_context):
+        try:
+            # This test performs one multiplication.
+            a = test_utils.uniform_for_n_muls(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_muls(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_ct_mul_with_broadcast with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key)
+        eb = tf_shell.to_encrypted(sb, test_context.key)
+
+        ec = ea * eb
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key))
+
+        # Make sure the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+        self.assertAllClose(b, tf_shell.to_tensorflow(eb, test_context.key))
+
+    def test_ct_ct_mul_with_broadcast(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"ct_ct_mul_with_broadcast with context `{test_context}`."
+            ):
+                self._test_ct_ct_mul_with_broadcast(test_context)
+
     def _test_ct_pt_mul(self, test_context):
         try:
             # This test performs one multiplication.
@@ -134,6 +169,42 @@ class TestShellTensor(tf.test.TestCase):
         for test_context in self.test_contexts:
             with self.subTest(f"ct_pt_mul with context `{test_context}`."):
                 self._test_ct_pt_mul(test_context)
+
+    def _test_ct_pt_mul_with_broadcast(self, test_context):
+        try:
+            # This test performs one multiplication.
+            a = test_utils.uniform_for_n_muls(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_muls(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_pt_mul_with_broadcast with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key)
+
+        ec = ea * sb
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key))
+
+        ed = sb * ea
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ed, test_context.key))
+
+        # Check the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+        self.assertAllClose(b, tf_shell.to_tensorflow(sb))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_ct_pt_mul(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"ct_pt_mul_with_broadcast with context `{test_context}`."
+            ):
+                self._test_ct_pt_mul_with_broadcast(test_context)
 
     def _test_ct_tf_scalar_mul(self, test_context):
         try:
@@ -171,7 +242,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_pt_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test ct_tf_mul with context {test_context}. Not enough precision to support this test."
             )
             print(e)
             return
@@ -192,6 +263,39 @@ class TestShellTensor(tf.test.TestCase):
         for test_context in self.test_contexts:
             with self.subTest(f"ct_tf_mul with context `{test_context}`."):
                 self._test_ct_tf_mul(test_context)
+
+    def _test_ct_tf_mul_with_broadcast(self, test_context):
+        try:
+            # This test performs one multiplication.
+            a = test_utils.uniform_for_n_muls(test_context, 1)
+            # Set the last two dimensions to 1 to test broadcasting.
+            b_shape = a.shape[:-2] + (1, 1)
+            b = test_utils.uniform_for_n_muls(test_context, 1, shape=b_shape)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_tf_mul_with_broadcast with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key)
+
+        ec = ea * b
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key))
+
+        ed = b * ea
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ed, test_context.key))
+
+        # Check the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_ct_tf_mul_with_broadcast(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"ct_tf_mul_with_broadcast with context `{test_context}`."
+            ):
+                self._test_ct_tf_mul_with_broadcast(test_context)
 
     def _test_pt_pt_mul(self, test_context):
         try:

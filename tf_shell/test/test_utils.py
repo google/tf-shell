@@ -108,7 +108,7 @@ def get_bounds_for_n_muls(test_context, num_muls):
     plaintext_modulus = test_context.shell_context.plaintext_modulus
 
     # Each multiplication doubles the number of scaling factors in the result.
-    max_scaling_factor = test_context.shell_context.scaling_factor ** (2 ** num_muls)
+    max_scaling_factor = test_context.shell_context.scaling_factor ** (2**num_muls)
 
     # Make sure not to exceed the range of the dtype.
     min_plaintext_dtype = math.ceil(dtype.min / max_scaling_factor)
@@ -197,7 +197,9 @@ def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
         raise ValueError(
             f"Available plaintext range for `{num_muls}` multiplications [{min_val}, {max_val}] is too small. Must be larger than {1/scaling_factor}."
         )
-    print(f"Available plaintext range for `{test_context.plaintext_dtype}`number of multiplications [{min_val}, {max_val}].")
+    print(
+        f"Available plaintext range for `{test_context.plaintext_dtype}`number of multiplications [{min_val}, {max_val}]."
+    )
 
     # Now generate the random tensor by first increasing the range to include
     # the scaling factor, then divide by the scaling factor after generation to
