@@ -10,13 +10,13 @@ from statistics import mean
 # doubles with each multiplication and the plaintext modulus must be large
 # enough to hold the plaintext * (scaling_factor ** (2 ** num_muls) ).
 
-log_n = 11
+log_n = 10
 plaintext_bits = 8  # not including scaling factor or mul_depth
 
-mul_depth = 3
-scaling_factor = 16
+mul_depth = 1
+scaling_factor = 3
 
-total_noise_bits = 128
+total_noise_bits = 24
 
 
 # Some constants dictated by SHELL.
@@ -98,6 +98,15 @@ print(f"Found noise-holding primes {found_primes}\n")
 
 max_scaled_plaintext = plaintext_modulus // (scaling_factor ** (2**mul_depth))
 
+from operator import mul
+from functools import reduce
+
+print(
+    "\nExample lattice estimator check:\n\n"
+    f"from estimator import *\n"
+    f"params = LWE.Parameters(n={2**log_n}, q={reduce(mul, found_primes, 1)}, Xs=ND.DiscreteGaussian(3.00), Xe=ND.DiscreteGaussian(3.00))\n"
+    f"LWE.primal_bdd(params)\n"
+)
 
 print(
     "\nExample configuration:\n\n"
