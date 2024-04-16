@@ -109,7 +109,7 @@ class TestShellTensorRotation(tf.test.TestCase):
         s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
         enc = tf_shell.to_encrypted(s, test_context.key)
 
-        rolled_enc = tf_shell.roll(enc, test_context.rotation_key, roll_num)
+        rolled_enc = tf_shell.roll(enc, roll_num, test_context.rotation_key)
         rolled_result = tf_shell.to_tensorflow(rolled_enc, test_context.key)
         self.assertAllClose(rolled_tftensor, rolled_result, atol=1e-3)
 
@@ -156,7 +156,7 @@ class TestShellTensorRotation(tf.test.TestCase):
         # Test roll on a mod reduced ciphertext.
         enc_reduced = enc.get_mod_reduced()
         rolled_enc_reduced = tf_shell.roll(
-            enc_reduced, test_context.rotation_key, roll_num
+            enc_reduced, roll_num, test_context.rotation_key
         )
         rolled_result_reduced = tf_shell.to_tensorflow(
             rolled_enc_reduced, test_context.key

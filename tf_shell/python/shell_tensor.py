@@ -569,73 +569,85 @@ def to_tensorflow(s_tensor, key=None):
     )
 
 
-def roll(x, rotation_key, shift):
-    if not isinstance(rotation_key, ShellRotationKey64):
-        raise ValueError("Rotation key must be provided. Instead saw {rotation_key}.")
-
-    if not x._is_enc:
-        raise ValueError("Unencrypted ShellTensor rotation not supported yet.")
-
-    # Get the correct rotation key for the level of this ciphertext.
-    raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
-
-    shift = tf.cast(shift, tf.int64)
-
-    return ShellTensor64(
-        value=shell_ops.roll64(raw_rotation_key, x._raw, shift),
-        context=x._context,
-        underlying_dtype=x._underlying_dtype,
-        scaling_factor=x._scaling_factor,
-        is_enc=True,
-        noise_bit_count=x._noise_bit_count + 6,  # TODO correct?
-    )
-
-
-def reduce_sum(x, axis, rotation_key=None):
-    if not x._is_enc:
-        raise ValueError("Unencrypted ShellTensor reduce_sum not supported yet.")
-
-    # Check axis is a scalar
-    if isinstance(axis, tf.Tensor) and not axis.shape != []:
-        raise ValueError("Only scalar `axis` is supported.")
-
-    if axis == 0:
+def roll(x, shift, rotation_key):
+    if isinstance(x, ShellTensor64):
         if not isinstance(rotation_key, ShellRotationKey64):
             raise ValueError(
-                "Rotation key must be provided to reduce_sum over the first axis. Instead saw {rotation_key}."
+                "Rotation key must be provided. Instead saw {rotation_key}."
             )
+
+        if not x._is_enc:
+            raise ValueError("Unencrypted ShellTensor rotation not supported yet.")
 
         # Get the correct rotation key for the level of this ciphertext.
         raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
 
-        # reduce sum does log2(num_slots) rotations and additions.
-        # TODO: add noise from rotations?
-        result_noise_bits = (
-            x._noise_bit_count + x._context.num_slots.bit_length() + 1,
-        )
+        shift = tf.cast(shift, tf.int64)
 
         return ShellTensor64(
-            value=shell_ops.reduce_sum_by_rotation64(x._raw, raw_rotation_key),
+            value=shell_ops.roll64(raw_rotation_key, x._raw, shift),
             context=x._context,
             underlying_dtype=x._underlying_dtype,
             scaling_factor=x._scaling_factor,
             is_enc=True,
-            noise_bit_count=result_noise_bits,
+            noise_bit_count=x._noise_bit_count + 6,  # TODO correct?
         )
+    elif isinstance(x, tf.Tensor):
+        return tf.roll(x, shift)
     else:
-        if axis >= len(x.shape):
-            raise ValueError("Axis greater than number of dimensions")
+        raise ValueError(f"Unsupported type for reduce_sum. Got {type(x)}.")
 
-        result_noise_bits = x._noise_bit_count + x.shape[axis].bit_length() + 1
 
-        return ShellTensor64(
-            value=shell_ops.reduce_sum64(x._raw, axis),
-            context=x._context,
-            underlying_dtype=x._underlying_dtype,
-            scaling_factor=x._scaling_factor,
-            is_enc=True,
-            noise_bit_count=result_noise_bits,
-        )
+def reduce_sum(x, axis, rotation_key=None):
+    if isinstance(x, ShellTensor64):
+        if not x._is_enc:
+            raise ValueError("Unencrypted ShellTensor reduce_sum not supported yet.")
+
+        # Check axis is a scalar
+        if isinstance(axis, tf.Tensor) and not axis.shape != []:
+            raise ValueError("Only scalar `axis` is supported.")
+
+        if axis == 0:
+            if not isinstance(rotation_key, ShellRotationKey64):
+                raise ValueError(
+                    "Rotation key must be provided to reduce_sum over the first axis. Instead saw {rotation_key}."
+                )
+
+            # Get the correct rotation key for the level of this ciphertext.
+            raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
+
+            # reduce sum does log2(num_slots) rotations and additions.
+            # TODO: add noise from rotations?
+            result_noise_bits = (
+                x._noise_bit_count + x._context.num_slots.bit_length() + 1,
+            )
+
+            return ShellTensor64(
+                value=shell_ops.reduce_sum_by_rotation64(x._raw, raw_rotation_key),
+                context=x._context,
+                underlying_dtype=x._underlying_dtype,
+                scaling_factor=x._scaling_factor,
+                is_enc=True,
+                noise_bit_count=result_noise_bits,
+            )
+        else:
+            if axis >= len(x.shape):
+                raise ValueError("Axis greater than number of dimensions")
+
+            result_noise_bits = x._noise_bit_count + x.shape[axis].bit_length() + 1
+
+            return ShellTensor64(
+                value=shell_ops.reduce_sum64(x._raw, axis),
+                context=x._context,
+                underlying_dtype=x._underlying_dtype,
+                scaling_factor=x._scaling_factor,
+                is_enc=True,
+                noise_bit_count=result_noise_bits,
+            )
+    elif isinstance(x, tf.Tensor):
+        return tf.reduce_sum(x, axis)
+    else:
+        raise ValueError(f"Unsupported type for reduce_sum. Got {type(x)}.")
 
 
 def matmul(x, y, rotation_key=None):
