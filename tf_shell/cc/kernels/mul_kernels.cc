@@ -640,13 +640,15 @@ class MatMulPtCtOp : public OpKernel {
   }
 };
 
+// Multiply ciphertext by ciphertext.
 REGISTER_KERNEL_BUILDER(Name("MulCtCt64").Device(DEVICE_CPU),
                         MulCtCtOp<uint64>);
 
+// Multiply ciphertext by plaintext.
 REGISTER_KERNEL_BUILDER(Name("MulCtPt64").Device(DEVICE_CPU),
                         MulCtPtOp<uint64>);
 
-// Multiply ciphertext by plaintext scalar.
+// Multiply plaintext or ciphertext by plaintext scalar.
 REGISTER_KERNEL_BUILDER(
     Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
     MulShellTfScalarOp<uint64, uint8, PolynomialVariant<uint64>>);
@@ -699,7 +701,7 @@ REGISTER_KERNEL_BUILDER(
     Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
     MulShellTfScalarOp<uint64, int64, SymmetricCtVariant<uint64>>);
 
-// Multiply ciphertext by plaintext tensor of the same shape.
+// Multiply plaintext by plaintext.
 REGISTER_KERNEL_BUILDER(Name("MulPtPt64").Device(DEVICE_CPU),
                         MulPtPtOp<uint64>);
 

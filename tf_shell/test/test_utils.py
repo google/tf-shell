@@ -197,9 +197,6 @@ def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
         raise ValueError(
             f"Available plaintext range for `{num_muls}` multiplications [{min_val}, {max_val}] is too small. Must be larger than {1/scaling_factor}."
         )
-    print(
-        f"Available plaintext range for `{test_context.plaintext_dtype}`number of multiplications [{min_val}, {max_val}]."
-    )
 
     # Now generate the random tensor by first increasing the range to include
     # the scaling factor, then divide by the scaling factor after generation to
