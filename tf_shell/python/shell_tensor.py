@@ -16,7 +16,6 @@
 import math
 import tensorflow as tf
 import tf_shell.python.ops.shell_ops as shell_ops
-import tf_shell.shell as raw_bindings
 from tf_shell.python.shell_context import ShellContext64
 from tf_shell.python.shell_key import ShellKey64
 from tf_shell.python.shell_key import ShellRotationKey64
