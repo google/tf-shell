@@ -184,13 +184,8 @@ class MulShellTfScalarOp : public OpKernel {
     auto flat_b = b.flat<PtT>();
     auto flat_output = output->flat<Variant>();
 
-    int num_slots = 1 << shell_ctx->LogN();
-
-    // First, create a polynomial out of the scalar b where every element is b.
-    //
-    // Contiguous memory of plaintext for the absl span required by RNS BGV
-    // encoder.
-    std::vector<T> wrapped_nums;
+    // First, encode the scalar b.
+    T wrapped_b;
     if constexpr (std::is_signed<PtT>::value) {
       // SHELL is built on the assumption that the plaintext type (in this
       // case `PtT`) will always fit into the ciphertext underlying type
@@ -201,31 +196,18 @@ class MulShellTfScalarOp : public OpKernel {
       // overflow.
       using SignedInteger = std::make_signed_t<T>;
 
-      // Copy into contiguous memory of signed `T`'s
-      std::vector<SignedInteger> nums(num_slots);
-      for (int slot = 0; slot < num_slots; ++slot) {
-        nums[slot] = static_cast<SignedInteger>(flat_b(0));
-      }
+      SignedInteger signed_b = static_cast<SignedInteger>(flat_b(0));
 
       // Map signed integers into the plaintext modulus field.
-      OP_REQUIRES_VALUE(wrapped_nums, op_ctx,
-                        (encoder->template WrapSigned<SignedInteger>(nums)));
-    } else {
-      wrapped_nums = std::vector<T>(num_slots);
-      // Since From and To are both unsigned, just cast and copy.
-      for (int slot = 0; slot < num_slots; ++slot) {
-        wrapped_nums[slot] = static_cast<T>(flat_b(0));
-      }
-    }
+      OP_REQUIRES_VALUE(
+          std::vector<T> wrapped_b_vector, op_ctx,
+          (encoder->template WrapSigned<SignedInteger>({signed_b})));
 
-    // The encoder first performs an inverse ntt (mod t), then switches to
-    // to mod Q in RNS form. This is important so that subsequent operations
-    // on the polynomial happen element-wise in the plaintext space.
-    // Note "importing" the integers in the correct modulus (first t, then
-    // switching to Q) is non-trivial when plaintext numbers are negative.
-    OP_REQUIRES_VALUE(
-        RnsPolynomial pt_b_polynomial, op_ctx,
-        encoder->EncodeBgv(wrapped_nums, shell_ctx->MainPrimeModuli()));
+      wrapped_b = wrapped_b_vector[0];
+    } else {
+      // Since From and To are both unsigned, just cast and copy.
+      wrapped_b = static_cast<T>(flat_b(0));
+    }
 
     // Now multiply every polynomial in a by the same b.
     for (int i = 0; i < flat_output.dimension(0); ++i) {
@@ -239,9 +221,8 @@ class MulShellTfScalarOp : public OpKernel {
                                  PolynomialVariant<T>>::value) {
         RnsPolynomial const& poly = ct_or_pt_var->poly;
 
-        OP_REQUIRES_VALUE(
-            RnsPolynomial result, op_ctx,
-            poly.Mul(pt_b_polynomial, shell_ctx->MainPrimeModuli()));
+        OP_REQUIRES_VALUE(RnsPolynomial result, op_ctx,
+                          poly.Mul(wrapped_b, shell_ctx->MainPrimeModuli()));
 
         CtOrPolyVariant result_var(std::move(result));
         flat_output(i) = std::move(result_var);
@@ -250,7 +231,7 @@ class MulShellTfScalarOp : public OpKernel {
         SymmetricCt const& ct = ct_or_pt_var->ct;
 
         OP_REQUIRES_VALUE(SymmetricCt result, op_ctx,
-                          ct * pt_b_polynomial);  // shell aborb operation
+                          ct * wrapped_b);  // shell aborb operation
 
         CtOrPolyVariant result_var(std::move(result));
         flat_output(i) = std::move(result_var);
@@ -609,8 +590,10 @@ class MatMulPtCtOp : public OpKernel {
             // ciphertext separately. So the max rotatation is by half the
             // number of slots.
             for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
-              OP_REQUIRES(op_ctx, shift - 1 < rot_keys.size(),  // Skip key 0.
-                          InvalidArgument("No key for shift of '", shift, "'"));
+              OP_REQUIRES(
+                  op_ctx,
+                  shift - 1 < static_cast<int>(rot_keys.size()),  // Skip key 0.
+                  InvalidArgument("No key for shift of '", shift, "'"));
               RotationKey const* k = &rot_keys[shift - 1];  // Skip key 0.
 
               // Rotate by the shift.
