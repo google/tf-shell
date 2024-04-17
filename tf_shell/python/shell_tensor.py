@@ -139,12 +139,19 @@ class ShellTensor64(object):
                 raise ValueError("Scalar addition not yet implemented.")
 
             # Lift tensorflow tensor to shell tensor with the same scaling
-            # factor as self.
+            # factor as self and attempt the addition again.
             so = to_shell_plaintext(other, self._context)
             return self + so
 
         else:
-            return NotImplementedError
+            # Try to import the unknown operand to a TensorFlow tensor and
+            # attempt the subtraction again.
+            try:
+                tf_other = tf.convert_to_tensor(other)
+            except:
+                raise ValueError(f"Unsupported type for addition. Got {type(other)}.")
+
+            return self + tf_other
 
     def __radd__(self, other):
         return self + other
@@ -190,16 +197,19 @@ class ShellTensor64(object):
                 raise ValueError("Scalar subtraction not yet implemented.")
 
             # Lift tensorflow tensor to shell tensor with the same scaling
-            # factor as self.
+            # factor as self and attempt the subtraction again.
             shell_other = to_shell_plaintext(other, self._context)
-
-            # Match the shapes via broadcasting. This is after importing to
-            # save NTTs.
-            self_matched, other_matched = _match_shape(self, shell_other)
-
-            return self_matched - other_matched
+            return self - shell_other
         else:
-            return NotImplementedError
+            # Try to import the unknown operand to a TensorFlow tensor and
+            # attempt the subtraction again.
+            try:
+                tf_other = tf.convert_to_tensor(other)
+            except:
+                raise ValueError(
+                    f"Unsupported type for subtraction. Got {type(other)}."
+                )
+            return self - tf_other
 
     def __rsub__(self, other):
         if isinstance(other, tf.Tensor):
@@ -229,7 +239,15 @@ class ShellTensor64(object):
                 noise_bit_count=self._noise_bit_count + 1,
             )
         else:
-            return NotImplementedError
+            # Try to import the unknown operand to a TensorFlow tensor and
+            # attempt the the rsub again.
+            try:
+                tf_other = tf.convert_to_tensor(other)
+            except:
+                raise ValueError(
+                    f"Unsupported type for subtraction. Got {type(other)}."
+                )
+            return tf_other - self
 
     def __neg__(self):
         if self.is_encrypted:
@@ -281,49 +299,49 @@ class ShellTensor64(object):
                 + matched_other._noise_bit_count,
             )
         elif isinstance(other, tf.Tensor):
-            # Encode the other tensor to the same scaling factor as self.
-            other = _encode_scaling(other, self._scaling_factor)
-
-            if other.shape == []:
-                # Multiplying by a scalar uses a special op which is more
-                # efficient than the caller creating creating a ShellTensor the
-                # same dimensions as self and multiplying.
+            # Multiplying by a scalar uses a special op which is more efficient
+            # than the caller creating creating a ShellTensor the same
+            # dimensions as self and multiplying.
+            if other.shape == (1,) or other.shape == ():
+                # Encode the other scalar tensor to the same scaling factor as
+                # self.
+                other = _encode_scaling(other, self._scaling_factor)
+                
                 if self.is_encrypted:
                     raw_result = shell_ops.mul_ct_tf_scalar64(
-                        self._context._raw_context, self.raw, other
+                        self._context._raw_context, self._raw, other
                     )
                 else:
                     raw_result = shell_ops.mul_pt_tf_scalar64(
-                        self._context._raw_context, self.raw, other
+                        self._context._raw_context, self._raw, other
                     )
+
                 return ShellTensor64(
                     value=raw_result,
                     context=self._context,
                     underlying_dtype=self._underlying_dtype,
                     scaling_factor=self._scaling_factor**2,
                     is_enc=self._is_enc,
-                    noise_bit_count=self.noise_bits + other.noise_bits,
-                )
-
-            else:
-                # First import to a shell plaintext.
-                shell_other = to_shell_plaintext(other, self._context)
-
-                # Match the shapes via broadcasting. This is after importing to
-                # save NTTs.
-                x, y = _match_shape(self, shell_other)
-
-                return ShellTensor64(
-                    value=shell_ops.mul_ct_pt64(x._raw, y._raw),
-                    context=self._context,
-                    underlying_dtype=self._underlying_dtype,
-                    scaling_factor=self._scaling_factor**2,
-                    is_enc=self._is_enc or other._is_enc,
                     noise_bit_count=self.noise_bits + self._context.noise_bits,
                 )
 
+            else:
+                # Import the TensorFlow tensor to a shell plaintext and attempt
+                # the multiplication again.
+                shell_other = to_shell_plaintext(other, self._context)
+
+                return self * shell_other
+
         else:
-            return NotImplementedError
+            # Try to import the unknown multiplicand to a TensorFlow tensor and
+            # attempt the multiplication again.
+            try:
+                tf_other = tf.convert_to_tensor(other)
+            except:
+                raise ValueError(
+                    f"Unsupported type for multiplication. Got {type(other)}."
+                )
+            return self * tf_other
 
     def __rmul__(self, other):
         return self * other
@@ -472,6 +490,17 @@ def to_shell_plaintext(tensor, context):
         # Shell tensor represents floats as integers * scaling_factor.
         scaled_tensor = _encode_scaling(tensor, context.scaling_factor)
 
+        # Pad the tensor to the correct number of slots.
+        if scaled_tensor.shape[0] > context.num_slots:
+            raise ValueError(
+                f"Tensor first dimension is too large. Maximum is {context.num_slots}, got {scaled_tensor.shape[0]}."
+            )
+        elif scaled_tensor.shape[0] < context.num_slots:
+            padding = [[0, context.num_slots - scaled_tensor.shape[0]]] + [
+                [0, 0] for _ in range(len(scaled_tensor.shape) - 1)
+            ]
+            scaled_tensor = tf.pad(scaled_tensor, padding)
+
         return ShellTensor64(
             value=shell_ops.polynomial_import64(context._raw_context, scaled_tensor),
             context=context,
@@ -481,7 +510,10 @@ def to_shell_plaintext(tensor, context):
             noise_bit_count=context.noise_bits,
         )
     else:
-        raise ValueError("Cannot convert to ShellTensor64")
+        try:
+            return to_shell_plaintext(tf.convert_to_tensor(tensor), context)
+        except:
+            raise ValueError(f"Cannot convert to ShellTensor64. Got {type(tensor)}.")
 
 
 def to_encrypted(x, key, context=None):
@@ -492,17 +524,7 @@ def to_encrypted(x, key, context=None):
     if not isinstance(key, ShellKey64):
         raise ValueError("Key must be a ShellKey64")
 
-    if isinstance(x, tf.Tensor):
-        if not isinstance(context, ShellContext64):
-            raise ValueError(
-                "ShellContext64 must be provided when encrypting a tf.Tensor"
-            )
-
-        # Encode the Tensorflow tensor to a shell plaintext using the provided
-        # context and call ourself.
-        return to_encrypted(to_shell_plaintext(x, context), key)
-
-    elif isinstance(x, ShellTensor64):
+    if isinstance(x, ShellTensor64):
         if x._is_enc:
             return x  # Do nothing, already encrypted.
         else:
@@ -519,7 +541,14 @@ def to_encrypted(x, key, context=None):
                 noise_bit_count=x._noise_bit_count,
             )
     else:
-        raise ValueError("Cannot convert to ShellTensor64")
+        if not isinstance(context, ShellContext64):
+            raise ValueError(
+                "ShellContext64 must be provided when encrypting anything other than a ShellTensor64."
+            )
+
+        # Encode to a shell plaintext using the provided context and call
+        # ourself to encrypt.
+        return to_encrypted(to_shell_plaintext(x, context), key)
 
 
 def to_tensorflow(s_tensor, key=None):
@@ -692,7 +721,7 @@ def matmul(x, y, rotation_key=None):
 
     elif isinstance(x, tf.Tensor) and isinstance(y, ShellTensor64):
         if not isinstance(rotation_key, ShellRotationKey64):
-            return ValueError(
+            raise ValueError(
                 "Rotation key must be provided to matmul pt*ct. Instead saw {rotation_key}."
             )
 

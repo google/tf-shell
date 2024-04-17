@@ -50,7 +50,6 @@ class TestShellTensor(tf.test.TestCase):
         )
         shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
         tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
-        print(f"tf_tensor dtype {tf_tensor.dtype}")
         self.assertAllClose(tf_tensor_out, tf_tensor)
 
     def test_shape(self):
@@ -98,6 +97,29 @@ class TestShellTensor(tf.test.TestCase):
         enc = tf_shell.to_encrypted(tf_tensor, key, context)
         tf_tensor_out = tf_shell.to_tensorflow(enc, key)
         self.assertAllClose(tf_tensor_out, tf_tensor)
+
+    def test_encode_python(self):
+        context = TestShellTensor.get_context()
+        key = tf_shell.create_key64(context)
+
+        one_d = [1, 2]
+        two_d = [[1, 2], [3, 4]]
+
+        pt_1d = tf_shell.to_shell_plaintext(one_d, context)
+        assert pt_1d.shape == [context.num_slots], "Padding failed"
+        self.assertAllClose(one_d[:2], tf_shell.to_tensorflow(pt_1d)[:2])
+
+        pt_2d = tf_shell.to_shell_plaintext(two_d, context)
+        assert pt_2d.shape == [context.num_slots, 2], "Padding failed"
+        self.assertAllClose(two_d[:2][:2], tf_shell.to_tensorflow(pt_2d)[:2][:2])
+
+        ct_1d = tf_shell.to_encrypted(one_d, key, context)
+        assert pt_1d.shape == [context.num_slots], "Padding failed"
+        self.assertAllClose(one_d[:2], tf_shell.to_tensorflow(ct_1d, key)[:2])
+
+        ct_2d = tf_shell.to_encrypted(two_d, key, context)
+        assert pt_2d.shape == [context.num_slots, 2], "Padding failed"
+        self.assertAllClose(two_d[:2][:2], tf_shell.to_tensorflow(ct_2d, key)[:2][:2])
 
 
 if __name__ == "__main__":

@@ -297,6 +297,43 @@ class TestShellTensor(tf.test.TestCase):
             ):
                 self._test_ct_tf_mul_with_broadcast(test_context)
 
+    def _test_ct_list_mul(self, test_context):
+        try:
+            # This test performs one multiplication.
+            a = test_utils.uniform_for_n_muls(test_context, 1)
+            b = test_utils.uniform_for_n_muls(test_context, 1)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_tf_mul with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        # Convert b to a python list where the first dimension is only 2.
+        # When encoded, this will be padded to match the first dimension of a,
+        # i.e. the number of slots in the ciphertext.
+        b_list = b[:2, ...].numpy().tolist()
+
+        # Set the unused elements of b to 0 for checking purposes.
+        b = tf.concat([b[:2, ...], tf.zeros_like(b[2:, ...])], axis=0)
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key)
+
+        ec = ea * b_list
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key))
+
+        ed = b_list * ea
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ed, test_context.key))
+
+        # Check the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_ct_list_mul(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"ct_list_mul with context `{test_context}`."):
+                self._test_ct_list_mul(test_context)
+
     def _test_pt_pt_mul(self, test_context):
         try:
             # This test performs one multiplication.
@@ -323,6 +360,70 @@ class TestShellTensor(tf.test.TestCase):
         for test_context in self.test_contexts:
             with self.subTest(f"pt_pt_mul with context `{test_context}`."):
                 self._test_pt_pt_mul(test_context)
+
+    def _test_pt_tf_mul(self, test_context):
+        try:
+            # This test performs one multiplication.
+            a = test_utils.uniform_for_n_muls(test_context, 1)
+            b = test_utils.uniform_for_n_muls(test_context, 1)
+        except Exception as e:
+            print(
+                f"Note: Skipping test pt_tf_mul with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+
+        sc = sa * b
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(sc))
+
+        sd = b * sa
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(sd))
+
+        # Check the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+
+    def test_pt_tf_mul(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"pt_tf_mul with context `{test_context}`."):
+                self._test_pt_tf_mul(test_context)
+
+    def _test_pt_list_mul(self, test_context):
+        try:
+            # This test performs one multiplication.
+            a = test_utils.uniform_for_n_muls(test_context, 1)
+            b = test_utils.uniform_for_n_muls(test_context, 1)
+        except Exception as e:
+            print(
+                f"Note: Skipping test pt_list_mul with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        # Convert b to a python list where the first dimension is only 2.
+        # When encoded, this will be padded to match the first dimension of a,
+        # i.e. the number of slots in the ciphertext.
+        b_list = b[:2, ...].numpy().tolist()
+
+        # Set the unused elements of b to 0 for checking purposes.
+        b = tf.concat([b[:2, ...], tf.zeros_like(b[2:, ...])], axis=0)
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+
+        sc = sa * b_list
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(sc, test_context.key))
+
+        sd = b_list * sa
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(sd, test_context.key))
+
+        # Check the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa, test_context.key))
+
+    def test_pt_list_mul(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"pt_list_mul with context `{test_context}`."):
+                self._test_pt_list_mul(test_context)
 
 
 if __name__ == "__main__":

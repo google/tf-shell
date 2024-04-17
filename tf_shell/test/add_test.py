@@ -473,6 +473,81 @@ class TestShellTensor(tf.test.TestCase):
             ):
                 self._test_ct_tf_add_with_broadcasting(test_context)
 
+    def _test_ct_list_add_with_padding(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1)
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_tf_add_with_broadcasting with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+
+        # Convert b to a python list where the first dimension is only 2.
+        # When encoded, this will be padded to match the first dimension of a,
+        # i.e. the number of slots in the ciphertext.
+        b_list = b[:2, ...].numpy().tolist()
+
+        # Set the unused elements of b to 0 for checking purposes.
+        b = tf.concat([b[:2, ...], tf.zeros_like(b[2:, ...])], axis=0)
+
+        ec = ea + b_list
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ec, test_context.key), atol=1e-3
+        )
+
+        ed = b_list + ea
+        self.assertAllClose(
+            a + b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
+        )
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid underflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            eaa = tf_shell.to_encrypted(
+                a + max_val, test_context.key, test_context.shell_context
+            )
+            ee = eaa - b_list
+            self.assertAllClose(
+                a + max_val - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
+
+            bb = b + max_val
+            bb_list = bb[:2, ...].numpy().tolist()
+            ef = bb_list - ea
+            self.assertAllClose(
+                (bb - a)[:2, ...],
+                tf_shell.to_tensorflow(ef, test_context.key)[:2, ...],
+                atol=1e-3,
+            )
+        else:
+            ee = ea - b_list
+            self.assertAllClose(
+                a - b, tf_shell.to_tensorflow(ee, test_context.key), atol=1e-3
+            )
+
+            ef = b_list - ea
+            self.assertAllClose(
+                b - a, tf_shell.to_tensorflow(ef, test_context.key), atol=1e-3
+            )
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_ct_list_add_with_padding(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"ct_list_add_with_padding with context `{test_context}`."
+            ):
+                self._test_ct_list_add_with_padding(test_context)
+
     def _test_pt_pt_add(self, test_context):
         try:
             # This test performs one addition.
@@ -656,6 +731,65 @@ class TestShellTensor(tf.test.TestCase):
                 f"pt_tf_add_with_broadcast with context `{test_context}`."
             ):
                 self._test_pt_tf_add_with_broadcast(test_context)
+
+    def _test_pt_list_add_with_padding(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1)
+        except Exception as e:
+            print(
+                f"Note: Skipping test pt_tf_add_with_broadcast with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        # Convert b to a python list where the first dimension is only 2.
+        # When encoded, this will be padded to match the first dimension of a,
+        # i.e. the number of slots in the ciphertext.
+        b_list = b[:2, ...].numpy().tolist()
+
+        # Set the unused elements of b to 0 for checking purposes.
+        b = tf.concat([b[:2, ...], tf.zeros_like(b[2:, ...])], axis=0)
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+
+        sc = sa + b_list
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sc), atol=1e-3)
+
+        sd = b_list + sa
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sd), atol=1e-3)
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid underflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
+            se = saa - b_list
+            self.assertAllClose(a + max_val - b, tf_shell.to_tensorflow(se), atol=1e-3)
+
+            bb = b + max_val
+            bb_list = bb[:2, ...].numpy().tolist()
+            sf = bb_list - sa
+            self.assertAllClose((bb - a)[:2], tf_shell.to_tensorflow(sf)[:2], atol=1e-3)
+        else:
+            se = sa - b
+            self.assertAllClose(a - b, tf_shell.to_tensorflow(se), atol=1e-3)
+
+            sf = b - sa
+            self.assertAllClose(b - a, tf_shell.to_tensorflow(sf), atol=1e-3)
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+
+    def test_pt_list_add_with_padding(self):
+        for test_context in self.test_contexts:
+            with self.subTest(
+                f"pt_list_add_with_padding with context `{test_context}`."
+            ):
+                self._test_pt_list_add_with_padding(test_context)
 
 
 if __name__ == "__main__":
