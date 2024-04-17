@@ -119,8 +119,8 @@ class ShellContext64(object):
 def create_context64(
     log_n,
     main_moduli,
-    aux_moduli,
     plaintext_modulus,
+    aux_moduli=[],
     noise_variance=8,
     scaling_factor=1,
     mul_depth_supported=0,

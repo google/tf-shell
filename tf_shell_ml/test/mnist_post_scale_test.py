@@ -24,7 +24,6 @@ import tf_shell
 # context = tf_shell.create_context64(
 #     log_n=11,
 #     main_moduli=[68719484929],
-#     aux_moduli=[],
 #     plaintext_modulus=12289,
 #     scaling_factor=3,
 #     mul_depth_supported=1,
@@ -38,7 +37,6 @@ import tf_shell
 context = tf_shell.create_context64(
     log_n=10,
     main_moduli=[68719484929],
-    aux_moduli=[],
     plaintext_modulus=12289,
     scaling_factor=3,
     mul_depth_supported=1,
