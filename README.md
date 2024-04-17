@@ -65,13 +65,13 @@ the labels.
     You may first need to copy the wheel out of the devcontainer's filesystem.
 
     ```bash
-    cp -f bazel-bin/*.whl ./ # run in devcontainer
+    cp -f bazel-bin/*.whl ./  # Run in devcontainer if using.
     ```
 
     Then install.
 
     ```bash
-    pip install tf_shell-...-manylinux.whl
+    pip install tf_shell-...-manylinux.whl  # Run in target environment.
     ```
 
 Note the cpython api is not compatible across minor python versions (e.g. 3.10,
@@ -91,12 +91,24 @@ cloc ./ --fullpath --not-match-d='/(bazel-.*|.*\.venv)/'
 
 ### Update Python Dependencies
 
+Update requirements.in and run the following to update the requirements files
+for each python version.
+
 ```bash
 for ver in 3_9 3_10 3_11; do
   touch requirements_${ver}.txt
   bazelisk run //:requirements_${ver}.update
 done
+
+bazelisk clean --expunge
 ```
+
+If updating the tensorflow dependency, other dependencies may also need to
+change, e.g. abseil (see `MODULE.bazel`). This issue usually manifests as a
+missing symbols error in the tests when trying to import the tensorflow DSO. In
+this case, `c++filt` will help to decode the mangled symbol name and `nm
+--defined-only .../libtensorflow_framework.so | grep ...` may help find what the
+symbol changed to, and which dependency is causing the error.
 
 ## Contributing
 

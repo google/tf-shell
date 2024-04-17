@@ -3,57 +3,43 @@ module(
     version = "0.0.2",  # Also in version.bzl
 )
 
-hermetic_python_version = "3.10"
+SUPPORTED_PYTHON_VERSIONS = [
+    "3.9",
+    "3.10",
+    "3.11",
+]
 
-hermetic_python_version_short = hermetic_python_version.replace(".", "_")
+DEFAULT_PYTHON = "3.10"
 
-bazel_dep(name = "rules_python", version = "0.25.0")
+bazel_dep(name = "rules_python", version = "0.31.0")
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
-python.toolchain(
-    is_default = hermetic_python_version == "3.9",
-    python_version = "3.9",
-)
-python.toolchain(
-    is_default = hermetic_python_version == "3.10",
-    python_version = "3.10",
-)
-python.toolchain(
-    is_default = hermetic_python_version == "3.11",
-    python_version = "3.11",
-)
+
+[
+    python.toolchain(
+        is_default = version == DEFAULT_PYTHON,
+        python_version = version,
+    )
+    for version in SUPPORTED_PYTHON_VERSIONS
+]
+
 use_repo(
     python,
-    "python_3_10",
-    "python_3_10_x86_64-unknown-linux-gnu",
-    "python_3_11",
-    "python_3_11_x86_64-unknown-linux-gnu",
-    "python_3_9",
-    "python_3_9_x86_64-unknown-linux-gnu",
     "python_versions",
 )
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
-pip.parse(
-    hub_name = "pip",
-    python_version = "3.9",
-    requirements_lock = "//:requirements_3_9.txt",
-)
-pip.parse(
-    hub_name = "pip",
-    python_version = "3.10",
-    requirements_lock = "//:requirements_3_10.txt",
-)
-pip.parse(
-    hub_name = "pip",
-    python_version = "3.11",
-    requirements_lock = "//:requirements_3_11.txt",
-)
+
+[
+    pip.parse(
+        hub_name = "pip",
+        python_version = version,
+        requirements_lock = "//:requirements_" + version.replace(".", "_") + ".txt",
+    )
+    for version in SUPPORTED_PYTHON_VERSIONS
+]
+
 use_repo(pip, "pip")
-
-bazel_dep(name = "buildifier_prebuilt", version = "6.3.3", dev_dependency = True)
-
-bazel_dep(name = "pybind11_bazel", version = "2.11.1")
 
 python_configure = use_extension("@pybind11_bazel//:python_configure.bzl", "extension")
 
@@ -68,6 +54,18 @@ python_configure = use_extension("@pybind11_bazel//:python_configure.bzl", "exte
 # plain old variable from a modules bzl file in this context.
 #load("@python_3_11//:defs.bzl", "interpreter")
 python_configure.toolchain(
-    python_interpreter_target = "@python_" + hermetic_python_version_short + "_x86_64-unknown-linux-gnu//:bin/python3",
+    python_interpreter_target = "@python_" + DEFAULT_PYTHON.replace(".", "_") + "_x86_64-unknown-linux-gnu//:bin/python3",
 )
 use_repo(python_configure, "local_config_python", "pybind11")
+
+# See what version of abseil tensorflow is using here:
+# https://github.com/tensorflow/tensorflow/blob/master/third_party/absl/workspace.bzl
+bazel_dep(name = "abseil-cpp", version = "20230802.1", repo_name = "com_google_absl")
+bazel_dep(name = "rules_cc", version = "0.0.9")
+bazel_dep(name = "pybind11_bazel", version = "2.12.0")
+bazel_dep(name = "glog", version = "0.7.0", repo_name = "com_github_google_glog")
+bazel_dep(name = "gflags", version = "2.2.2")
+bazel_dep(name = "boringssl", version = "0.0.0-20240126-22d349c")
+bazel_dep(name = "googletest", version = "1.14.0")
+
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0", dev_dependency = True)

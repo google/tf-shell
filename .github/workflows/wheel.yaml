@@ -31,7 +31,7 @@ jobs:
 
       - name: Build wheel
         run: |
-          sed -i 's/hermetic_python_version = "3.11"/hermetic_python_version = "${{ matrix.python-version }}"/' ./MODULE.bazel
+          sed -i 's/DEFAULT_PYTHON = "3.10"/DEFAULT_PYTHON = "${{ matrix.python-version }}"/' ./MODULE.bazel
           cat MODULE.bazel
           bazelisk build --config release //:wheel
           bazelisk run //:wheel_rename

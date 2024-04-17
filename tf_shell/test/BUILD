@@ -15,7 +15,6 @@ py_test(
     size = "small",
     srcs = [
         "context_test.py",
-        "test_utils.py",
     ],
     deps = [
         "//tf_shell:tf_shell_lib",
@@ -28,7 +27,6 @@ py_test(
     size = "small",
     srcs = [
         "basic_test.py",
-        "test_utils.py",
     ],
     deps = [
         "//tf_shell:tf_shell_lib",
@@ -43,6 +41,7 @@ py_test(
         "add_test.py",
         "test_utils.py",
     ],
+    imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
@@ -56,6 +55,7 @@ py_test(
         "mul_test.py",
         "test_utils.py",
     ],
+    imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
@@ -69,6 +69,7 @@ py_test(
         "mat_mul_test.py",
         "test_utils.py",
     ],
+    imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
@@ -82,6 +83,7 @@ py_test(
         "composite_test.py",
         "test_utils.py",
     ],
+    imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
@@ -90,11 +92,12 @@ py_test(
 
 py_test(
     name = "rotation_test",
-    size = "enormous",
+    size = "large",
     srcs = [
         "rotation_test.py",
         "test_utils.py",
     ],
+    imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
@@ -108,6 +111,7 @@ py_test(
         "shape_test.py",
         "test_utils.py",
     ],
+    imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow-cpu"),
