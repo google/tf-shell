@@ -1,16 +1,6 @@
 load("@pip//:requirements.bzl", "requirement")
 
 py_test(
-    name = "bindings_test",
-    size = "small",
-    srcs = ["bindings_test.py"],
-    deps = [
-        "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
-    ],
-)
-
-py_test(
     name = "context_test",
     size = "small",
     srcs = [

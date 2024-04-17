@@ -1,4 +1,3 @@
-load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
 load("@rules_python//python:packaging.bzl", "py_package")
 
 cc_binary(
@@ -54,28 +53,6 @@ py_library(
     srcs_version = "PY3",
 )
 
-pybind_extension(
-    name = "shell",
-    srcs = [
-        "cc/binder.cc",
-        "cc/binder_context.h",
-        "cc/binder_primitives.h",
-        "cc/binder_prng.h",
-        "cc/binder_symmetric.h",
-    ],
-    deps = [
-        "@com_google_absl//absl/numeric:int128",
-        "@com_google_absl//absl/status",
-        "@pybind11_abseil//pybind11_abseil:status_casters",
-        "@shell_encryption//shell_encryption:context",
-        "@shell_encryption//shell_encryption:montgomery",
-        "@shell_encryption//shell_encryption:polynomial",
-        "@shell_encryption//shell_encryption:statusor_fork",
-        "@shell_encryption//shell_encryption:symmetric_encryption",
-        "@shell_encryption//shell_encryption/prng:single_thread_hkdf_prng",
-    ],
-)
-
 py_library(
     name = "tf_shell_lib",
     srcs = [
@@ -85,9 +62,6 @@ py_library(
         "python/shell_context.py",
         "python/shell_key.py",
         "python/shell_tensor.py",
-    ],
-    data = [
-        ":shell.so",
     ],
     srcs_version = "PY3",
     visibility = ["//visibility:public"],

@@ -4,13 +4,6 @@ load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
-    name = "pybind11_abseil",
-    sha256 = "1496b112e86416e2dcf288569a3e7b64f3537f0b18132224f492266e9ff76c44",
-    strip_prefix = "pybind11_abseil-202402.0",
-    urls = ["https://github.com/pybind/pybind11_abseil/archive/refs/tags/v202402.0.tar.gz"],
-)
-
-http_archive(
     name = "shell_encryption",
     integrity = "sha256-6uWbertH7tjs/ef632lNy/M0ndM0LVVF8OZr+8CMNoI=",
     strip_prefix = "shell-encryption-300731a8c0e79e23289523d5ca405e004e749ef4",

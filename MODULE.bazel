@@ -41,30 +41,11 @@ pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 
 use_repo(pip, "pip")
 
-python_configure = use_extension("@pybind11_bazel//:python_configure.bzl", "extension")
-
-#python_configure.toolchain(python_interpreter_target = "@python_versions//3.11:defs.bzl")
-#  above points to $(bazel info output_base)/external/rules_python~0.25.0~python~python_versions/3.11/defs.bzl
-#  and loads the repo @python_3_11//:defs
-#python_configure.toolchain(python_interpreter_target = "@python_3_11//:defs.bzl")
-#  above points to ""
-#  and says the interpreter is "@python_3_11_x86_64-unknown-linux-gnu//:bin/python3"
-# the above repo must be in the use_repo statement of rules_python
-# something like below would be much better but I don't know how to get a
-# plain old variable from a modules bzl file in this context.
-#load("@python_3_11//:defs.bzl", "interpreter")
-python_configure.toolchain(
-    python_interpreter_target = "@python_" + DEFAULT_PYTHON.replace(".", "_") + "_x86_64-unknown-linux-gnu//:bin/python3",
-)
-use_repo(python_configure, "local_config_python", "pybind11")
-
 # See what version of abseil tensorflow is using here:
 # https://github.com/tensorflow/tensorflow/blob/master/third_party/absl/workspace.bzl
 bazel_dep(name = "abseil-cpp", version = "20230802.1", repo_name = "com_google_absl")
 bazel_dep(name = "rules_cc", version = "0.0.9")
-bazel_dep(name = "pybind11_bazel", version = "2.12.0")
 bazel_dep(name = "glog", version = "0.7.0", repo_name = "com_github_google_glog")
-bazel_dep(name = "gflags", version = "2.2.2")
 bazel_dep(name = "boringssl", version = "0.0.0-20240126-22d349c")
 bazel_dep(name = "googletest", version = "1.14.0")
 

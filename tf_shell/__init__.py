@@ -15,7 +15,6 @@
 # limitations under the License.
 from __future__ import absolute_import
 
-from tf_shell import shell
 from tf_shell.python.shell_tensor import ShellTensor64
 from tf_shell.python.shell_tensor import to_shell_plaintext
 from tf_shell.python.shell_tensor import to_encrypted
