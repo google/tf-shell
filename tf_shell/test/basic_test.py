@@ -30,7 +30,6 @@ class TestShellTensor(tf.test.TestCase):
         return tf_shell.create_context64(
             log_n=TestShellTensor.log_slots,
             main_moduli=[8556589057, 8388812801],
-            aux_moduli=[34359709697],
             plaintext_modulus=40961,
         )
 
