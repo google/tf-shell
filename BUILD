@@ -116,7 +116,7 @@ py_wheel(
     }),
     python_requires = ">=3.9.0",
     python_tag = "INTERPRETER",
-    requires = ["tensorflow-cpu==2.14.0"],
+    requires = ["tensorflow-cpu==2.16.1"],  # See also: requirements.in.
     summary = "TF-Shell: Privacy preserving machine learning with Tensorflow and the SHELL encryption library",
     version = VERSION_LABEL,
     deps = [

@@ -1,2 +1,3 @@
-USE_BAZEL_VERSION=6.3.1
-BAZELISK_VERIFY_SHA256=81130d324e145dcf3192338b875669fe5f410fef26344985dd4cdcdb1c7cab5b
+USE_BAZEL_VERSION=7.1.1
+BAZELISK_VERIFY_SHA256=d93508529d41136065c7b1e5ff555fbfb9d18fd00e768886f2fc7dfb53b05b43
+# To see hash of the currently downloaded version, `ls $HOME/.cache/bazelisk/downloads/sha256/`

@@ -2,10 +2,6 @@ build --enable_bzlmod
 
 build -c opt
 
-build --spawn_strategy=standalone
-build --strategy=Genrule=standalone
-build --spawn_strategy=sandboxed
-
 build --cxxopt='-std=c++17'
 build --cxxopt='-D_GLIBCXX_USE_CXX11_ABI=1'
 

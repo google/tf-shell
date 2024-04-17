@@ -2,7 +2,7 @@ load("@pip//:requirements.bzl", "requirement")
 
 py_test(
     name = "mnist_post_scale_test",
-    size = "enormous",
+    size = "medium",
     srcs = ["mnist_post_scale_test.py"],
     deps = [
         "//tf_shell_ml",
@@ -12,7 +12,7 @@ py_test(
 
 py_test(
     name = "mnist_backprop_test",
-    size = "enormous",
+    size = "large",
     srcs = ["mnist_backprop_test.py"],
     deps = [
         "//tf_shell_ml",
