@@ -133,10 +133,10 @@ class ShellTensor64(object):
             )
 
         elif isinstance(other, tf.Tensor):
-            # TODO(jchoncholas): Adding a scalar uses a special op that is
-            # more efficient.
-            if other.shape == []:
-                raise ValueError("Scalar addition not yet implemented.")
+            if other.shape == (1,) or other.shape == ():
+                # In the special case of scalar addition, instead of padding
+                # with zeros replicate the scalar across all slots.
+                other = tf.broadcast_to(other, (self._context.num_slots, 1))
 
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self and attempt the addition again.
@@ -191,10 +191,10 @@ class ShellTensor64(object):
                 noise_bit_count=self._noise_bit_count + 1,
             )
         elif isinstance(other, tf.Tensor):
-            # TODO(jchoncholas): Subtracting a scalar uses a special op that is
-            # more efficient.
-            if other.shape == []:
-                raise ValueError("Scalar subtraction not yet implemented.")
+            if other.shape == (1,) or other.shape == ():
+                # In the special case of scalar subtraction, instead of padding
+                # with zeros replicate the scalar across all slots.
+                other = tf.broadcast_to(other, (self._context.num_slots, 1))
 
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self and attempt the subtraction again.
@@ -213,7 +213,13 @@ class ShellTensor64(object):
 
     def __rsub__(self, other):
         if isinstance(other, tf.Tensor):
-            # First import to a shell plaintext.
+            if other.shape == (1,) or other.shape == ():
+                # In the special case of scalar subtraction, instead of padding
+                # with zeros replicate the scalar across all slots.
+                other = tf.broadcast_to(other, (self._context.num_slots, 1))
+
+            # Import to a shell plaintext, which pads the first dimension with
+            # zeros out to the number of slots.
             shell_other = to_shell_plaintext(other, self._context)
 
             # Match the shapes via broadcasting. This is after importing to
@@ -306,7 +312,7 @@ class ShellTensor64(object):
                 # Encode the other scalar tensor to the same scaling factor as
                 # self.
                 other = _encode_scaling(other, self._scaling_factor)
-                
+
                 if self.is_encrypted:
                     raw_result = shell_ops.mul_ct_tf_scalar64(
                         self._context._raw_context, self._raw, other
