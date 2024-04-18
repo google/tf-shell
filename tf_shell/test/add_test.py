@@ -548,6 +548,44 @@ class TestShellTensor(tf.test.TestCase):
             ):
                 self._test_ct_list_add_with_padding(test_context)
 
+    def _test_ct_scalar_add(self, test_context):
+        try:
+            # This test performs one addition.
+            _, max_val = test_utils.get_bounds_for_n_adds(test_context, 1)
+            a = test_utils.uniform_for_n_adds(test_context, 1)
+            b = test_utils.uniform_for_n_adds(test_context, 1, shape=[1])
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_scalar_add with context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+
+        sc = sa + b
+        self.assertAllClose(a + b, tf_shell.to_tensorflow(sc), atol=1e-3)
+
+        if test_context.plaintext_dtype.is_unsigned:
+            # To test subtraction, ensure that a > b to avoid underflow.
+            # a + max_val is safe, because max_val is the total range / 2 and
+            # a is less than max_val.
+            max_val = int(max_val)
+            saa = tf_shell.to_shell_plaintext(a + max_val, test_context.shell_context)
+            ee = saa - b
+            self.assertAllClose(a + max_val - b, tf_shell.to_tensorflow(ee), atol=1e-3)
+        else:
+            sd = sa - b
+            self.assertAllClose(a - b, tf_shell.to_tensorflow(sd), atol=1e-3)
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+
+    def test_ct_scalar_add(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"ct_scalar_add with context `{test_context}`."):
+                self._test_ct_scalar_add(test_context)
+
     def _test_pt_pt_add(self, test_context):
         try:
             # This test performs one addition.
