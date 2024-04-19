@@ -34,7 +34,13 @@ class CategoricalCrossentropy:
     def grad(self, y_true, y_pred):
         if self.from_logits:
             y_pred = softmax(y_pred)
-        grad = y_pred - y_true
+
+        # When using deferred execution, we need to use the __rsub__ method
+        # otherwise it tries to go through the y tensors __sub__ method which
+        # fails when y_true is encrypted (a ShellTensor64).
+        # grad = y_pred - y_true
+        grad = y_true.__rsub__(y_pred)
+
         if not self.lazy_normalization:
             # batch_size = y_true.shape.as_list()[0]
             # batch_size_inv = 1 / batch_size

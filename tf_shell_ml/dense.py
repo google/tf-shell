@@ -28,7 +28,8 @@ class ShellDense:
         kernel_initializer="glorot_uniform",
         bias_initializer="zeros",
         skip_normalization=True,
-        weight_dtype=tf.int64,
+        weight_dtype=tf.float32,
+        is_first_layer=False,
     ):
         self.units = int(units)
         self.activation = activation
@@ -39,24 +40,21 @@ class ShellDense:
         self.bias_initializer = initializers.get(bias_initializer)
         self.skip_normalization = skip_normalization
         self.weight_dtype = weight_dtype
+        self.is_first_layer = is_first_layer
 
         self.built = False
         self.weights = []
 
     def build(self, input_shape):
         self.units_in = int(input_shape[1])
-        self.kernel = self.kernel_initializer([self.units_in, self.units])
-
-        # Convert kernel to fixed point.
-        self.kernel_initializer = tf.cast(self.kernel, self.weight_dtype)
+        self.kernel = tf.Variable(self.kernel_initializer([self.units_in, self.units]))
         self.weights.append(self.kernel)
 
         if self.use_bias:
-            self.bias = self.bias_initializer([self.units])
-            self.bias = tf.cast(self.bias, self.weight_dtype)
+            self.bias = tf.Variable(self.bias_initializer([self.units]))
             self.weights.append(self.bias)
-        else:
-            self.bias = None
+
+        self.built = True
 
     def __call__(self, inputs):
         if not self.built:
@@ -79,7 +77,7 @@ class ShellDense:
 
         return outputs
 
-    def backward(self, dy, rotation_key, is_first_layer=False):
+    def backward(self, dy, rotation_key):
         """dense backward"""
         x = self._layer_input
         z = self._layer_intermediate
@@ -91,7 +89,7 @@ class ShellDense:
         if self.activation_deriv is not None:
             dy = self.activation_deriv(z, dy)
 
-        if is_first_layer:
+        if self.is_first_layer:
             d_x = None  # no gradient needed for first layer
         else:
             # Perform the multiplication for dy/dx.
@@ -102,18 +100,13 @@ class ShellDense:
         d_weights = tf_shell.matmul(tf.transpose(x), dy, rotation_key)
 
         if not self.skip_normalization:
-            assert False, "Normalization not implemented."
-            # d_weights = d_weights / batch_size
+            d_weights = d_weights / batch_size
         grad_weights.append(d_weights)
 
         if self.use_bias:
-            assert False, "Bias not implemented."
-            # TODO(jchoncholas): reduce_sum is very expensive and requires slot rotation.
-            # Not implemented yet. A better way than the reduce sum is to set batch size to 1 less
-            # and use that last slot as the bias with input 1.
-            # #d_bias = tf_shell.reduce_sum(dy, axis=0)
-            # if not self.skip_normalization:
-            #     d_bias = d_bias / batch_size
-            # grad_weights.append(d_bias)
+            d_bias = tf_shell.reduce_sum(dy, axis=0, rotation_key=rotation_key)
+            if not self.skip_normalization:
+                d_bias = d_bias / batch_size
+            grad_weights.append(d_bias)
 
         return grad_weights, d_x
