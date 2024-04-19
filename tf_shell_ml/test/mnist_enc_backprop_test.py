@@ -20,8 +20,6 @@ import numpy as np
 import tf_shell
 import tf_shell_ml
 
-plaintext_dtype = tf.float32
-
 # # Num plaintext bits: 32, noise bits: 84
 # # Max representable value: 654624
 # context = tf_shell.create_context64(
@@ -70,18 +68,17 @@ hidden_layer = tf_shell_ml.ShellDense(
     64,
     activation=tf_shell_ml.relu,
     activation_deriv=tf_shell_ml.relu_deriv,
-    weight_dtype=plaintext_dtype,
+    is_first_layer=True,
 )
 output_layer = tf_shell_ml.ShellDense(
     10,
-    activation=tf_shell_ml.sigmoid,
+    activation=tf.nn.softmax,
     # Do not set the derivative of the activation function for the last layer
     # in the model. The derivative of the categorical crossentropy loss function
     # times the derivative of a softmax is just y_pred - y (which is much easier
     # to compute than each of them individually). So instead just let the
     # loss function derivative incorporate y_pred - y and let the derivative
     # of this last layer's activation be a no-op.
-    weight_dtype=plaintext_dtype,
 )
 
 # Call the layers once to create the weights.
@@ -89,8 +86,6 @@ y1 = hidden_layer(tf.zeros((batch_size, 784)))
 y2 = output_layer(y1)
 
 loss_fn = tf_shell_ml.CategoricalCrossentropy()
-optimizer = tf_shell_ml.Adam()
-optimizer.compile([hidden_layer.weights, output_layer.weights])
 
 
 def train_step(x, y):
@@ -102,17 +97,13 @@ def train_step(x, y):
     # Backward pass.
     dJ_dy_pred = loss_fn.grad(y, y_pred)
 
-    dJ_dw1, dJ_dx1 = output_layer.backward(
-        dJ_dy_pred, rotation_key, is_first_layer=False
-    )
+    dJ_dw1, dJ_dx1 = output_layer.backward(dJ_dy_pred, rotation_key)
 
     # Mod reduce will reduce noise but increase the plaintext error.
     # if isinstance(dJ_dx1, tf_shell.ShellTensor64):
     #     dJ_dx1.get_mod_reduced()
 
-    dJ_dw0, dJ_dx0_unused = hidden_layer.backward(
-        dJ_dx1, rotation_key, is_first_layer=True
-    )
+    dJ_dw0, dJ_dx0_unused = hidden_layer.backward(dJ_dx1, rotation_key)
 
     # Only return the weight gradients at [0], not the bias gradients at [1].
     return dJ_dw1[0], dJ_dw0[0]

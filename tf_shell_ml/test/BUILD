@@ -11,9 +11,19 @@ py_test(
 )
 
 py_test(
-    name = "mnist_backprop_test",
+    name = "mnist_noenc_backprop_test",
     size = "large",
-    srcs = ["mnist_backprop_test.py"],
+    srcs = ["mnist_noenc_backprop_test.py"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
+    name = "mnist_enc_backprop_test",
+    size = "large",
+    srcs = ["mnist_enc_backprop_test.py"],
     deps = [
         "//tf_shell_ml",
         requirement("tensorflow-cpu"),

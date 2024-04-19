@@ -7,7 +7,6 @@ py_library(
         "activation.py",
         "dense.py",
         "loss.py",
-        "optimizer.py",
     ],
     visibility = ["//visibility:public"],
     deps = [

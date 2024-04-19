@@ -26,13 +26,10 @@ def relu_deriv(y, dy):
     assert not isinstance(y, tf_shell.ShellTensor64)
     # Cannot operate on individual slots of a shell tensor.
     # Formulate the problem as element-wise multiplication.
-    # t = np.dtype(dy.plaintext_dtype.as_numpy_dtype)
-    if isinstance(dy, tf_shell.ShellTensor64):
-        dy_dtype = dy.plaintext_dtype
-    else:
-        dy_dtype = dy.dtype
     mask = tf.where(
-        y <= 0, tf.constant(0, dtype=dy_dtype), tf.constant(1, dtype=dy_dtype)
+        y > 0,
+        tf.constant(1, dtype=tf.float32),
+        tf.constant(0, dtype=tf.float32),
     )
     return dy * mask
 
