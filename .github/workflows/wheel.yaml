@@ -23,17 +23,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Mount bazel cache
-        uses: actions/cache@v3
-        with:
-          path: "~/.cache/bazel"
-          key: 'bazel-${{matrix.os}}-${{ matrix.python-version }}'
-
       - name: Build wheel
         run: |
           sed -i 's/DEFAULT_PYTHON = "3.10"/DEFAULT_PYTHON = "${{ matrix.python-version }}"/' ./MODULE.bazel
           cat MODULE.bazel
-          rm -f bazel-bin/*.whl
           bazelisk build --config release //:wheel
           bazelisk run //:wheel_rename
 
