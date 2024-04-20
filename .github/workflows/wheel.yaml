@@ -33,6 +33,7 @@ jobs:
         run: |
           sed -i 's/DEFAULT_PYTHON = "3.10"/DEFAULT_PYTHON = "${{ matrix.python-version }}"/' ./MODULE.bazel
           cat MODULE.bazel
+          rm -f bazel-bin/*.whl
           bazelisk build --config release //:wheel
           bazelisk run //:wheel_rename
 
