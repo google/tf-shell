@@ -26,7 +26,7 @@ jobs:
       - name: Build wheel
         run: |
           sed -i 's/DEFAULT_PYTHON = "3.10"/DEFAULT_PYTHON = "${{ matrix.python-version }}"/' ./MODULE.bazel
-          cat MODULE.bazel
+          sed -i 's/DEFAULT_PYTHON = "3.10"/DEFAULT_PYTHON = "${{ matrix.python-version }}"/' ./BUILD
           bazelisk build --config release //:wheel
           bazelisk run //:wheel_rename
 

@@ -5,7 +5,8 @@ load("@python_versions//3.11:defs.bzl", compile_pip_requirements_3_11 = "compile
 load("@python_versions//3.9:defs.bzl", compile_pip_requirements_3_9 = "compile_pip_requirements")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_python//python:packaging.bzl", "py_wheel")
-load("//:version.bzl", "VERSION_LABEL")
+
+DEFAULT_PYTHON = "3.10"  # Also see ./MODULE.bazel
 
 exports_files([
     "LICENSE",
@@ -99,7 +100,7 @@ py_wheel(
         "Topic :: Scientific/Engineering :: Mathematics",
     ],
     description_file = "//:README.md",
-    distribution = "tf-shell",
+    distribution = module_name(),
     extra_distinfo_files = {
         "//:LICENSE": "LICENSE",
         "//:README.md": "README",
@@ -114,11 +115,11 @@ py_wheel(
         "@bazel_tools//src/conditions:linux_x86_64": "LINUX_x86_64",
         "@bazel_tools//src/conditions:linux_aarch64": "LINUX_aarch64",
     }),
-    python_requires = ">=3.9.0",
+    python_requires = "==" + DEFAULT_PYTHON + ".*",
     python_tag = "INTERPRETER",
     requires = ["tensorflow-cpu==2.16.1"],  # See also: requirements.in.
     summary = "TF-Shell: Privacy preserving machine learning with Tensorflow and the SHELL encryption library",
-    version = VERSION_LABEL,
+    version = module_version(),
     deps = [
         "//tf_shell:tf_shell_pkg",
         "//tf_shell_ml:tf_shell_ml_pkg",

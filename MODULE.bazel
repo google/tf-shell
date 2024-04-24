@@ -1,15 +1,15 @@
 module(
     name = "tf-shell",
-    version = "0.1.0",  # Also in version.bzl
+    version = "0.1.1",
 )
 
 SUPPORTED_PYTHON_VERSIONS = [
     "3.9",
     "3.10",
     "3.11",
-]  # Also see .github/workflows/wheel.yaml
+]  # Also see ./.github/workflows/wheel.yaml
 
-DEFAULT_PYTHON = "3.10"
+DEFAULT_PYTHON = "3.10"  # Also see ./BUILD
 
 bazel_dep(name = "rules_python", version = "0.31.0")
 
