@@ -23,6 +23,7 @@ from tf_shell.python.shell_tensor import roll
 from tf_shell.python.shell_tensor import reduce_sum
 from tf_shell.python.shell_tensor import matmul
 from tf_shell.python.shell_tensor import expand_dims
+from tf_shell.python.shell_tensor import reshape
 
 from tf_shell.python.shell_context import ShellContext64
 from tf_shell.python.shell_context import create_context64

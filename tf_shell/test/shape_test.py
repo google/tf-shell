@@ -194,6 +194,78 @@ class TestShellTensor(tf.test.TestCase):
             ):
                 self._test_expand_dims_dim_0(test_context)
 
+    def _reshape(self, test_context, new_shape):
+        try:
+            # This test performs zero additions.
+            a = test_utils.uniform_for_n_adds(test_context, 0)
+        except Exception as e:
+            print(
+                f"Note: Skipping test reshape with test context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        expanded_sa = tf_shell.reshape(sa, new_shape)
+        self.assertAllClose(
+            tf.reshape(a, new_shape), tf_shell.to_tensorflow(expanded_sa)
+        )
+
+        ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
+        expanded_ea = tf_shell.reshape(ea, new_shape)
+        self.assertAllClose(
+            tf.reshape(a, new_shape),
+            tf_shell.to_tensorflow(expanded_ea, test_context.key),
+        )
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_reshape(self):
+        for test_context in self.test_contexts:
+            for dim in range(1, len(test_context.outer_shape) - 1, 1):
+                new_shape = (
+                    test_context.outer_shape[:dim]
+                    + [
+                        test_context.outer_shape[dim]
+                        * test_context.outer_shape[dim + 1]
+                    ]
+                    + test_context.outer_shape[dim + 2 :]
+                )
+                with self.subTest(
+                    f"reshape {test_context.outer_shape} to {new_shape} (dimension {dim}) with context `{test_context}`."
+                ):
+                    self._reshape(
+                        test_context, [test_context.shell_context.num_slots] + new_shape
+                    )
+
+    def _test_expand_and_reshape(self, test_context, dim):
+        try:
+            a = test_utils.uniform_for_n_adds(test_context, 0)  # full shape
+        except Exception as e:
+            print(
+                f"Note: Skipping test expand_dims_and_mul with test context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+        expanded_ea = tf_shell.expand_dims(ea, dim)  # Add a dimension.
+        reshaped_ea = tf_shell.reshape(
+            expanded_ea, a.shape
+        )  # Remove the added dimension.
+
+        self.assertAllClose(a, tf_shell.to_tensorflow(reshaped_ea, test_context.key))
+
+    def test_expand_and_reshape(self):
+        for test_context in self.test_contexts:
+            for dim in range(1, len(test_context.outer_shape) + 1, 1):
+                with self.subTest(
+                    f"expand_dims and reshape with dim {dim} context `{test_context}`."
+                ):
+                    self._test_expand_and_reshape(test_context, dim)
+
 
 if __name__ == "__main__":
     tf.test.main()

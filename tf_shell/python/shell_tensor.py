@@ -799,3 +799,24 @@ def expand_dims(x, axis=-1):
         return tf.expand_dims(x, axis)
     else:
         raise ValueError("Unsupported type for expand_dims")
+
+
+def reshape(x, shape):
+    if isinstance(x, ShellTensor64):
+        # Perform some checks on the new shape.
+        if shape[0] != x._context.num_slots:
+            raise ValueError(
+                "Cannot reshape axis 0 for ShellTensor64, this is the batching dimension."
+            )
+        return ShellTensor64(
+            value=tf.reshape(x._raw, shape[1:]),
+            context=x._context,
+            underlying_dtype=x._underlying_dtype,
+            scaling_factor=x._scaling_factor,
+            is_enc=x._is_enc,
+            noise_bit_count=x._noise_bit_count,
+        )
+    elif isinstance(x, tf.Tensor):
+        return tf.reshape(x, shape)
+    else:
+        raise ValueError("Unsupported type for expand_dims")
