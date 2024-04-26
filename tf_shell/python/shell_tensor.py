@@ -607,7 +607,7 @@ def roll(x, shift, rotation_key):
     if isinstance(x, ShellTensor64):
         if not isinstance(rotation_key, ShellRotationKey64):
             raise ValueError(
-                "Rotation key must be provided. Instead saw {rotation_key}."
+                f"Rotation key must be provided. Instead saw {rotation_key}."
             )
 
         if not x._is_enc:
@@ -644,7 +644,7 @@ def reduce_sum(x, axis, rotation_key=None):
         if axis == 0:
             if not isinstance(rotation_key, ShellRotationKey64):
                 raise ValueError(
-                    "Rotation key must be provided to reduce_sum over the first axis. Instead saw {rotation_key}."
+                    f"Rotation key must be provided to reduce_sum over the first axis. Instead saw {rotation_key}."
                 )
 
             # Get the correct rotation key for the level of this ciphertext.
@@ -728,7 +728,7 @@ def matmul(x, y, rotation_key=None):
     elif isinstance(x, tf.Tensor) and isinstance(y, ShellTensor64):
         if not isinstance(rotation_key, ShellRotationKey64):
             raise ValueError(
-                "Rotation key must be provided to matmul pt*ct. Instead saw {rotation_key}."
+                f"Rotation key must be provided to matmul pt*ct. Instead saw {rotation_key}."
             )
 
         if x.dtype != y._underlying_dtype:
@@ -793,7 +793,7 @@ def expand_dims(x, axis=-1):
             underlying_dtype=x._underlying_dtype,
             scaling_factor=x._scaling_factor,
             is_enc=x._is_enc,
-            noise_bit_count=x._noise_bit_count + 1,
+            noise_bit_count=x._noise_bit_count,
         )
     elif isinstance(x, tf.Tensor):
         return tf.expand_dims(x, axis)
