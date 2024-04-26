@@ -19,32 +19,20 @@ import tensorflow as tf
 import keras
 import tf_shell
 
-# # Num plaintext bits: 12, noise bits: 24
-# # Max representable value: 1365
-# context = tf_shell.create_context64(
-#     log_n=11,
-#     main_moduli=[68719484929],
-#     plaintext_modulus=12289,
-#     scaling_factor=3,
-#     mul_depth_supported=1,
-#     seed="test_seed",
-# )
-# # 207 bits of security according to lattice estimator primal_bdd.
-# # Runtime 89 seconds (43 ms/example).
-
-# Num plaintext bits: 12, noise bits: 24
-# Max representable value: 1365
+# Num plaintext bits: 19, noise bits: 40
+# Max representable value: 61895
 context = tf_shell.create_context64(
-    log_n=10,
-    main_moduli=[68719484929],
-    plaintext_modulus=12289,
+    log_n=11,
+    main_moduli=[576460752303439873],
+    plaintext_modulus=557057,
     scaling_factor=3,
     mul_depth_supported=1,
 )
-# 99 bits of security according to lattice estimator primal_bdd.
-# Runtime 39.4 seconds (38 ms/example).
+# 121 bits of security according to lattice estimator primal_bdd.
+# Runtime 95 seconds (46 ms/example).
 
 key = tf_shell.create_key64(context)
+rotation_key = tf_shell.create_rotation_key64(context, key)
 
 # Set the batch size to be half the number of slots. This is the maximum
 # batch size that can be used with the current implementation of tf-shell
@@ -95,15 +83,30 @@ def train_step(x, y):
     depth is proportional to the model depth.
     """
 
+    # Unset the activation function for the last layer so it is not used in
+    # computing the gradient. The effect of the last layer activation function
+    # is factored out of the gradient computation and accounted for below.
+    model.layers[-1].activation = tf.keras.activations.linear
+
     with tf.GradientTape() as tape:
         y_pred = model(x, training=True)  # forward pass
     grads = tape.jacobian(y_pred, model.trainable_variables)
     # ^  layers list x (batch size x num output classes x weights) matrix
     # dy_pred_j/dW_sample_class
 
+    # Reset the activation function for the last layer and compute the real
+    # prediction.
+    model.layers[-1].activation = tf.keras.activations.sigmoid
+    y_pred = model(x, training=False)
+
     # Compute y_pred - y (where y may be encrypted).
     scalars = y_pred - y  # dJ/dy_pred
     # ^  batch_size x num output classes.
+
+    # Expand the last dim so that the subsequent multiplications are
+    # broadcasted.
+    scalars = tf_shell.expand_dims(scalars, axis=-1)
+    # ^ batch_size x num output classes x 1
 
     # Scale each gradient. Since 'scalars' may be a vector of ciphertexts, this
     # requires multiplying plaintext gradient for the specific layer (2d) by the
@@ -120,13 +123,8 @@ def train_step(x, y):
         packable_grad = tf.reshape(layer_grad_full, [batch_sz, num_output_classes, -1])
         # ^  batch_size x num output classes x flattened weights
 
-        # Expand the last dim so that the subsequent multiplication is
-        # broadcasted.
-        expanded_scalars = tf_shell.expand_dims(scalars, axis=-1)
-        # ^ batch_size x num output classes x 1
-
         # Scale the gradient precursors.
-        scaled_grad = packable_grad * expanded_scalars
+        scaled_grad = packable_grad * scalars
         # ^ dy_pred/dW * dJ/dy_pred = dJ/dW
 
         # Sum over the output classes.
@@ -136,12 +134,21 @@ def train_step(x, y):
         # In the real world, this approach would also likely require clipping
         # the gradient, and adding DP noise.
 
-        # Decrypt and reshape to remove the '1' dimension in the middle.
-        if isinstance(scaled_grad, tf_shell.ShellTensor64):
-            scaled_grad = tf_shell.to_tensorflow(scaled_grad, key)
-        plaintext_grad = tf.reshape(scaled_grad, [batch_sz] + grad_shape)
+        # Reshape to remove the '1' dimension in the middle.
+        scaled_grad = tf_shell.reshape(scaled_grad, [batch_sz] + grad_shape)
+        # ^  batch_size x weights
 
-        ps_grads.append(plaintext_grad)
+        # Sum over the batch.
+        scaled_grad = tf_shell.reduce_sum(
+            scaled_grad, axis=0, rotation_key=rotation_key
+        )
+        # ^  batch_size x flattened weights
+
+        # Decrypt.
+        if isinstance(scaled_grad, tf_shell.ShellTensor64):
+            scaled_grad = tf_shell.to_tensorflow(scaled_grad, key)[0]
+
+        ps_grads.append(scaled_grad)
 
     return ps_grads
 
@@ -161,7 +168,7 @@ class TestPlaintextPostScale(tf.test.TestCase):
         self.assertAllClose(
             ps_grads,
             shell_ps_grads,
-            atol=1 / context.scaling_factor * 2,
+            atol=1 / context.scaling_factor * context.num_slots,
         )
 
 
