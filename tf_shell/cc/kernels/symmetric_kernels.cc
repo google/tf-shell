@@ -93,6 +93,7 @@ class EncryptOp : public OpKernel {
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+    size_t num_slots = 1 << shell_ctx->LogN();
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
@@ -109,24 +110,32 @@ class EncryptOp : public OpKernel {
     auto flat_input = input.flat<Variant>();
     auto flat_output = output->flat<Variant>();
 
-    for (int i = 0; i < flat_output.dimension(0); ++i) {
-      PolynomialVariant<T> const* pv =
-          std::move(flat_input(i).get<PolynomialVariant<T>>());
-      OP_REQUIRES(op_ctx, pv != nullptr,
-                  InvalidArgument("PolynomialVariant at flat index:", i,
-                                  "did not unwrap successfully."));
-      Polynomial const& p = pv->poly;
+    auto enc_in_range = [&](int start, int end) {
+      for (int i = start; i < end; ++i) {
+        PolynomialVariant<T> const* pv =
+            std::move(flat_input(i).get<PolynomialVariant<T>>());
+        OP_REQUIRES(op_ctx, pv != nullptr,
+                    InvalidArgument("PolynomialVariant at flat index:", i,
+                                    "did not unwrap successfully."));
+        Polynomial const& p = pv->poly;
 
-      SymmetricCt ciphertext = secret_key
-                                   ->template EncryptPolynomialBgv<Encoder>(
-                                       p, shell_ctx_var->encoder_.get(),
-                                       shell_ctx_var->error_params_.get(),
-                                       shell_ctx_var->prng_.get())
-                                   .value();
+        SymmetricCt ciphertext = secret_key
+                                     ->template EncryptPolynomialBgv<Encoder>(
+                                         p, shell_ctx_var->encoder_.get(),
+                                         shell_ctx_var->error_params_.get(),
+                                         shell_ctx_var->prng_.get())
+                                     .value();
 
-      SymmetricCtVariant ciphertext_var(std::move(ciphertext));
-      flat_output(i) = std::move(ciphertext_var);
-    }
+        SymmetricCtVariant ciphertext_var(std::move(ciphertext));
+        flat_output(i) = std::move(ciphertext_var);
+      }
+    };
+
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_enc = 2200 * num_slots;  // ns, measured on log_n = 11
+    thread_pool->ParallelFor(flat_output.dimension(0), cost_per_enc,
+                             enc_in_range);
   }
 };
 
@@ -170,36 +179,45 @@ class DecryptOp : public OpKernel {
 
     auto flat_output = output->flat_outer_dims<To>();
 
-    for (int i = 0; i < flat_output.dimension(1); ++i) {
-      SymmetricCtVariant<From> const* ct_var =
-          std::move(flat_input(i).get<SymmetricCtVariant<From>>());
-      OP_REQUIRES(op_ctx, ct_var != nullptr,
-                  InvalidArgument("SymmetricCtVariant at flat index: ", i,
-                                  " did not unwrap successfully."));
-      SymmetricCt const& ct = ct_var->ct;
+    auto dec_in_range = [&](int start, int end) {
+      for (int i = start; i < end; ++i) {
+        SymmetricCtVariant<From> const* ct_var =
+            std::move(flat_input(i).get<SymmetricCtVariant<From>>());
+        OP_REQUIRES(op_ctx, ct_var != nullptr,
+                    InvalidArgument("SymmetricCtVariant at flat index: ", i,
+                                    " did not unwrap successfully."));
+        SymmetricCt const& ct = ct_var->ct;
 
-      // Decrypt() returns coefficients in underlying (e.g. uint64) form after
-      // doing the outer modulo and inverse NTT.
-      OP_REQUIRES_VALUE(std::vector<From> decryptions, op_ctx,
-                        secret_key->template DecryptBgv<Encoder>(ct, encoder));
+        // Decrypt() returns coefficients in underlying (e.g. uint64) form after
+        // doing the outer modulo and inverse NTT.
+        OP_REQUIRES_VALUE(
+            std::vector<From> decryptions, op_ctx,
+            secret_key->template DecryptBgv<Encoder>(ct, encoder));
 
-      if constexpr (std::is_signed<To>::value) {
-        // Map the plaintext modulus field back into signed integers.
-        // Effectively switches the modulus from t to 2^(num bits in `From`)
-        // handling the sign bits appropriately.
-        OP_REQUIRES_VALUE(std::vector<std::make_signed_t<To>> nums, op_ctx,
-                          encoder->template UnwrapToSigned<To>(decryptions));
+        if constexpr (std::is_signed<To>::value) {
+          // Map the plaintext modulus field back into signed integers.
+          // Effectively switches the modulus from t to 2^(num bits in `From`)
+          // handling the sign bits appropriately.
+          OP_REQUIRES_VALUE(std::vector<std::make_signed_t<To>> nums, op_ctx,
+                            encoder->template UnwrapToSigned<To>(decryptions));
 
-        for (size_t slot = 0; slot < num_slots; ++slot) {
-          flat_output(slot, i) = static_cast<To>(nums[slot]);
-        }
-      } else {
-        // both `From` and `To` are unsigned, just cast and copy.
-        for (size_t slot = 0; slot < num_slots; ++slot) {
-          flat_output(slot, i) = static_cast<To>(decryptions[slot]);
+          for (size_t slot = 0; slot < num_slots; ++slot) {
+            flat_output(slot, i) = static_cast<To>(nums[slot]);
+          }
+        } else {
+          // both `From` and `To` are unsigned, just cast and copy.
+          for (size_t slot = 0; slot < num_slots; ++slot) {
+            flat_output(slot, i) = static_cast<To>(decryptions[slot]);
+          }
         }
       }
-    }
+    };
+
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_dec = 0.12f * num_slots;  // ns, measured on log_n = 11
+    thread_pool->ParallelFor(flat_output.dimension(1), cost_per_dec,
+                             dec_in_range);
   }
 };
 

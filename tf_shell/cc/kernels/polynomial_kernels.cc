@@ -87,51 +87,61 @@ class PolynomialImportOp : public OpKernel {
     auto flat_input = input.flat_outer_dims<From>();
     auto flat_output = output->flat<Variant>();
 
-    for (int i = 0; i < flat_input.dimension(1); ++i) {
-      // Contiguous memory of plaintext for the absl span required by RNS BGV
-      // encoder.
-      std::vector<To> wrapped_nums;
+    auto import_in_range = [&](int start, int end) {
+      for (int i = start; i < end; ++i) {
+        // Contiguous memory of plaintext for the absl span required by RNS BGV
+        // encoder.
+        std::vector<To> wrapped_nums;
 
-      if constexpr (std::is_signed<From>::value) {
-        // SHELL is built on the assumption that the plaintext type (in this
-        // case `From`) will always fit into the ciphertext underlying type
-        // (in this case `To`). I.e. the plaintext modulus is stored as the
-        // ciphertext type. This is true even in the RNS code paths. This means
-        // that this function can convert `From` to a signed version of `To`,
-        // then modulus switch into plaintext field t and type `To` without
-        // overflow.
-        using SignedInteger = std::make_signed_t<To>;
+        if constexpr (std::is_signed<From>::value) {
+          // SHELL is built on the assumption that the plaintext type (in this
+          // case `From`) will always fit into the ciphertext underlying type
+          // (in this case `To`). I.e. the plaintext modulus is stored as the
+          // ciphertext type. This is true even in the RNS code paths. This
+          // means that this function can convert `From` to a signed version of
+          // `To`, then modulus switch into plaintext field t and type `To`
+          // without overflow.
+          using SignedInteger = std::make_signed_t<To>;
 
-        // Copy into contiguous memory of signed `To`'s
-        std::vector<SignedInteger> nums(num_slots);
-        for (int slot = 0; slot < num_slots; ++slot) {
-          nums[slot] = static_cast<SignedInteger>(flat_input(slot, i));
+          // Copy into contiguous memory of signed `To`'s
+          std::vector<SignedInteger> nums(num_slots);
+          for (int slot = 0; slot < num_slots; ++slot) {
+            nums[slot] = static_cast<SignedInteger>(flat_input(slot, i));
+          }
+
+          // Map signed integers into the plaintext modulus field.
+          OP_REQUIRES_VALUE(
+              wrapped_nums, op_ctx,
+              (encoder->template WrapSigned<SignedInteger>(nums)));
+        } else {
+          wrapped_nums = std::vector<To>(num_slots);
+          // Since From and To are both unsigned, just cast and copy.
+          for (int slot = 0; slot < num_slots; ++slot) {
+            wrapped_nums[slot] = static_cast<To>(flat_input(slot, i));
+          }
         }
 
-        // Map signed integers into the plaintext modulus field.
-        OP_REQUIRES_VALUE(wrapped_nums, op_ctx,
-                          (encoder->template WrapSigned<SignedInteger>(nums)));
-      } else {
-        wrapped_nums = std::vector<To>(num_slots);
-        // Since From and To are both unsigned, just cast and copy.
-        for (int slot = 0; slot < num_slots; ++slot) {
-          wrapped_nums[slot] = static_cast<To>(flat_input(slot, i));
-        }
+        // The encoder first performs an inverse ntt (mod t), then switches to
+        // to mod Q in RNS form. This is important so that subsequent operations
+        // on the polynomial happen element-wise in the plaintext space.
+        // Note "importing" the integers in the correct modulus (first t, then
+        // switching to Q) is non-trivial when plaintext numbers are negative.
+        OP_REQUIRES_VALUE(
+            RnsPolynomial rns_polynomial, op_ctx,
+            encoder->EncodeBgv(wrapped_nums, shell_ctx->MainPrimeModuli()));
+
+        // Wrap in a PolynomialVariant and store in output tensor.
+        auto variant = PolynomialVariant<To>(std::move(rns_polynomial));
+        flat_output(i) = std::move(variant);
       }
+    };
 
-      // The encoder first performs an inverse ntt (mod t), then switches to
-      // to mod Q in RNS form. This is important so that subsequent operations
-      // on the polynomial happen element-wise in the plaintext space.
-      // Note "importing" the integers in the correct modulus (first t, then
-      // switching to Q) is non-trivial when plaintext numbers are negative.
-      OP_REQUIRES_VALUE(
-          RnsPolynomial rns_polynomial, op_ctx,
-          encoder->EncodeBgv(wrapped_nums, shell_ctx->MainPrimeModuli()));
-
-      // Wrap in a PolynomialVariant and store in output tensor.
-      auto variant = PolynomialVariant<To>(std::move(rns_polynomial));
-      flat_output(i) = std::move(variant);
-    }
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_import =
+        0.08f * num_slots;  // ns, measured on log_n = 11
+    thread_pool->ParallelFor(flat_input.dimension(1), cost_per_import,
+                             import_in_range);
   }
 };
 
@@ -171,51 +181,62 @@ class PolynomialExportOp : public OpKernel {
     auto flat_input = input.flat<Variant>();
     auto flat_output = output->flat_outer_dims<To>();
 
-    for (int i = 0; i < flat_output.dimension(1); ++i) {
-      PolynomialVariant<From> const* pv =
-          std::move(flat_input(i).get<PolynomialVariant<From>>());
-      OP_REQUIRES(op_ctx, pv != nullptr,
-                  InvalidArgument("PolynomialVariant at flat index: ", i,
-                                  " did not unwrap successfully."));
-      // Deep copy the polynomial.
-      OP_REQUIRES_VALUE(
-          RnsPolynomial rns_polynomial, op_ctx,
-          RnsPolynomial::Create(pv->poly.Coeffs(), pv->poly.IsNttForm()));
+    auto export_in_range = [&](int start, int end) {
+      for (int i = start; i < end; ++i) {
+        PolynomialVariant<From> const* pv =
+            std::move(flat_input(i).get<PolynomialVariant<From>>());
+        OP_REQUIRES(op_ctx, pv != nullptr,
+                    InvalidArgument("PolynomialVariant at flat index: ", i,
+                                    " did not unwrap successfully."));
+        // Deep copy the polynomial.
+        OP_REQUIRES_VALUE(
+            RnsPolynomial rns_polynomial, op_ctx,
+            RnsPolynomial::Create(pv->poly.Coeffs(), pv->poly.IsNttForm()));
 
-      // TODO: if debug
-      OP_REQUIRES(
-          op_ctx, rns_polynomial.NumCoeffs() == static_cast<int>(num_slots),
-          InvalidArgument("Polynomial dimensions: ", rns_polynomial.NumCoeffs(),
-                          " do not match shell context degree: ", num_slots));
+        // TODO: if debug
+        OP_REQUIRES(op_ctx,
+                    rns_polynomial.NumCoeffs() == static_cast<int>(num_slots),
+                    InvalidArgument(
+                        "Polynomial dimensions: ", rns_polynomial.NumCoeffs(),
+                        " do not match shell context degree: ", num_slots));
 
-      // TODO: if debug
-      OP_REQUIRES(op_ctx, rns_polynomial.IsNttForm(),
-                  InvalidArgument("PolynomialVariant at flat index: ", i,
-                                  " is not in NTT form."));
+        // TODO: if debug
+        OP_REQUIRES(op_ctx, rns_polynomial.IsNttForm(),
+                    InvalidArgument("PolynomialVariant at flat index: ", i,
+                                    " is not in NTT form."));
 
-      // Switch from mod Q to plaintext modulus and compute NTT to get the
-      // plaintext by using the Decode function.
-      OP_REQUIRES_VALUE(
-          std::vector<From> unsigned_nums, op_ctx,
-          encoder->DecodeBgv(rns_polynomial, shell_ctx->MainPrimeModuli()));
+        // Switch from mod Q to plaintext modulus and compute NTT to get the
+        // plaintext by using the Decode function.
+        OP_REQUIRES_VALUE(
+            std::vector<From> unsigned_nums, op_ctx,
+            encoder->DecodeBgv(rns_polynomial, shell_ctx->MainPrimeModuli()));
 
-      if constexpr (std::is_signed<To>::value) {
-        // Map the plaintext modulus field back into signed integers.
-        // Effectively switches the modulus from t to 2^(num bits in `From`)
-        // handling the sign bits appropriately.
-        OP_REQUIRES_VALUE(std::vector<std::make_signed_t<To>> nums, op_ctx,
-                          encoder->template UnwrapToSigned<To>(unsigned_nums));
+        if constexpr (std::is_signed<To>::value) {
+          // Map the plaintext modulus field back into signed integers.
+          // Effectively switches the modulus from t to 2^(num bits in `From`)
+          // handling the sign bits appropriately.
+          OP_REQUIRES_VALUE(
+              std::vector<std::make_signed_t<To>> nums, op_ctx,
+              encoder->template UnwrapToSigned<To>(unsigned_nums));
 
-        for (size_t slot = 0; slot < num_slots; ++slot) {
-          flat_output(slot, i) = static_cast<To>(nums[slot]);
-        }
-      } else {
-        // both `From` and `To` are unsigned, just cast and copy.
-        for (size_t slot = 0; slot < num_slots; ++slot) {
-          flat_output(slot, i) = static_cast<To>(unsigned_nums[slot]);
+          for (size_t slot = 0; slot < num_slots; ++slot) {
+            flat_output(slot, i) = static_cast<To>(nums[slot]);
+          }
+        } else {
+          // both `From` and `To` are unsigned, just cast and copy.
+          for (size_t slot = 0; slot < num_slots; ++slot) {
+            flat_output(slot, i) = static_cast<To>(unsigned_nums[slot]);
+          }
         }
       }
-    }
+    };
+
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_export =
+        0.08f * num_slots;  // ns, measured on log_n = 11
+    thread_pool->ParallelFor(flat_output.dimension(1), cost_per_export,
+                             export_in_range);
   }
 };
 

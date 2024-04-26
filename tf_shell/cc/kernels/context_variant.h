@@ -18,7 +18,7 @@
 #include <memory>
 
 #include "absl/status/status.h"
-#include "shell_encryption/prng/single_thread_hkdf_prng.h"
+#include "shell_encryption/prng/hkdf_prng.h"
 #include "shell_encryption/rns/coefficient_encoder.h"
 #include "shell_encryption/rns/finite_field_encoder.h"
 #include "shell_encryption/rns/rns_context.h"
@@ -53,7 +53,7 @@ class ContextVariant {
   using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
   using Gadget = rlwe::RnsGadget<ModularInt>;
   using Prng = rlwe::SecurePrng;
-  using HkdfPrng = rlwe::SingleThreadHkdfPrng;
+  using HkdfPrng = rlwe::HkdfPrng;
 
  public:
   ContextVariant() = default;
