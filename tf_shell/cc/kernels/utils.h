@@ -18,7 +18,6 @@
 
 #include <vector>
 
-#include "absl/status/status.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/variant.h"
 

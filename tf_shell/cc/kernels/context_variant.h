@@ -17,7 +17,6 @@
 #pragma once
 #include <memory>
 
-#include "absl/status/status.h"
 #include "shell_encryption/prng/hkdf_prng.h"
 #include "shell_encryption/rns/coefficient_encoder.h"
 #include "shell_encryption/rns/finite_field_encoder.h"
