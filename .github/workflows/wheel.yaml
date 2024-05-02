@@ -18,7 +18,7 @@ jobs:
       matrix:
         #os: [ubuntu-latest, windows-latest, macOS-12]
         os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11"]  # Also see MODULE.bazel
+        python-version: ["3.9", "3.10", "3.11", "3.12"]  # Also see MODULE.bazel
 
     steps:
       - uses: actions/checkout@v4

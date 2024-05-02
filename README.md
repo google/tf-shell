@@ -95,7 +95,7 @@ Update requirements.in and run the following to update the requirements files
 for each python version.
 
 ```bash
-for ver in 3_9 3_10 3_11; do
+for ver in 3_9 3_10 3_11 3_12; do
   touch requirements_${ver}.txt
   bazelisk run //:requirements_${ver}.update
 done
