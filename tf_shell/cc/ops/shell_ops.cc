@@ -33,17 +33,15 @@ REGISTER_OP("ContextImport64")
     .Input("noise_variance: uint64")
     .Input("seed: string")
     .Output("shell_context: variant")
-    .SetIsStateful()
     .SetShapeFn(ScalarShape);
 
 REGISTER_OP("PolynomialImport64")
     .Attr(
-        "dtype: {uint8, int8, int16, uint16, int32, uint32, int64, uint64, "
+        "Dtype: {uint8, int8, int16, uint16, int32, uint32, int64, uint64, "
         "float, double}")
     .Input("shell_context: variant")
-    .Input("in: dtype")
+    .Input("in: Dtype")
     .Output("val: variant")
-    .SetIsStateful()
     .SetShapeFn([](InferenceContext* c) {
       ShapeHandle output;
 
@@ -58,15 +56,26 @@ REGISTER_OP("PolynomialImport64")
 // so no SetShapeFn() for this Op.
 REGISTER_OP("PolynomialExport64")
     .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("batching_dim: int")
     .Input("shell_context: variant")
     .Input("in: variant")
     .Output("val: dtype")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      tsl::int32 batching_dim;
+      TF_RETURN_IF_ERROR(c->GetAttr("batching_dim", &batching_dim));
+      ShapeHandle batching_dim_shape = c->MakeShape({batching_dim});
+
+      ShapeHandle output;
+      TF_RETURN_IF_ERROR(
+          c->Concatenate(c->input(1), batching_dim_shape, &output));
+
+      c->set_output(0, output);
+      return OkStatus();
+    });
 
 REGISTER_OP("KeyGen64")
     .Input("context: variant")
     .Output("key: variant")
-    .SetIsStateful()
     .SetShapeFn(ScalarShape);
 
 REGISTER_OP("Encrypt64")
@@ -74,177 +83,287 @@ REGISTER_OP("Encrypt64")
     .Input("key: variant")
     .Input("val: variant")
     .Output("out: variant")
-    .SetIsStateful()
     .SetShapeFn([](InferenceContext* c) {
       c->set_output(0, c->input(2));
       return OkStatus();
     });
 
-// Output shape depends on content of shell_context
-// so no SetShapeFn() for this Op.
 REGISTER_OP("Decrypt64")
     .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("batching_dim: int")
     .Input("context: variant")
     .Input("key: variant")
     .Input("val: variant")
     .Output("out: dtype")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      tsl::int32 batching_dim;
+      TF_RETURN_IF_ERROR(c->GetAttr("batching_dim", &batching_dim));
+      ShapeHandle batching_dim_shape = c->MakeShape({batching_dim});
+
+      ShapeHandle output;
+      TF_RETURN_IF_ERROR(
+          c->Concatenate(c->input(1), batching_dim_shape, &output));
+
+      c->set_output(0, output);
+      return OkStatus();
+    });
 
 // Add and subtract.
 REGISTER_OP("AddCtCt64")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("AddCtPt64")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("AddPtPt64")
     .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("SubCtCt64")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("SubCtPt64")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("SubPtPt64")
     .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return OkStatus();
+    });
 
 REGISTER_OP("NegCt64")
     .Input("value: variant")
     .Output("negated_value: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("NegPt64")
     .Input("context: variant")
     .Input("value: variant")
     .Output("negated_value: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 // Multiply.
 REGISTER_OP("MulCtCt64")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("MulCtPt64")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("MulCtTfScalar64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
     .Input("a: variant")
-    .Input("b: dtype")
+    .Input("b: Dtype")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return OkStatus();
+    });
 
 REGISTER_OP("MulPtTfScalar64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
     .Input("a: variant")
-    .Input("b: dtype")
+    .Input("b: Dtype")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return OkStatus();
+    });
 
 REGISTER_OP("MulPtPt64")
     .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("MatMulCtPt64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
     .Input("a: variant")
-    .Input("b: dtype")
+    .Input("b: Dtype")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      // Output has the same shape as the plaintext b outer dim.
+      ShapeHandle output;
+      TF_RETURN_IF_ERROR(c->Subshape(c->input(2), 1, &output));
+      c->set_output(0, output);
+      return OkStatus();
+    });
 
 REGISTER_OP("MatMulPtCt64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
     .Input("rotation_key: variant")
-    .Input("a: dtype")
+    .Input("a: Dtype")
     .Input("b: variant")
     .Output("c: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      // Output has the same shape as the plaintext b outer dim.
+      tsl::int32 a_rank = c->Rank(c->input(2));
+      ShapeHandle a_shape_prefix;
+      TF_RETURN_IF_ERROR(
+          c->Subshape(c->input(2), 0, a_rank - 2, &a_shape_prefix));
+
+      ShapeHandle output;
+      TF_RETURN_IF_ERROR(c->Concatenate(a_shape_prefix, c->input(3), &output));
+
+      c->set_output(0, output);
+      return OkStatus();
+    });
 
 // Rotate.
 REGISTER_OP("RotationKeyGen64")
     .Input("context: variant")
     .Input("key: variant")
     .Output("rotation_key: variant")
-    .SetIsStateful();
+    .SetShapeFn(ScalarShape);
 
 REGISTER_OP("Roll64")
     .Input("rotation_key: variant")
     .Input("value: variant")
     .Input("shift: int64")
     .Output("rotated_value: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return OkStatus();
+    });
 
 REGISTER_OP("ReduceSumByRotation64")
     .Input("value: variant")
     .Input("rotation_key: variant")
     .Output("repeated_reduce_sum: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 REGISTER_OP("ReduceSum64")
     .Input("value: variant")
     .Input("axis: int64")
     .Output("repeated_reduce_sum: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
 
 // Modulus switching.
 REGISTER_OP("ModulusReduceContext64")
     .Input("context: variant")
     .Output("reduced_context: variant")
-    .SetIsStateful();
+    .SetShapeFn(ScalarShape);
 
 REGISTER_OP("ModulusReduceKey64")
     .Input("key: variant")
     .Output("reduced_key: variant")
-    .SetIsStateful();
+    .SetShapeFn(ScalarShape);
 
 REGISTER_OP("ModulusReduceCt64")
     .Input("context: variant")
     .Input("value: variant")
     .Output("reduced_value: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return OkStatus();
+    });
 
 REGISTER_OP("ModulusReducePt64")
     .Input("context: variant")
     .Input("value: variant")
     .Output("reduced_value: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return OkStatus();
+    });
 
 // Shape kernels.
 REGISTER_OP("ExpandDimsVariant")
     .Input("value: variant")
-    .Input("axis: int32")
+    .Attr("axis: int")
     .Output("expanded_value: variant")
-    .SetIsStateful();
+    .SetShapeFn([](InferenceContext* c) {
+      tsl::int32 rank = c->Rank(c->input(0));
+
+      tsl::int32 axis;
+      TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
+
+      //Check that axis is in the correct range.
+      if (axis < -rank || axis > rank) {
+        return tensorflow::errors::InvalidArgument(
+            "axis must be in the range [-rank, rank], got ", axis);
+      }
+
+      if (axis < 0) {
+        axis += rank;
+      }
+
+      ShapeHandle prefix;
+      TF_RETURN_IF_ERROR(c->Subshape(c->input(0), 0, axis, &prefix));
+
+      ShapeHandle postfix;
+      TF_RETURN_IF_ERROR(c->Subshape(c->input(0), axis, rank - 1, &postfix));
+
+      ShapeHandle output;
+      ShapeHandle axis_dim = c->MakeShape({1});
+      TF_RETURN_IF_ERROR(c->Concatenate(prefix, axis_dim, &output));
+      TF_RETURN_IF_ERROR(c->Concatenate(output, postfix, &output));
+
+      c->set_output(0, output);
+      return OkStatus();
+    });

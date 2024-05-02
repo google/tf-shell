@@ -36,21 +36,22 @@ using tensorflow::errors::InvalidArgument;
 // This class is exactly like TensorFlow's ExpandDimsOp, but allows operating
 // on a tensor with a variant dtype.
 class ExpandDimsVariantOp : public OpKernel {
+ private:
+  int dim;
+
  public:
   explicit ExpandDimsVariantOp(OpKernelConstruction* op_ctx)
-      : OpKernel(op_ctx) {}
-
-  void Compute(OpKernelContext* ctx) override {
-    // OP_REQUIRES(ctx, ctx->input(0).dtype() != DT_VARIANT,
-    //             InvalidArgument("ExpandDims on Variant not supported"));
-
-    int32 dim = ctx->input(1).flat<int32>()(0);
+      : OpKernel(op_ctx) {
+    // Get the dimension to expand from the op attributes.
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("axis", &dim));
 
     // Recall first dimension of a shell variant tensor is the packing
     // dimension. We don't allow expanding this dimension.
-    OP_REQUIRES(ctx, dim != 0, InvalidArgument("Invalid dimension index."));
+    OP_REQUIRES(op_ctx, dim != 0, InvalidArgument("Invalid dimension index."));
     dim += dim > 0 ? -1 : 0;
+  }
 
+  void Compute(OpKernelContext* ctx) override {
     OP_REQUIRES(
         ctx, (dim >= -1 - ctx->input(0).dims() && dim <= ctx->input(0).dims()),
         InvalidArgument("Tried to expand dim index ", dim, " for tensor with ",

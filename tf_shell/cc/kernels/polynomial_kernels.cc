@@ -243,46 +243,46 @@ class PolynomialExportOp : public OpKernel {
 // Import ops.
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<uint8>("dtype"),
+                            .TypeConstraint<uint8>("Dtype"),
                         PolynomialImportOp<uint8, uint64>);
 REGISTER_KERNEL_BUILDER(
-    Name("PolynomialImport64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
+    Name("PolynomialImport64").Device(DEVICE_CPU).TypeConstraint<int8>("Dtype"),
     PolynomialImportOp<int8, uint64>);
 
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<uint16>("dtype"),
+                            .TypeConstraint<uint16>("Dtype"),
                         PolynomialImportOp<uint16, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<int16>("dtype"),
+                            .TypeConstraint<int16>("Dtype"),
                         PolynomialImportOp<int16, uint64>);
 
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<uint32>("dtype"),
+                            .TypeConstraint<uint32>("Dtype"),
                         PolynomialImportOp<uint32, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<int32>("dtype"),
+                            .TypeConstraint<int32>("Dtype"),
                         PolynomialImportOp<int32, uint64>);
 
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<uint64>("dtype"),
+                            .TypeConstraint<uint64>("Dtype"),
                         PolynomialImportOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<int64>("dtype"),
+                            .TypeConstraint<int64>("Dtype"),
                         PolynomialImportOp<int64, uint64>);
 
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<float>("dtype"),
+                            .TypeConstraint<float>("Dtype"),
                         PolynomialImportOp<float, uint64>);
 REGISTER_KERNEL_BUILDER(Name("PolynomialImport64")
                             .Device(DEVICE_CPU)
-                            .TypeConstraint<double>("dtype"),
+                            .TypeConstraint<double>("Dtype"),
                         PolynomialImportOp<double, uint64>);
 
 // Import ops.
