@@ -633,55 +633,55 @@ REGISTER_KERNEL_BUILDER(Name("MulCtPt64").Device(DEVICE_CPU),
 
 // Multiply plaintext or ciphertext by plaintext scalar.
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint8>("Dtype"),
     MulShellTfScalarOp<uint64, uint8, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int8>("Dtype"),
     MulShellTfScalarOp<uint64, int8, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint8>("Dtype"),
     MulShellTfScalarOp<uint64, uint8, SymmetricCtVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int8>("Dtype"),
     MulShellTfScalarOp<uint64, int8, SymmetricCtVariant<uint64>>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint16>("Dtype"),
     MulShellTfScalarOp<uint64, uint16, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int16>("Dtype"),
     MulShellTfScalarOp<uint64, int16, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint16>("Dtype"),
     MulShellTfScalarOp<uint64, uint16, SymmetricCtVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int16>("Dtype"),
     MulShellTfScalarOp<uint64, int16, SymmetricCtVariant<uint64>>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint32>("Dtype"),
     MulShellTfScalarOp<uint64, uint32, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int32>("Dtype"),
     MulShellTfScalarOp<uint64, int32, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint32>("Dtype"),
     MulShellTfScalarOp<uint64, uint32, SymmetricCtVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int32>("Dtype"),
     MulShellTfScalarOp<uint64, int32, SymmetricCtVariant<uint64>>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint64>("Dtype"),
     MulShellTfScalarOp<uint64, uint64, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
     MulShellTfScalarOp<uint64, int64, PolynomialVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<uint64>("Dtype"),
     MulShellTfScalarOp<uint64, uint64, SymmetricCtVariant<uint64>>);
 REGISTER_KERNEL_BUILDER(
-    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
     MulShellTfScalarOp<uint64, int64, SymmetricCtVariant<uint64>>);
 
 // Multiply plaintext by plaintext.
@@ -690,58 +690,58 @@ REGISTER_KERNEL_BUILDER(Name("MulPtPt64").Device(DEVICE_CPU),
 
 // Matrix multiply ciphertext and plaintext.
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint8>("Dtype"),
     MatMulCtPtOp<uint64, uint8>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int8>("Dtype"),
     MatMulCtPtOp<uint64, int8>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint16>("Dtype"),
     MatMulCtPtOp<uint64, uint16>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int16>("Dtype"),
     MatMulCtPtOp<uint64, int16>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint32>("Dtype"),
     MatMulCtPtOp<uint64, uint32>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int32>("Dtype"),
     MatMulCtPtOp<uint64, int32>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<uint64>("Dtype"),
     MatMulCtPtOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
     MatMulCtPtOp<uint64, int64>);
 
 // Matrix multiply plaintext and ciphertext.
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint8>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint8>("Dtype"),
     MatMulPtCtOp<uint8, uint64>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int8>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int8>("Dtype"),
     MatMulPtCtOp<int8, uint64>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint16>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint16>("Dtype"),
     MatMulPtCtOp<uint16, uint64>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int16>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int16>("Dtype"),
     MatMulPtCtOp<int16, uint64>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint32>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint32>("Dtype"),
     MatMulPtCtOp<uint32, uint64>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int32>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int32>("Dtype"),
     MatMulPtCtOp<int32, uint64>);
 
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint64>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint64>("Dtype"),
     MatMulPtCtOp<uint64, uint64>);
 REGISTER_KERNEL_BUILDER(
-    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
     MatMulPtCtOp<int64, uint64>);

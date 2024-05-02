@@ -584,6 +584,7 @@ def to_tensorflow(s_tensor, key=None):
             key._raw_key,
             s_tensor._raw,
             dtype=shell_dtype,
+            batching_dim=s_tensor._context.num_slots,
         )
 
     else:
@@ -593,6 +594,7 @@ def to_tensorflow(s_tensor, key=None):
             s_tensor._context._raw_context,
             s_tensor._raw,
             dtype=shell_dtype,
+            batching_dim=s_tensor._context.num_slots,
         )
 
     # Shell tensor represents floats as integers * scaling_factor.
