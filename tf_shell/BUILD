@@ -1,23 +1,18 @@
 load("@rules_python//python:packaging.bzl", "py_package")
 
-cc_binary(
-    name = "python/ops/_shell_ops.so",
-    srcs = [
-        "cc/kernels/add_kernels.cc",
-        "cc/kernels/context_kernels.cc",
-        "cc/kernels/context_variant.h",
-        "cc/kernels/mod_switch_kernels.cc",
-        "cc/kernels/mul_kernels.cc",
-        "cc/kernels/polynomial_kernels.cc",
-        "cc/kernels/polynomial_variant.h",
-        "cc/kernels/rotation_kernels.cc",
-        "cc/kernels/rotation_variants.h",
-        "cc/kernels/shape_kernels.cc",
-        "cc/kernels/symmetric_kernels.cc",
-        "cc/kernels/symmetric_variants.h",
-        "cc/kernels/utils.h",
+filegroup(
+    name = "shell_ops_src",
+    srcs = glob([
+        "cc/kernels/*.cc",
+        "cc/kernels/*.h",
+    ]) + [
         "cc/ops/shell_ops.cc",
     ],
+)
+
+cc_binary(
+    name = "python/ops/_shell_ops.so",
+    srcs = [":shell_ops_src"],
     copts = [
         "-pthread",
         "-fPIC",

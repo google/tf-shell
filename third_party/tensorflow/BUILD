@@ -26,7 +26,7 @@ dynamic_genrule(
 
 genrule(
     name = "hermetic_tf_lib",
-    outs = ["libtensorflow_framework.so.2"],
+    outs = ["libtensorflow_framework.so"],
     cmd = "$(location :extract_tf_lib) $@",
     tools = [":extract_tf_lib"],
 )
@@ -45,14 +45,17 @@ cc_library(
     deps = [":hermetic_tf_lib"],
 )
 
+# At runtime, libtensorflow_framework.so will be provided by pip, so this rule
+# uses system_provided = 1 to indicate that the library is only needed to build
+# but can be skipped when packaging.
 cc_import(
     name = "hermetic_tf",
     hdrs = [":tf_headers"],
-    shared_library = "libtensorflow_framework.so.2",
+    interface_library = "libtensorflow_framework.so",
+    system_provided = 1,
     visibility = ["//visibility:public"],
     deps = [
         ":tf_headers",
         ":tf_lib",
     ],
-    alwayslink = 1,
 )

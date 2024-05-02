@@ -92,7 +92,7 @@ py_wheel(
     name = "wheel",
     abi = "ABI",
     author = "Google Inc.",
-    author_email = "jchoncholas@google.com",
+    author_email = "jchoncholas@gmail.com",
     classifiers = [
         "Topic :: Security :: Cryptography",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -115,10 +115,13 @@ py_wheel(
         "@bazel_tools//src/conditions:linux_x86_64": "LINUX_x86_64",
         "@bazel_tools//src/conditions:linux_aarch64": "LINUX_aarch64",
     }),
-    python_requires = "==" + DEFAULT_PYTHON + ".*",
+    python_requires = ">=3.9",
     python_tag = "INTERPRETER",
     requires = ["tensorflow-cpu==2.16.1"],  # See also: requirements.in.
-    summary = "TF-Shell: Privacy preserving machine learning with Tensorflow and the SHELL encryption library",
+    # The summary is tailored for each python version because PyPI prevents
+    # wheel uploads for different versions which have the same contents.
+    # Changing the summary is sufficient to allow re-uploads.
+    summary = "TF-Shell: Privacy preserving machine learning with Tensorflow and the SHELL encryption library, built for python " + DEFAULT_PYTHON + ".",
     version = module_version(),
     deps = [
         "//tf_shell:tf_shell_pkg",

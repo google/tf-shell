@@ -5,10 +5,6 @@ build -c opt
 build --cxxopt='-std=c++17'
 build --cxxopt='-D_GLIBCXX_USE_CXX11_ABI=1'
 
-build:test --cxxopt='-DPYBIND11_ABSEIL_STATUS_MODULE_PATH=pybind11_abseil.pybind11_abseil.status'
-
-build:release --cxxopt='-DPYBIND11_ABSEIL_STATUS_MODULE_PATH=pybind11_abseil.status'
-
 # If there are compilation issues with asan and absl, try making the changes
 # described by:
 # https://github.com/abseil/abseil-cpp/pull/1399/files#diff-32cf2e2d37473ed6eb8f8b7e1126983fcca9a5fe02885098094c9ed4ceda8a6f
@@ -16,7 +12,6 @@ build:asan --strip=never
 build:asan --copt -O1
 build:asan --copt -g
 build:asan --copt -fno-omit-frame-pointer
-build:asan --cxxopt='-DPYBIND11_ABSEIL_STATUS_MODULE_PATH=pybind11_abseil.pybind11_abseil.status'
 # Sanitizers don't work with absl::string at version 20230802.1.
 #build:asan --copt -fsanitize=address
 #build:asan --linkopt -fsanitize=address
