@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/status/status.h"
 #include "context_variant.h"
 #include "polynomial_variant.h"
 #include "shell_encryption/context.h"
