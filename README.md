@@ -51,13 +51,13 @@ the labels.
 2. Run the tests.
 
     ```bash
-    bazelisk test --config test ...
+    bazelisk test ...
     ```
 
 3. Build the code.
 
     ```bash
-    bazelisk build --config release //:wheel
+    bazelisk build //:wheel
     bazelisk run //:wheel_rename
     ```
 
