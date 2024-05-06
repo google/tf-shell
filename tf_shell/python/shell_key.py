@@ -15,42 +15,37 @@
 # limitations under the License.
 import tf_shell.python.ops.shell_ops as shell_ops
 from tf_shell.python.shell_context import ShellContext64
+from tf_shell.python.shell_context import mod_reduce_context64
+import tensorflow as tf
+import typing
 
 
-class ShellKey64(object):
-    def __init__(
-        self,
-        raw_key,
-        level,
-    ):
-        self._raw_key = raw_key
-        self.level = level
-
-    def get_mod_reduced(self):
-        if hasattr(self, "_mod_reduced"):
-            return self._mod_reduced
-
-        smaller_key = shell_ops.modulus_reduce_key64(self._raw_key)
-        self._mod_reduced = ShellKey64(smaller_key, self.level - 1)
-        return self._mod_reduced
+class ShellKey64(tf.experimental.ExtensionType):
+    _raw_key: tf.Tensor
+    level: int
 
 
 def create_key64(context):
     if not isinstance(context, ShellContext64):
-        raise ValueError("Context must be a ShellContext64")
+        raise ValueError("context must be a ShellContext64")
 
-    raw_key = shell_ops.key_gen64(context._raw_context)
-    return ShellKey64(raw_key, context.level)
+    return ShellKey64(
+        _raw_key=shell_ops.key_gen64(context._raw_context), level=context.level
+    )
 
 
-class ShellRotationKey64(object):
-    def __init__(
-        self,
-        raw_rot_keys_at_level,
-        context,
-    ):
-        self._raw_rot_keys_at_level = raw_rot_keys_at_level
-        self._context = context
+def mod_reduce_key64(key):
+    if not isinstance(key, ShellKey64):
+        raise ValueError("key must be a ShellKey64")
+
+    smaller_raw_key = shell_ops.modulus_reduce_key64(key._raw_key)
+    mod_reduced = ShellKey64(smaller_raw_key, key.level - 1)
+    return mod_reduced
+
+
+class ShellRotationKey64(tf.experimental.ExtensionType):
+    _raw_rot_keys_at_level: typing.Mapping[int, tf.Tensor]
+    context: ShellContext64
 
     def _get_key_at_level(self, level):
         if level not in self._raw_rot_keys_at_level:
@@ -65,7 +60,7 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
     generating keys at levels (particular number of moduli) at which no
     rotations are required."""
     if not isinstance(context, ShellContext64):
-        raise ValueError("Context must be a ShellContext64.")
+        raise ValueError("context must be a ShellContext64.")
 
     if context.level != key.level:
         raise ValueError("Context and key levels must match.")
@@ -79,7 +74,7 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
 
         if context.mul_depth_supported == 0 or context.level == 1:
             break
-        context = context.get_mod_reduced()
-        key = key.get_mod_reduced()
+        context = mod_reduce_context64(context)
+        key = mod_reduce_key64(key)
 
-    return ShellRotationKey64(raw_rot_keys_at_level, context)
+    return ShellRotationKey64(_raw_rot_keys_at_level=raw_rot_keys_at_level, context=context)

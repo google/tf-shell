@@ -16,6 +16,7 @@
 from __future__ import absolute_import
 
 from tf_shell.python.shell_tensor import ShellTensor64
+from tf_shell.python.shell_tensor import mod_reduce_tensor64
 from tf_shell.python.shell_tensor import to_shell_plaintext
 from tf_shell.python.shell_tensor import to_encrypted
 from tf_shell.python.shell_tensor import to_tensorflow
@@ -27,9 +28,11 @@ from tf_shell.python.shell_tensor import reshape
 
 from tf_shell.python.shell_context import ShellContext64
 from tf_shell.python.shell_context import create_context64
+from tf_shell.python.shell_context import mod_reduce_context64
 
 from tf_shell.python.shell_key import ShellKey64
 from tf_shell.python.shell_key import create_key64
+from tf_shell.python.shell_key import mod_reduce_key64
 
 from tf_shell.python.shell_key import ShellRotationKey64
 from tf_shell.python.shell_key import create_rotation_key64
