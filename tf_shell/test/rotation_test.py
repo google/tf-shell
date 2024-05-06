@@ -154,7 +154,7 @@ class TestShellTensorRotation(tf.test.TestCase):
         enc = tf_shell.to_encrypted(s, test_context.key)
 
         # Test roll on a mod reduced ciphertext.
-        enc_reduced = enc.get_mod_reduced()
+        enc_reduced = tf_shell.mod_reduce_tensor64(enc)
         rolled_enc_reduced = tf_shell.roll(
             enc_reduced, roll_num, test_context.rotation_key
         )

@@ -34,13 +34,13 @@ class TestShellContext(tf.test.TestCase):
 
         # The ratio between the smaller and the larger context should be
         # the last modulus in the chain.
-        smaller_context = context.get_mod_reduced()
-        self.assertAllClose(context.Q / smaller_context.Q, ql)
+        smaller_context = tf_shell.mod_reduce_context64(context)
+        self.assertAllClose(context.main_moduli[:-1], smaller_context.main_moduli)
 
         # The ratio between the smaller and the larger context should be the
         # scaling factor.
-        even_smaller_context = smaller_context.get_mod_reduced()
-        self.assertAllClose(context.Q / even_smaller_context.Q, ql * ql2)
+        even_smaller_context = tf_shell.mod_reduce_context64(smaller_context)
+        self.assertAllClose(context.main_moduli[:-2], even_smaller_context.main_moduli)
 
     def test_mod_reduce_context(self):
         # Num plaintext bits: 48, noise bits: 65
@@ -59,10 +59,10 @@ class TestShellContext(tf.test.TestCase):
         ea = tf_shell.to_encrypted(sa, key)
 
         # Mod reducing should not affect the plaintext value.
-        smaller_sa = sa.get_mod_reduced()
+        smaller_sa = tf_shell.mod_reduce_tensor64(sa)
         self.assertAllClose(a, tf_shell.to_tensorflow(smaller_sa))
 
-        smaller_ea = ea.get_mod_reduced()
+        smaller_ea = tf_shell.mod_reduce_tensor64(ea)
         self.assertAllClose(a, tf_shell.to_tensorflow(smaller_ea, key))
 
         # Check the arguments were not modified

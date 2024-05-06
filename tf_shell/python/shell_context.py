@@ -14,106 +14,76 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tf_shell.python.ops.shell_ops as shell_ops
-import math
-import random
+import tensorflow as tf
+import typing
 
 
-class ShellContext64(object):
+class ShellContext64(tf.experimental.ExtensionType):
+    _raw_context: tf.Tensor
+    log_n: int
+    num_slots: int
+    two_n: int
+    main_moduli: tf.Tensor
+    level: int
+    aux_moduli: tf.Tensor
+    plaintext_modulus: int
+    noise_variance: int
+    noise_bits: int
+    scaling_factor: int
+    mul_depth_supported: int
+    seed: str
+
     def __init__(
         self,
-        shell_context,
+        _raw_context,
         log_n,
         main_moduli,
         aux_moduli,
         plaintext_modulus,
         noise_variance,
-        scaling_factor,  # The field version of fixed point fractional bits.
+        scaling_factor,
         mul_depth_supported,
         seed,
     ):
-        self._raw_context = shell_context
+        self._raw_context = _raw_context
         self.log_n = log_n
         self.num_slots = 2**log_n
-        self.two_n = 2 ** (self.log_n + 1)
+        self.two_n = 2 ** (log_n + 1)
         self.main_moduli = main_moduli
+        self.level = len(main_moduli)
         self.aux_moduli = aux_moduli
         self.plaintext_modulus = plaintext_modulus
         self.noise_variance = noise_variance
-        if noise_variance % 2 == 0:
-            self.noise_bits = noise_variance.bit_length()
+        if self.noise_variance % 2 == 0:
+            self.noise_bits = self.noise_variance.bit_length()
         else:
-            self.noise_bits = noise_variance.bit_length() + 1
+            self.noise_bits = self.noise_variance.bit_length() + 1
         self.scaling_factor = scaling_factor
         self.mul_depth_supported = mul_depth_supported
         self.seed = seed
 
-    @property
-    def level(self):
-        return len(self.main_moduli)
 
-    @property
-    def Q(self):
-        if not hasattr(self, "_Q"):
-            self._Q = 1
-            for x in self.main_moduli:
-                self._Q *= x
-        return self._Q
+def mod_reduce_context64(context):
+    if not isinstance(context, ShellContext64):
+        raise ValueError("context must be a ShellContext64.")
 
-    def __lt__(self, other):
-        return self.level < other.level
+    assert context.mul_depth_supported > 0, "Not enough multiplication primes."
 
-    def __le__(self, other):
-        return self.level <= other.level
+    smaller_context = shell_ops.modulus_reduce_context64(context._raw_context)
 
-    def __gt__(self, other):
-        return self.level > other.level
+    mod_reduced = ShellContext64(
+        _raw_context=smaller_context,
+        log_n=context.log_n,
+        main_moduli=context.main_moduli[:-1],
+        aux_moduli=context.aux_moduli,
+        plaintext_modulus=context.plaintext_modulus,
+        noise_variance=context.noise_variance,
+        scaling_factor=context.scaling_factor,
+        mul_depth_supported=context.mul_depth_supported - 1,
+        seed=context.seed,
+    )
 
-    def __ge__(self, other):
-        return self.level >= other.level
-
-    def __eq__(self, other):
-        return (
-            self.log_n == other.log_n
-            and self.main_moduli == other.main_moduli
-            and self.aux_moduli == other.aux_moduli
-            and self.plaintext_modulus == other.plaintext_modulus
-            and self.noise_variance == other.noise_variance
-            and self.seed == other.seed
-        )
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def __hash__(self):
-        return (
-            hash(tuple(self.main_moduli))
-            ^ hash(tuple(self.aux_moduli))
-            ^ hash(self.plaintext_modulus)
-            ^ hash(self.noise_variance)
-            ^ hash(self.seed)
-        )
-
-    def get_mod_reduced(self):
-        assert self.mul_depth_supported > 0, "Not enough multiplication primes."
-
-        if hasattr(self, "_mod_reduced"):
-            return self._mod_reduced
-
-        smaller_context = shell_ops.modulus_reduce_context64(self._raw_context)
-
-        self._mod_reduced = ShellContext64(
-            shell_context=smaller_context,
-            log_n=self.log_n,
-            main_moduli=self.main_moduli[:-1],
-            aux_moduli=self.aux_moduli,
-            plaintext_modulus=self.plaintext_modulus,
-            noise_variance=self.noise_variance,
-            scaling_factor=self.scaling_factor,
-            mul_depth_supported=self.mul_depth_supported - 1,
-            seed=self.seed,
-        )
-
-        return self._mod_reduced
+    return mod_reduced
 
 
 def create_context64(
@@ -140,7 +110,7 @@ def create_context64(
     )
 
     return ShellContext64(
-        shell_context=shell_context,
+        _raw_context=shell_context,
         log_n=log_n,
         main_moduli=main_moduli,
         aux_moduli=aux_moduli,
