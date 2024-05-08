@@ -64,6 +64,7 @@ loss_fn = tf_shell_ml.CategoricalCrossentropy()
 optimizer = tf.keras.optimizers.Adam(0.01)
 
 
+@tf.function
 def train_step(x, y):
     # Forward pass.
     y_1 = hidden_layer(x)
@@ -84,38 +85,44 @@ class TestMNISTBackprop(tf.test.TestCase):
 
     # Test plaintext training using tf_shell_ml primitives.
     def test_mnist_plaintext_backprop(self):
-        for epoch in range(epochs):
-            for step, (x_batch, y_batch) in enumerate(train_dataset.take(batch_size)):
-                # Plaintext backprop splitting the batch in half vertically.
-                output_layer_grad, hidden_layer_grad = train_step(x_batch, y_batch)
 
-                # To directly apply the weights, use the following:
-                # output_layer.weights[0] = output_layer.weights[0] - 0.01 * output_layer_grad[0]
-                # hidden_layer.weights[0] = hidden_layer.weights[0] - 0.01 * hidden_layer_grad[0]
+        # Test both eager and graph mode.
+        for is_eager in [True, False]:
+            tf.config.run_functions_eagerly(is_eager)
 
-                optimizer.apply_gradients(
-                    zip(
-                        output_layer_grad + hidden_layer_grad,
-                        output_layer.weights + hidden_layer.weights,
+            # Train the model.
+            for epoch in range(epochs):
+                for step, (x_batch, y_batch) in enumerate(train_dataset.take(batch_size)):
+                    # Plaintext backprop splitting the batch in half vertically.
+                    output_layer_grad, hidden_layer_grad = train_step(x_batch, y_batch)
+
+                    # To directly apply the weights, use the following:
+                    # output_layer.weights[0] = output_layer.weights[0] - 0.01 * output_layer_grad[0]
+                    # hidden_layer.weights[0] = hidden_layer.weights[0] - 0.01 * hidden_layer_grad[0]
+
+                    optimizer.apply_gradients(
+                        zip(
+                            output_layer_grad + hidden_layer_grad,
+                            output_layer.weights + hidden_layer.weights,
+                        )
                     )
-                )
 
-            average_accuracy = 0.0
-            for x, y in val_dataset:
-                y_pred = output_layer(hidden_layer(x))
-                accuracy = tf.reduce_mean(
-                    tf.cast(
-                        tf.equal(tf.argmax(y, axis=1), tf.argmax(y_pred, axis=1)),
-                        tf.float32,
+                average_accuracy = 0.0
+                for x, y in val_dataset:
+                    y_pred = output_layer(hidden_layer(x))
+                    accuracy = tf.reduce_mean(
+                        tf.cast(
+                            tf.equal(tf.argmax(y, axis=1), tf.argmax(y_pred, axis=1)),
+                            tf.float32,
+                        )
                     )
-                )
-                average_accuracy += accuracy
-            average_accuracy /= len(val_dataset)
+                    average_accuracy += accuracy
+                average_accuracy /= len(val_dataset)
 
-            print(f"Accuracy: {average_accuracy}")
+                print(f"Accuracy: {average_accuracy}")
 
-        # Ensure the model is learning.
-        self.assertAllGreater(average_accuracy, 0.9)
+            # Ensure the model is learning.
+            self.assertAllGreater(average_accuracy, 0.9)
 
 
 if __name__ == "__main__":

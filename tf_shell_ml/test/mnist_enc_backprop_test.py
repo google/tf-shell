@@ -88,6 +88,7 @@ y2 = output_layer(y1)
 loss_fn = tf_shell_ml.CategoricalCrossentropy()
 
 
+@tf.function
 def train_step(x, y):
     # Forward pass.
     y_1 = hidden_layer(x)
@@ -110,7 +111,7 @@ def train_step(x, y):
 
 
 class TestMNISTBackprop(tf.test.TestCase):
-    def test_mnist_plaintext_backprop(self):
+    def test_mnist_enc_backprop(self):
         (x_batch, y_batch) = next(iter(train_dataset))
 
         # Plaintext backprop splitting the batch in half vertically.
