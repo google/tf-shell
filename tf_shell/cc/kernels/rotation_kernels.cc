@@ -246,7 +246,7 @@ class RollOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_rot =
-        1000000 * num_components;  // ns, measured on log_n = 11
+        500 * num_slots * num_components;  // ns, measured on log_n = 11
     thread_pool->ParallelFor(flat_output.dimension(0), cost_per_rot,
                              roll_in_range);
   }
@@ -270,6 +270,16 @@ class ReduceSumByRotationOp : public OpKernel {
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
 
     auto flat_value = value.flat<Variant>();
+
+    // Recover num_slots from first ciphertext to validate shift argument.
+    SymmetricCtVariant<T> const* ct_var =
+        std::move(flat_value(0).get<SymmetricCtVariant<T>>());
+    OP_REQUIRES(
+        op_ctx, ct_var != nullptr,
+        InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+    SymmetricCt const& ct = ct_var->ct;
+    int num_slots = 1 << ct.LogN();
+    int num_components = ct.NumModuli();
 
     // Recover the input rotation keys.
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
@@ -296,7 +306,6 @@ class ReduceSumByRotationOp : public OpKernel {
                     InvalidArgument(
                         "SymmetricCtVariant a did not unwrap successfully."));
         SymmetricCt sum = ct_var->ct;  // deep copy to start the sum.
-        int const num_slots = 1 << sum.LogN();
 
         // Add the rotations to the sum.
         // Note the ciphertext rotations operate on each half of the
@@ -323,7 +332,7 @@ class ReduceSumByRotationOp : public OpKernel {
 
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    int const cost_per_reduce = 38306686;  // ns measured on log_n = 11
+    int const cost_per_reduce = 18000 * num_slots;  // ns measured on log_n = 11
     thread_pool->ParallelFor(flat_output.dimension(0), cost_per_reduce,
                              reduce_in_range);
   }

@@ -133,7 +133,7 @@ class EncryptOp : public OpKernel {
 
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    int const cost_per_enc = 2200 * num_slots;  // ns, measured on log_n = 11
+    int const cost_per_enc = 6000 * num_slots;  // ns, measured on log_n = 11
     thread_pool->ParallelFor(flat_output.dimension(0), cost_per_enc,
                              enc_in_range);
   }
@@ -215,7 +215,7 @@ class DecryptOp : public OpKernel {
 
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    int const cost_per_dec = 0.12f * num_slots;  // ns, measured on log_n = 11
+    int const cost_per_dec = 75 * num_slots;  // ns, measured on log_n = 11
     thread_pool->ParallelFor(flat_output.dimension(1), cost_per_dec,
                              dec_in_range);
   }

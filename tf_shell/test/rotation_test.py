@@ -114,7 +114,18 @@ class TestShellTensorRotation(tf.test.TestCase):
         self.assertAllClose(rolled_tftensor, rolled_result, atol=1e-3)
 
     def test_roll(self):
+        # Testing all contexts for all possible rotations is slow. Instead,
+        # test a subset of rotations for each context, and one context tests
+        # all rotations.
         for test_context in self.test_contexts:
+            rotation_range = test_context.shell_context.num_slots // 2 - 1
+            for roll_num in [-rotation_range, rotation_range, -1, 0, 1]:
+                with self.subTest(
+                    f"roll with context {test_context}, rotating by {roll_num}"
+                ):
+                    self._test_roll(test_context, roll_num)
+
+        for test_context in [self.test_contexts[0]]:
             rotation_range = test_context.shell_context.num_slots // 2 - 1
             for roll_num in range(-rotation_range, rotation_range, 1):
                 with self.subTest(
