@@ -36,6 +36,10 @@ class ShellTensor64(tf.experimental.ExtensionType):
         return [self._context.num_slots] + self._raw_tensor.shape
 
     @property
+    def dtype(self):
+        return tf.variant
+
+    @property
     def name(self):
         return self._raw_tensor.name
 
@@ -213,7 +217,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 )
             else:
                 raw_result = shell_ops.sub_pt_pt64(
-                    self._context._raw_context, other_matched._raw_tensor, self_matched._raw_tensor
+                    self._context._raw_context,
+                    other_matched._raw_tensor,
+                    self_matched._raw_tensor,
                 )
 
             return ShellTensor64(
@@ -239,7 +245,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
         if self.is_encrypted:
             raw_result = shell_ops.neg_ct64(self._raw_tensor)
         else:
-            raw_result = shell_ops.neg_pt64(self._context._raw_context, self._raw_tensor)
+            raw_result = shell_ops.neg_pt64(
+                self._context._raw_context, self._raw_tensor
+            )
 
         return ShellTensor64(
             _raw_tensor=raw_result,
@@ -354,10 +362,13 @@ def mod_reduce_tensor64(shell_tensor):
         shell_tensor._raw_tensor,
     )
 
-    reduced_noise = tf.cast(tf.math.ceil(
-        tf.math.log(tf.cast(shell_tensor._context.main_moduli[-1], tf.float32))
-        / tf.math.log(tf.cast(2, tf.float32))
-    ), tf.int32)
+    reduced_noise = tf.cast(
+        tf.math.ceil(
+            tf.math.log(tf.cast(shell_tensor._context.main_moduli[-1], tf.float32))
+            / tf.math.log(tf.cast(2, tf.float32))
+        ),
+        tf.int32,
+    )
 
     reduced_self = ShellTensor64(
         _raw_tensor=raw_result,
@@ -397,25 +408,35 @@ def _match_moduli_and_scaling(x, y):
 
 
 def _match_shape(x, y):
-    # Match the shape of x and y via broadcasting.
-    if tf.size(x._raw_tensor) > tf.size(y._raw_tensor):
-        y = ShellTensor64(
+    # Match the shape of x and y via broadcasting. Note, this copies the data,
+    # fully materializing the new tensors shape. In the future, shell_ops
+    # should suuport broadcasting directly, avoiding the copy.
+
+    x = tf.cond(
+        tf.size(x._raw_tensor) < tf.size(y._raw_tensor),
+        lambda: ShellTensor64(
+            _raw_tensor=tf.broadcast_to(x._raw_tensor, tf.shape(y._raw_tensor)),
+            _context=x._context,
+            _underlying_dtype=x._underlying_dtype,
+            _scaling_factor=x._scaling_factor,
+            _is_enc=x._is_enc,
+            _noise_bit_count=x._noise_bit_count,
+        ),
+        lambda: x,
+    )
+
+    y = tf.cond(
+        tf.size(x._raw_tensor) > tf.size(y._raw_tensor),
+        lambda: ShellTensor64(
             _raw_tensor=tf.broadcast_to(y._raw_tensor, tf.shape(x._raw_tensor)),
             _context=y._context,
             _underlying_dtype=y._underlying_dtype,
             _scaling_factor=y._scaling_factor,
             _is_enc=y._is_enc,
             _noise_bit_count=y._noise_bit_count,
-        )
-    elif tf.size(x._raw_tensor) < tf.size(y._raw_tensor):
-        x = ShellTensor64(
-            _raw_tensor=tf.broadcast_to(x._raw_tensor, tf.shape(y._raw_tensor)),
-            _context=y._context,
-            _underlying_dtype=y._underlying_dtype,
-            _scaling_factor=y._scaling_factor,
-            _is_enc=y._is_enc,
-            _noise_bit_count=y._noise_bit_count,
-        )
+        ),
+        lambda: y,
+    )
 
     return x, y
 
@@ -490,7 +511,9 @@ def to_shell_plaintext(tensor, context):
             scaled_tensor = tf.pad(scaled_tensor, padding)
 
         return ShellTensor64(
-            _raw_tensor=shell_ops.polynomial_import64(context._raw_context, scaled_tensor),
+            _raw_tensor=shell_ops.polynomial_import64(
+                context._raw_context, scaled_tensor
+            ),
             _context=context,
             _underlying_dtype=tensor.dtype,
             _scaling_factor=context.scaling_factor,
@@ -636,12 +659,12 @@ def reduce_sum(x, axis, rotation_key=None):
 
             # reduce sum does log2(num_slots) rotations and additions.
             # TODO: add noise from rotations?
-            result_noise_bits = (
-                x._noise_bit_count + x._context.num_slots.bit_length() + 1,
-            )
+            result_noise_bits = x._noise_bit_count + x._context.noise_bits
 
             return ShellTensor64(
-                _raw_tensor=shell_ops.reduce_sum_by_rotation64(x._raw_tensor, raw_rotation_key),
+                _raw_tensor=shell_ops.reduce_sum_by_rotation64(
+                    x._raw_tensor, raw_rotation_key
+                ),
                 _context=x._context,
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
@@ -649,10 +672,13 @@ def reduce_sum(x, axis, rotation_key=None):
                 _noise_bit_count=result_noise_bits,
             )
         else:
-            if axis >= len(x.shape):
-                raise ValueError("Axis greater than number of dimensions")
-
-            result_noise_bits = x._noise_bit_count + x.shape[axis].bit_length() + 1
+            result_noise_bits = x._noise_bit_count + tf.cast(
+                tf.math.ceil(
+                    tf.math.log(tf.cast(tf.shape(x._raw_tensor)[axis - 1], tf.float32))
+                    / tf.math.log(tf.constant(2, dtype=tf.float32))
+                ),
+                tf.int32,
+            )
 
             return ShellTensor64(
                 _raw_tensor=shell_ops.reduce_sum64(x._raw_tensor, axis),

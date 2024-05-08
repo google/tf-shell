@@ -64,6 +64,7 @@ model.compile(
 )
 
 
+@tf.function
 def train_step(x, y):
     """One step of training with using the "post scale" approach.
 
@@ -100,7 +101,8 @@ def train_step(x, y):
     y_pred = model(x, training=False)
 
     # Compute y_pred - y (where y may be encrypted).
-    scalars = y_pred - y  # dJ/dy_pred
+    # scalars = y_pred - y  # dJ/dy_pred
+    scalars = y.__rsub__(y_pred)  # dJ/dy_pred
     # ^  batch_size x num output classes.
 
     # Expand the last dim so that the subsequent multiplications are
@@ -124,8 +126,8 @@ def train_step(x, y):
         # ^  batch_size x num output classes x flattened weights
 
         # Scale the gradient precursors.
-        scaled_grad = packable_grad * scalars
-        # ^ dy_pred/dW * dJ/dy_pred = dJ/dW
+        scaled_grad = scalars * packable_grad
+        # ^  dJ/dW = dJ/dy_pred * dy_pred/dW
 
         # Sum over the output classes.
         scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=1)
@@ -154,11 +156,37 @@ def train_step(x, y):
 
 
 class TestPlaintextPostScale(tf.test.TestCase):
-    def test_mnist_post_scale(self):
+    def test_mnist_post_scale_eager(self):
+        tf.config.run_functions_eagerly(True)
+
         (x_batch, y_batch) = next(iter(train_dataset))
 
         # Plaintext
         ps_grads = train_step(x_batch, y_batch)
+
+        # Encrypted
+        enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
+        shell_ps_grads = train_step(x_batch, enc_y_batch)
+
+        # Compare the gradients.
+        self.assertAllClose(
+            ps_grads,
+            shell_ps_grads,
+            atol=1 / context.scaling_factor * context.num_slots,
+        )
+
+    def test_mnist_post_scale_autograph(self):
+        tf.config.run_functions_eagerly(False)
+
+        (x_batch, y_batch) = next(iter(train_dataset))
+        
+        # Plaintext
+        ps_grads = train_step(x_batch, y_batch)
+
+        # With autograph on (eagerly off), the tf.function trace cannot be
+        # reused between plaintext and encrypted calls. Reset the graph
+        # between plaintext and encrypted train_step() calls.
+        tf.keras.backend.clear_session()
 
         # Encrypted
         enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)

@@ -15,6 +15,7 @@
 # limitations under the License.
 from tensorflow.nn import softmax
 from tensorflow.math import log
+import tf_shell
 
 
 class CategoricalCrossentropy:
@@ -28,7 +29,7 @@ class CategoricalCrossentropy:
         batch_size = y_true.shape.as_list()[0]
         batch_size_inv = 1 / batch_size
         out = -y_true * log(y_pred)
-        cce = out.reduce_sum() * batch_size_inv
+        cce = tf_shell.reduce_sum(out, axis=0) * batch_size_inv
         return cce
 
     def grad(self, y_true, y_pred):
