@@ -139,7 +139,7 @@ class PolynomialImportOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_import =
-        0.08f * num_slots;  // ns, measured on log_n = 11
+        70 * num_slots;  // ns, measured on log_n = 11
     thread_pool->ParallelFor(flat_input.dimension(1), cost_per_import,
                              import_in_range);
   }
@@ -234,7 +234,7 @@ class PolynomialExportOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_export =
-        0.08f * num_slots;  // ns, measured on log_n = 11
+        70 * num_slots;  // ns, measured on log_n = 11
     thread_pool->ParallelFor(flat_output.dimension(1), cost_per_export,
                              export_in_range);
   }
