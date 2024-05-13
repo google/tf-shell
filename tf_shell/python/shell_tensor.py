@@ -207,7 +207,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
             shell_other = to_shell_plaintext(other, self._context)
 
             if self.is_encrypted:
-                negative_self= -self
+                negative_self = -self
                 raw_result = shell_ops.add_ct_pt64(
                     negative_self._raw_tensor, shell_other._raw_tensor
                 )

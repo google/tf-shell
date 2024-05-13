@@ -92,7 +92,9 @@ class TestMNISTBackprop(tf.test.TestCase):
 
             # Train the model.
             for epoch in range(epochs):
-                for step, (x_batch, y_batch) in enumerate(train_dataset.take(batch_size)):
+                for step, (x_batch, y_batch) in enumerate(
+                    train_dataset.take(batch_size)
+                ):
                     # Plaintext backprop splitting the batch in half vertically.
                     output_layer_grad, hidden_layer_grad = train_step(x_batch, y_batch)
 
