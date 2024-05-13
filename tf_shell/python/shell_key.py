@@ -77,4 +77,6 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
         context = mod_reduce_context64(context)
         key = mod_reduce_key64(key)
 
-    return ShellRotationKey64(_raw_rot_keys_at_level=raw_rot_keys_at_level, context=context)
+    return ShellRotationKey64(
+        _raw_rot_keys_at_level=raw_rot_keys_at_level, context=context
+    )

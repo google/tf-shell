@@ -175,12 +175,13 @@ class TestPlaintextPostScale(tf.test.TestCase):
             atol=1 / context.scaling_factor * context.num_slots,
         )
 
+
 class TestPlaintextPostScale(tf.test.TestCase):
     def test_mnist_post_scale_autograph(self):
         tf.config.run_functions_eagerly(False)
 
         (x_batch, y_batch) = next(iter(train_dataset))
-        
+
         # Plaintext
         ps_grads = train_step(x_batch, y_batch)
 
