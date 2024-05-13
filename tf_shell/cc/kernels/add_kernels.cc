@@ -99,18 +99,24 @@ class AddCtCtOp : public OpKernel {
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
-    // Check the inputs have the same shape. This Op does not support
-    // broadcasting.
-    OP_REQUIRES(op_ctx, a.shape() == b.shape(),
-                InvalidArgument("Inputs must have the same shape."));
+    BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
+                /*fewer_dims_optimization=*/true);
+    OP_REQUIRES(
+        op_ctx, bcast.IsValid(),
+        InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
+                        " and ", b.shape().DebugString()));
+    auto flat_a = MyBFlat(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
+    auto flat_b = MyBFlat(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
+
+    // Check the inputs have the same shape.
+    OP_REQUIRES(
+        op_ctx, flat_a.size() == flat_b.size(),
+        InvalidArgument("Broadcasted inputs must have the same shape."));
 
     // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
-    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
-
-    // Set up flat views of the inputs and output tensors.
-    auto flat_a = a.flat<Variant>();
-    auto flat_b = b.flat<Variant>();
+    TensorShape output_shape = BCast::ToShape(bcast.output_shape());
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
     auto flat_output = output->flat<Variant>();
 
     for (int i = 0; i < flat_output.dimension(0); ++i) {
@@ -152,18 +158,24 @@ class AddCtPtOp : public OpKernel {
     Tensor const& a = op_ctx->input(0);
     Tensor const& b = op_ctx->input(1);
 
-    // Check the inputs have the same shape. This Op does not support
-    // broadcasting.
-    OP_REQUIRES(op_ctx, a.shape() == b.shape(),
-                InvalidArgument("Inputs must have the same shape."));
+    BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
+                /*fewer_dims_optimization=*/true);
+    OP_REQUIRES(
+        op_ctx, bcast.IsValid(),
+        InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
+                        " and ", b.shape().DebugString()));
+    auto flat_a = MyBFlat(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
+    auto flat_b = MyBFlat(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
+
+    // Check the inputs have the same shape.
+    OP_REQUIRES(
+        op_ctx, flat_a.size() == flat_b.size(),
+        InvalidArgument("Broadcasted inputs must have the same shape."));
 
     // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
-    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
-
-    // Set up flat views of the inputs and output tensors.
-    auto flat_a = a.flat<Variant>();
-    auto flat_b = b.flat<Variant>();
+    TensorShape output_shape = BCast::ToShape(bcast.output_shape());
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
     auto flat_output = output->flat<Variant>();
 
     for (int i = 0; i < flat_output.dimension(0); ++i) {
@@ -209,18 +221,24 @@ class AddPtPtOp : public OpKernel {
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
 
-    // Check the inputs have the same shape. This Op does not support
-    // broadcasting.
-    OP_REQUIRES(op_ctx, a.shape() == b.shape(),
-                InvalidArgument("Inputs must have the same shape."));
+    BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
+                /*fewer_dims_optimization=*/true);
+    OP_REQUIRES(
+        op_ctx, bcast.IsValid(),
+        InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
+                        " and ", b.shape().DebugString()));
+    auto flat_a = MyBFlat(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
+    auto flat_b = MyBFlat(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
+
+    // Check the inputs have the same shape.
+    OP_REQUIRES(
+        op_ctx, flat_a.size() == flat_b.size(),
+        InvalidArgument("Broadcasted inputs must have the same shape."));
 
     // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
-    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
-
-    // Set up flat views of the inputs and output tensors.
-    auto flat_a = a.flat<Variant>();
-    auto flat_b = b.flat<Variant>();
+    TensorShape output_shape = BCast::ToShape(bcast.output_shape());
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
     auto flat_output = output->flat<Variant>();
 
     for (int i = 0; i < flat_output.dimension(0); ++i) {

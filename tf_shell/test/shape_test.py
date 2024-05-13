@@ -101,12 +101,12 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_expand_dims(self):
         for test_context in self.test_contexts:
-            for dim in range(1, len(test_context.outer_shape) + 1, 1):
+            for dim in range(1, len(test_context.outer_shape) + 2, 1):
                 with self.subTest(
                     f"expand_dims on dimension {dim} with context `{test_context}`."
                 ):
                     self._test_expand_dims(test_context, dim)
-            for dim in range(-len(test_context.outer_shape) + 1, -1, 1):
+            for dim in range(-len(test_context.outer_shape) - 1, 0, 1):
                 with self.subTest(
                     f"expand_dims on dimension {dim} with context `{test_context}`."
                 ):

@@ -48,14 +48,24 @@ class ExpandDimsVariantOp : public OpKernel {
     // Recall first dimension of a shell variant tensor is the packing
     // dimension. We don't allow expanding this dimension.
     OP_REQUIRES(op_ctx, dim != 0, InvalidArgument("Invalid dimension index."));
-    dim += dim > 0 ? -1 : 0;
   }
 
   void Compute(OpKernelContext* ctx) override {
-    OP_REQUIRES(
-        ctx, (dim >= -1 - ctx->input(0).dims() && dim <= ctx->input(0).dims()),
-        InvalidArgument("Tried to expand dim index ", dim, " for tensor with ",
-                        ctx->input(0).dims(), " dimensions."));
+    OP_REQUIRES(ctx, dim != 0, InvalidArgument("Invalid dimension index."));
+
+    // We emulate numpy's interpretation of the dim axis when
+    // -input.dims() >= dim <= input.dims().
+    int clamped_dim = dim;
+    if (clamped_dim < 0) {
+      clamped_dim += ctx->input(0).dims() + 1;  // + 1 for packing dim.
+    } else if (clamped_dim > 0) {
+      clamped_dim -= 1;  // -1 for packing dimension.
+    }
+
+    OP_REQUIRES(ctx, clamped_dim >= 0 && clamped_dim <= ctx->input(0).dims(),
+                InvalidArgument("Tried to expand dim index ", clamped_dim,
+                                " for tensor with ", ctx->input(0).dims(),
+                                " dimensions."));
 
     auto existing_dims = ctx->input(0).shape().dim_sizes();
     // Safe - # elements in tensor dims bounded.
@@ -65,15 +75,9 @@ class ExpandDimsVariantOp : public OpKernel {
       new_shape[i] = existing_dims[i];
     }
 
-    // We emulate numpy's interpretation of the dim axis when
-    // -input.dims() >= dim <= input.dims().
-    if (dim < 0) {
-      dim += existing_dims.size() + 1;
-    }
-
     // Clamp to the end if needed.
-    dim = std::min<int32>(dim, existing_dims_size);
-    new_shape.emplace(new_shape.begin() + dim, 1);
+    clamped_dim = std::min<int32>(clamped_dim, existing_dims_size);
+    new_shape.emplace(new_shape.begin() + clamped_dim, 1);
     TensorShape const output_shape(new_shape);
 
     Tensor* output = nullptr;
