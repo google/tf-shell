@@ -131,12 +131,12 @@ def train_step(x, y):
 
         # Sum over the output classes.
         scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=1)
-        # ^  batch_size x 1 x flattened weights
+        # ^  batch_size x flattened weights
 
         # In the real world, this approach would also likely require clipping
         # the gradient, and adding DP noise.
 
-        # Reshape to remove the '1' dimension in the middle.
+        # Reshape to unflatten the weights.
         scaled_grad = tf_shell.reshape(scaled_grad, [batch_sz] + grad_shape)
         # ^  batch_size x weights
 
@@ -175,6 +175,7 @@ class TestPlaintextPostScale(tf.test.TestCase):
             atol=1 / context.scaling_factor * context.num_slots,
         )
 
+class TestPlaintextPostScale(tf.test.TestCase):
     def test_mnist_post_scale_autograph(self):
         tf.config.run_functions_eagerly(False)
 

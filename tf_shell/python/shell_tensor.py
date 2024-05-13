@@ -206,20 +206,16 @@ class ShellTensor64(tf.experimental.ExtensionType):
             # zeros out to the number of slots.
             shell_other = to_shell_plaintext(other, self._context)
 
-            # Match the shapes via broadcasting. This is after importing to
-            # save NTTs.
-            self_matched, other_matched = _match_shape(self, shell_other)
-
-            if self_matched.is_encrypted:
-                negative_self_matched = -self_matched
+            if self.is_encrypted:
+                negative_self= -self
                 raw_result = shell_ops.add_ct_pt64(
-                    negative_self_matched._raw_tensor, other_matched._raw_tensor
+                    negative_self._raw_tensor, shell_other._raw_tensor
                 )
             else:
                 raw_result = shell_ops.sub_pt_pt64(
                     self._context._raw_context,
-                    other_matched._raw_tensor,
-                    self_matched._raw_tensor,
+                    shell_other._raw_tensor,
+                    self._raw_tensor,
                 )
 
             return ShellTensor64(
@@ -401,42 +397,6 @@ def _match_moduli_and_scaling(x, y):
         y = y * x._scaling_factor
     while x._scaling_factor < y._scaling_factor:
         x = x * y._scaling_factor
-
-    x, y = _match_shape(x, y)
-
-    return x, y
-
-
-def _match_shape(x, y):
-    # Match the shape of x and y via broadcasting. Note, this copies the data,
-    # fully materializing the new tensors shape. In the future, shell_ops
-    # should suuport broadcasting directly, avoiding the copy.
-
-    x = tf.cond(
-        tf.size(x._raw_tensor) < tf.size(y._raw_tensor),
-        lambda: ShellTensor64(
-            _raw_tensor=tf.broadcast_to(x._raw_tensor, tf.shape(y._raw_tensor)),
-            _context=x._context,
-            _underlying_dtype=x._underlying_dtype,
-            _scaling_factor=x._scaling_factor,
-            _is_enc=x._is_enc,
-            _noise_bit_count=x._noise_bit_count,
-        ),
-        lambda: x,
-    )
-
-    y = tf.cond(
-        tf.size(x._raw_tensor) > tf.size(y._raw_tensor),
-        lambda: ShellTensor64(
-            _raw_tensor=tf.broadcast_to(y._raw_tensor, tf.shape(x._raw_tensor)),
-            _context=y._context,
-            _underlying_dtype=y._underlying_dtype,
-            _scaling_factor=y._scaling_factor,
-            _is_enc=y._is_enc,
-            _noise_bit_count=y._noise_bit_count,
-        ),
-        lambda: y,
-    )
 
     return x, y
 
@@ -681,7 +641,7 @@ def reduce_sum(x, axis, rotation_key=None):
             )
 
             return ShellTensor64(
-                _raw_tensor=shell_ops.reduce_sum64(x._raw_tensor, axis),
+                _raw_tensor=shell_ops.reduce_sum64(x._raw_tensor, axis=axis),
                 _context=x._context,
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
@@ -798,7 +758,7 @@ def expand_dims(x, axis=-1):
                 "Cannot expand dims at axis 0 for ShellTensor64, this is the batching dimension."
             )
         return ShellTensor64(
-            _raw_tensor=shell_ops.expand_dims_variant(x._raw_tensor, axis),
+            _raw_tensor=shell_ops.expand_dims_variant(x._raw_tensor, axis=axis),
             _context=x._context,
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,

@@ -17,6 +17,8 @@
 #include "tensorflow/core/framework/shape_inference.h"
 
 using tensorflow::OkStatus;
+using tensorflow::errors::InvalidArgument;
+using tensorflow::shape_inference::DimensionHandle;
 using tensorflow::shape_inference::InferenceContext;
 using tensorflow::shape_inference::ScalarShape;
 using tensorflow::shape_inference::ShapeHandle;
@@ -114,7 +116,18 @@ REGISTER_OP("AddCtCt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -123,7 +136,18 @@ REGISTER_OP("AddCtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -133,7 +157,18 @@ REGISTER_OP("AddPtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -142,7 +177,18 @@ REGISTER_OP("SubCtCt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -151,7 +197,18 @@ REGISTER_OP("SubCtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -161,7 +218,18 @@ REGISTER_OP("SubPtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(1));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -188,7 +256,18 @@ REGISTER_OP("MulCtCt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -197,7 +276,18 @@ REGISTER_OP("MulCtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -229,7 +319,18 @@ REGISTER_OP("MulPtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      auto a_sz = c->NumElements(c->input(0));
+      auto b_sz = c->NumElements(c->input(1));
+      DimensionHandle out_sz;
+      TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
+
+      if (c->Value(out_sz) == c->Value(a_sz)) {
+        c->set_output(0, c->input(0));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(1));
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
       return OkStatus();
     });
 
@@ -290,16 +391,66 @@ REGISTER_OP("ReduceSumByRotation64")
     .Input("rotation_key: variant")
     .Output("repeated_reduce_sum: variant")
     .SetShapeFn([](InferenceContext* c) {
+      // ReduceSum over the packing dimension does not change the shape.
       c->set_output(0, c->input(0));
       return OkStatus();
     });
 
 REGISTER_OP("ReduceSum64")
     .Input("value: variant")
-    .Input("axis: int64")
+    .Attr("axis: int")
     .Output("repeated_reduce_sum: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      tsl::int32 rank = c->Rank(c->input(0));
+
+      tsl::int32 axis;
+      TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
+
+      // Check that axis is in the correct range.
+      if (axis == 0) {
+        return InvalidArgument(
+            "axis may not be zero. See ReduceSumByRotation()");
+      }
+
+      // Recall first dimension of a shell variant tensor is the packing
+      // dimension.
+      int clamped_axis = axis;
+      if (clamped_axis < 0) {
+        clamped_axis += rank + 1;
+      } else if (clamped_axis > 0) {
+        clamped_axis -= 1;
+      }
+
+      if (clamped_axis < 0 || clamped_axis > rank) {
+        return InvalidArgument("axis must be in the range [0, rank], got ",
+                               clamped_axis);
+      }
+
+      ShapeHandle output;
+
+      // If this op ever supports keepdim=True, use the following shape.
+      //  DimensionHandle reduced_dim = c->MakeDim({1});
+      //  TF_RETURN_IF_ERROR(c->ReplaceDim(c->input(0), clamped_axis,
+      //  reduced_dim, &output));
+
+      // This op currently only supports keepdim=False whose shape is computed
+      // via the following.
+      ShapeHandle prefix;
+      TF_RETURN_IF_ERROR(c->Subshape(c->input(0), 0, clamped_axis, &prefix));
+
+      ShapeHandle postfix;
+      TF_RETURN_IF_ERROR(
+          c->Subshape(c->input(0), clamped_axis + 1, rank, &postfix));
+
+      if (clamped_axis == 0) {
+        output = postfix;
+      } else if (clamped_axis == rank - 1) {
+        output = prefix;
+      } else {
+        TF_RETURN_IF_ERROR(c->Concatenate(prefix, postfix, &output));
+      }
+
+      c->set_output(0, output);
       return OkStatus();
     });
 
@@ -343,10 +494,10 @@ REGISTER_OP("ExpandDimsVariant")
       tsl::int32 axis;
       TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
 
-      //Check that axis is in the correct range.
+      // Check that axis is in the correct range.
       if (axis < -rank || axis > rank) {
-        return tensorflow::errors::InvalidArgument(
-            "axis must be in the range [-rank, rank], got ", axis);
+        return InvalidArgument("axis must be in the range [-rank, rank], got ",
+                               axis);
       }
 
       if (axis < 0) {

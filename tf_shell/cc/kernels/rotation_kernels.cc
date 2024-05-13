@@ -214,8 +214,10 @@ class RollOp : public OpKernel {
 
     RotationKey const* key;
     if (shift != 0) {
-      OP_REQUIRES(op_ctx, shift - 1 < keys.size(),  // Skip key at zero.
-                  InvalidArgument("No key for shift of '", shift, "'"));
+      OP_REQUIRES(
+          op_ctx,
+          shift - 1 < static_cast<int64>(keys.size()),  // Skip key at zero.
+          InvalidArgument("No key for shift of '", shift, "'"));
       key = &keys[shift - 1];  // Skip key at zero.
     }
 
@@ -312,8 +314,10 @@ class ReduceSumByRotationOp : public OpKernel {
         // ciphertext separately. So the max rotation is by half the number
         // of slots.
         for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
-          OP_REQUIRES(op_ctx, shift - 1 < keys.size(),  // Skip key at zero.
-                      InvalidArgument("No key for shift of '", shift, "'"));
+          OP_REQUIRES(
+              op_ctx,
+              shift - 1 < static_cast<int64>(keys.size()),  // Skip key at zero.
+              InvalidArgument("No key for shift of '", shift, "'"));
           RotationKey const* key = &keys[shift - 1];  // Skip key at zero.
 
           // Rotate by the shift.
@@ -332,7 +336,8 @@ class ReduceSumByRotationOp : public OpKernel {
 
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    int const cost_per_reduce = 18000 * num_slots;  // ns measured on log_n = 11
+    int const cost_per_reduce =
+        9000 * num_slots * num_components;  // ns measured on log_n = 11
     thread_pool->ParallelFor(flat_output.dimension(0), cost_per_reduce,
                              reduce_in_range);
   }
@@ -345,8 +350,20 @@ class ReduceSumOp : public OpKernel {
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
 
+  int dim_to_reduce;
+
  public:
-  explicit ReduceSumOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
+  explicit ReduceSumOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
+    // Get the dimension to reduce over from the op attributes.
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("axis", &dim_to_reduce));
+
+    // Recall first dimension of a shell variant tensor is the packing
+    // dimension. We don't allow expanding this dimension.
+    OP_REQUIRES(
+        op_ctx, dim_to_reduce != 0,
+        InvalidArgument("ReduceSumOp cannot reduce over packing axis (zero'th "
+                        "dimension). See ReduceSumByRotationOp."));
+  }
 
   void Compute(OpKernelContext* op_ctx) override {
     // Recover the input tensor.
@@ -354,32 +371,34 @@ class ReduceSumOp : public OpKernel {
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
 
-    // Recover the axis to reduce over.
-    Tensor const& axis_tensor = op_ctx->input(1);
-    OP_REQUIRES(op_ctx, axis_tensor.NumElements() == 1,
-                InvalidArgument("axis must be scalar, saw shape: ",
-                                axis_tensor.shape().DebugString()));
-    OP_REQUIRES_VALUE(int64 axis, op_ctx, GetScalar<int64>(op_ctx, 1));
+    OP_REQUIRES(
+        op_ctx, dim_to_reduce != 0,
+        InvalidArgument("ReduceSumOp cannot reduce over packing axis (zero'th "
+                        "dimension). See ReduceSumByRotationOp."));
 
-    // The axis to reduce over.
-    int dim_to_reduce = axis - 1;
+    // We emulate numpy's interpretation of the dim axis when
+    // -input.dims() >= dim <= input.dims().
+    int clamped_dim = dim_to_reduce;
+    if (clamped_dim < 0) {
+      clamped_dim += value.dims() + 1;  // + 1 for packing dim.
+    } else if (clamped_dim > 0) {
+      clamped_dim -= 1;  // -1 for packing dimension.
+    }
 
     // Check axis is within dim size.
-    OP_REQUIRES(op_ctx, dim_to_reduce < value.dims(),
-                InvalidArgument("Cannot reduce_sum over polynomial_axis '",
-                                dim_to_reduce, "' (axis '", axis,
-                                "') for input with shape ",
-                                value.shape().DebugString()));
+    OP_REQUIRES(
+        op_ctx, clamped_dim >= 0 && clamped_dim < value.dims(),
+        InvalidArgument("Cannot reduce_sum over polynomial_axis '", clamped_dim,
+                        "for input with shape ", value.shape().DebugString()));
 
-    uint8_t dim_sz_to_reduce = value.dim_size(dim_to_reduce);
+    uint8_t dim_sz_to_reduce = value.dim_size(clamped_dim);
 
-    // Since the first dimension is the batching dimension, subtract 1.
-    auto flat_value = value.flat_inner_outer_dims<Variant>(dim_to_reduce - 1);
+    auto flat_value = value.flat_inner_outer_dims<Variant>(clamped_dim - 1);
 
     // Setup the output.
     Tensor* output;
     auto output_shape = value.shape();
-    OP_REQUIRES_OK(op_ctx, output_shape.RemoveDimWithStatus(dim_to_reduce));
+    OP_REQUIRES_OK(op_ctx, output_shape.RemoveDimWithStatus(clamped_dim));
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
     // Setup a shape to access the output Tensor as a flat Tensor, with the
     // same indexing as the input Tensor excluding the dimension to reduce.
