@@ -53,9 +53,10 @@ class MulCtCtOp : public OpKernel {
   explicit MulCtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Get the input tensors.
-    Tensor const& a = op_ctx->input(0);
-    Tensor const& b = op_ctx->input(1);
+    // Unpack the input arguments. The 0th argument is the context, which is not
+    // directly used in this op but required for graph optimization.
+    Tensor const& a = op_ctx->input(1);
+    Tensor const& b = op_ctx->input(2);
 
     BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
                 /*fewer_dims_optimization=*/true);
@@ -112,9 +113,10 @@ class MulCtPtOp : public OpKernel {
   explicit MulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Get the input tensors.
-    Tensor const& a = op_ctx->input(0);
-    Tensor const& b = op_ctx->input(1);
+    // Unpack the input arguments. The 0th argument is the context, which is not
+    // directly used in this op but required for graph optimization.
+    Tensor const& a = op_ctx->input(1);
+    Tensor const& b = op_ctx->input(2);
 
     BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
                 /*fewer_dims_optimization=*/true);

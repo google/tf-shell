@@ -107,3 +107,16 @@ py_test(
         requirement("tensorflow-cpu"),
     ],
 )
+
+py_test(
+    name = "ct_pt_optimizer_test",
+    size = "medium",
+    srcs = [
+        "ct_pt_optimizer_test.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)
