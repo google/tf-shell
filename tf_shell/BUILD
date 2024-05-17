@@ -48,12 +48,41 @@ py_library(
     srcs_version = "PY3",
 )
 
+cc_binary(
+    name = "python/optimizers/_ct_pt_optimizer.so",
+    srcs = [
+        "cc/optimizers/ct_pt.cc",
+        "cc/optimizers/ct_pt.h",
+    ],
+    copts = [
+        "-pthread",
+        "-fPIC",
+    ],
+    linkshared = 1,
+    deps = [
+        "//third_party/tensorflow:hermetic_tf",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+py_library(
+    name = "shell_optimizers_py",
+    srcs = [
+        "python/optimizers/shell_optimizers.py",
+    ],
+    data = [
+        ":python/optimizers/_ct_pt_optimizer.so",
+    ],
+    srcs_version = "PY3",
+)
+
 py_library(
     name = "tf_shell_lib",
     srcs = [
         "__init__.py",
         "python/__init__.py",
         "python/ops/__init__.py",
+        "python/optimizers/__init__.py",
         "python/shell_context.py",
         "python/shell_key.py",
         "python/shell_tensor.py",
@@ -62,6 +91,7 @@ py_library(
     visibility = ["//visibility:public"],
     deps = [
         ":shell_ops_py",
+        ":shell_optimizers_py",
     ],
 )
 

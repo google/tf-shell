@@ -54,8 +54,6 @@ REGISTER_OP("PolynomialImport64")
       return OkStatus();
     });
 
-// Output shape depends on content of context object
-// so no SetShapeFn() for this Op.
 REGISTER_OP("PolynomialExport64")
     .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Attr("batching_dim: int")
@@ -69,7 +67,7 @@ REGISTER_OP("PolynomialExport64")
 
       ShapeHandle output;
       TF_RETURN_IF_ERROR(
-          c->Concatenate(c->input(1), batching_dim_shape, &output));
+          c->Concatenate(batching_dim_shape, c->input(1), &output));
 
       c->set_output(0, output);
       return OkStatus();
@@ -104,7 +102,7 @@ REGISTER_OP("Decrypt64")
 
       ShapeHandle output;
       TF_RETURN_IF_ERROR(
-          c->Concatenate(c->input(1), batching_dim_shape, &output));
+          c->Concatenate(batching_dim_shape, c->input(2), &output));
 
       c->set_output(0, output);
       return OkStatus();
@@ -112,19 +110,20 @@ REGISTER_OP("Decrypt64")
 
 // Add and subtract.
 REGISTER_OP("AddCtCt64")
+    .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -132,19 +131,20 @@ REGISTER_OP("AddCtCt64")
     });
 
 REGISTER_OP("AddCtPt64")
+    .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -157,15 +157,15 @@ REGISTER_OP("AddPtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -173,19 +173,20 @@ REGISTER_OP("AddPtPt64")
     });
 
 REGISTER_OP("SubCtCt64")
+    .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -193,19 +194,20 @@ REGISTER_OP("SubCtCt64")
     });
 
 REGISTER_OP("SubCtPt64")
+    .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -218,15 +220,15 @@ REGISTER_OP("SubPtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -234,10 +236,11 @@ REGISTER_OP("SubPtPt64")
     });
 
 REGISTER_OP("NegCt64")
+    .Input("context: variant")
     .Input("value: variant")
     .Output("negated_value: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      c->set_output(0, c->input(1));
       return OkStatus();
     });
 
@@ -246,25 +249,26 @@ REGISTER_OP("NegPt64")
     .Input("value: variant")
     .Output("negated_value: variant")
     .SetShapeFn([](InferenceContext* c) {
-      c->set_output(0, c->input(0));
+      c->set_output(0, c->input(1));
       return OkStatus();
     });
 
 // Multiply.
 REGISTER_OP("MulCtCt64")
+    .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -272,19 +276,20 @@ REGISTER_OP("MulCtCt64")
     });
 
 REGISTER_OP("MulCtPt64")
+    .Input("context: variant")
     .Input("a: variant")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }
@@ -319,15 +324,15 @@ REGISTER_OP("MulPtPt64")
     .Input("b: variant")
     .Output("c: variant")
     .SetShapeFn([](InferenceContext* c) {
-      auto a_sz = c->NumElements(c->input(0));
-      auto b_sz = c->NumElements(c->input(1));
+      auto a_sz = c->NumElements(c->input(1));
+      auto b_sz = c->NumElements(c->input(2));
       DimensionHandle out_sz;
       TF_RETURN_IF_ERROR(c->Max(a_sz, b_sz, &out_sz));
 
       if (c->Value(out_sz) == c->Value(a_sz)) {
-        c->set_output(0, c->input(0));
-      } else if (c->Value(out_sz) == c->Value(b_sz)) {
         c->set_output(0, c->input(1));
+      } else if (c->Value(out_sz) == c->Value(b_sz)) {
+        c->set_output(0, c->input(2));
       } else {
         c->set_output(0, c->UnknownShape());
       }

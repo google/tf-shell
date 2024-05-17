@@ -88,15 +88,21 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
             if self.is_encrypted and other.is_encrypted:
                 result_raw_tensor = shell_ops.add_ct_ct64(
-                    matched_self._raw_tensor, matched_other._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_self._raw_tensor,
+                    matched_other._raw_tensor,
                 )
             elif self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.add_ct_pt64(
-                    matched_self._raw_tensor, matched_other._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_self._raw_tensor,
+                    matched_other._raw_tensor,
                 )
             elif not self.is_encrypted and other.is_encrypted:
                 result_raw_tensor = shell_ops.add_ct_pt64(
-                    matched_other._raw_tensor, matched_self._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_other._raw_tensor,
+                    matched_self._raw_tensor,
                 )
             elif not self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.add_pt_pt64(
@@ -146,16 +152,22 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
             if self.is_encrypted and other.is_encrypted:
                 result_raw_tensor = shell_ops.sub_ct_ct64(
-                    matched_self._raw_tensor, matched_other._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_self._raw_tensor,
+                    matched_other._raw_tensor,
                 )
             elif self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.sub_ct_pt64(
-                    matched_self._raw_tensor, matched_other._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_self._raw_tensor,
+                    matched_other._raw_tensor,
                 )
             elif not self.is_encrypted and other.is_encrypted:
                 negative_other = -matched_other
                 result_raw_tensor = shell_ops.add_ct_pt64(
-                    negative_other._raw_tensor, matched_self._raw_tensor
+                    matched_self._context._raw_context,
+                    negative_other._raw_tensor,
+                    matched_self._raw_tensor,
                 )
             elif not self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.sub_pt_pt64(
@@ -209,7 +221,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
             if self.is_encrypted:
                 negative_self = -self
                 raw_result = shell_ops.add_ct_pt64(
-                    negative_self._raw_tensor, shell_other._raw_tensor
+                    self._context._raw_context,
+                    negative_self._raw_tensor,
+                    shell_other._raw_tensor,
                 )
             else:
                 raw_result = shell_ops.sub_pt_pt64(
@@ -239,7 +253,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
     def __neg__(self):
         if self.is_encrypted:
-            raw_result = shell_ops.neg_ct64(self._raw_tensor)
+            raw_result = shell_ops.neg_ct64(
+                self._context._raw_context, self._raw_tensor
+            )
         else:
             raw_result = shell_ops.neg_pt64(
                 self._context._raw_context, self._raw_tensor
@@ -260,15 +276,21 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
             if self.is_encrypted and other.is_encrypted:
                 raw_result = shell_ops.mul_ct_ct64(
-                    matched_self._raw_tensor, matched_other._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_self._raw_tensor,
+                    matched_other._raw_tensor,
                 )
             elif self.is_encrypted and not other.is_encrypted:
                 raw_result = shell_ops.mul_ct_pt64(
-                    matched_self._raw_tensor, matched_other._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_self._raw_tensor,
+                    matched_other._raw_tensor,
                 )
             elif not self.is_encrypted and other.is_encrypted:
                 raw_result = shell_ops.mul_ct_pt64(
-                    matched_other._raw_tensor, matched_self._raw_tensor
+                    matched_self._context._raw_context,
+                    matched_other._raw_tensor,
+                    matched_self._raw_tensor,
                 )
             elif not self.is_encrypted and not other.is_encrypted:
                 raw_result = shell_ops.mul_pt_pt64(
@@ -394,9 +416,9 @@ def _match_moduli_and_scaling(x, y):
         )
 
     while x._scaling_factor > y._scaling_factor:
-        y = y * x._scaling_factor
+        y = y.__mul__(x._scaling_factor)
     while x._scaling_factor < y._scaling_factor:
-        x = x * y._scaling_factor
+        x = x.__mul__(y._scaling_factor)
 
     return x, y
 

@@ -95,9 +95,10 @@ class AddCtCtOp : public OpKernel {
   explicit AddCtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Unpack the input arguments.
-    Tensor const& a = op_ctx->input(0);
-    Tensor const& b = op_ctx->input(1);
+    // Unpack the input arguments. The 0th argument is the context, which is not
+    // directly used in this op but required for graph optimization.
+    Tensor const& a = op_ctx->input(1);
+    Tensor const& b = op_ctx->input(2);
 
     BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
                 /*fewer_dims_optimization=*/true);
@@ -154,9 +155,10 @@ class AddCtPtOp : public OpKernel {
   explicit AddCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Unpack the input arguments.
-    Tensor const& a = op_ctx->input(0);
-    Tensor const& b = op_ctx->input(1);
+    // Unpack the input arguments. The 0th argument is the context, which is not
+    // directly used in this op but required for graph optimization.
+    Tensor const& a = op_ctx->input(1);
+    Tensor const& b = op_ctx->input(2);
 
     BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
                 /*fewer_dims_optimization=*/true);
@@ -279,8 +281,9 @@ class NegCtOp : public OpKernel {
   explicit NegCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Unpack the input argument.
-    Tensor const& a = op_ctx->input(0);
+    // Unpack the input arguments. The 0th argument is the context, which is not
+    // directly used in this op but required for graph optimization.
+    Tensor const& a = op_ctx->input(1);
 
     // Allocate the output tensor which is the same size as the input.
     Tensor* output;
