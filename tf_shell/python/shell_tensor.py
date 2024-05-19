@@ -44,10 +44,6 @@ class ShellTensor64(tf.experimental.ExtensionType):
         return self._raw_tensor.name
 
     @property
-    def dtype(self):
-        return self._raw_tensor.name
-
-    @property
     def plaintext_dtype(self):
         return self._underlying_dtype
 
