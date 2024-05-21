@@ -59,7 +59,6 @@ class ShellDense:
     def __call__(self, inputs):
         if not self.built:
             self.build(inputs.shape)
-            self.built = True
 
         self._layer_input = inputs
 

@@ -6,6 +6,7 @@ py_library(
         "__init__.py",
         "activation.py",
         "dense.py",
+        "dropout.py",
         "loss.py",
     ],
     visibility = ["//visibility:public"],

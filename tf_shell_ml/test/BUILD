@@ -29,3 +29,13 @@ py_test(
         requirement("tensorflow-cpu"),
     ],
 )
+
+py_test(
+    name = "dropout_test",
+    size = "medium",
+    srcs = ["dropout_test.py"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow-cpu"),
+    ],
+)
