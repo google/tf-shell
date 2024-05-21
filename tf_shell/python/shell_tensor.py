@@ -124,6 +124,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 # with zeros replicate the scalar across all slots.
                 other = tf.broadcast_to(other, (self._context.num_slots, 1))
 
+            elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
+                other = tf.broadcast_to(other, [self._context.num_slots] + other.shape[1:])
+
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self and attempt the addition again.
             so = to_shell_plaintext(other, self._context)
@@ -188,6 +191,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 # with zeros replicate the scalar across all slots.
                 other = tf.broadcast_to(other, (self._context.num_slots, 1))
 
+            elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
+                other = tf.broadcast_to(other, [self._context.num_slots] + other.shape[1:])
+
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self and attempt the subtraction again.
             shell_other = to_shell_plaintext(other, self._context)
@@ -209,6 +215,10 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 # In the special case of scalar subtraction, instead of padding
                 # with zeros replicate the scalar across all slots.
                 other = tf.broadcast_to(other, (self._context.num_slots, 1))
+
+            elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
+                other = tf.broadcast_to(other, [self._context.num_slots] + other.shape[1:])
+
 
             # Import to a shell plaintext, which pads the first dimension with
             # zeros out to the number of slots.
@@ -310,7 +320,11 @@ class ShellTensor64(tf.experimental.ExtensionType):
             # Multiplying by a scalar uses a special op which is more efficient
             # than the caller creating creating a ShellTensor the same
             # dimensions as self and multiplying.
-            if other.shape == (1,) or other.shape == ():
+            if (
+                other.shape == (1,)
+                or other.shape == ()
+                or (other.shape[0] == 1 and len(other.shape) == len(self.shape))
+            ):
                 # Encode the other scalar tensor to the same scaling factor as
                 # self.
                 other = _encode_scaling(other, self._scaling_factor)
