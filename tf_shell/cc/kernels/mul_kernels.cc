@@ -187,46 +187,32 @@ class MulShellTfScalarOp : public OpKernel {
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
 
-    OP_REQUIRES(op_ctx, b.dims() == 0 && b.NumElements() == 1,
-                InvalidArgument("Plaintext must be scalar. Instead got shape:",
-                                b.shape().DebugString()));
+    BCast bcast(BCast::FromShape(a.shape()), BCast::FromShape(b.shape()),
+                /*fewer_dims_optimization=*/false);
+    OP_REQUIRES(
+        op_ctx, bcast.IsValid(),
+        InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
+                        " and ", b.shape().DebugString()));
+    auto flat_a = a.flat<Variant>();  // a is not broadcasted, just b.
+    auto flat_b = MyBFlat<PtT>(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
+
+    // Check the inputs have the same shape.
+    OP_REQUIRES(
+        op_ctx, flat_a.size() == flat_b.size(),
+        InvalidArgument("Broadcasted inputs must have the same shape."));
 
     // Allocate the output tensor which is the same shape as the first input.
     Tensor* output;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
-
-    // Set up the flat views of the inputs and output tensors.
-    auto flat_a = a.flat<Variant>();
-    auto flat_b = b.flat<PtT>();
     auto flat_output = output->flat<Variant>();
 
-    // First, encode the scalar b.
-    T wrapped_b;
-    if constexpr (std::is_signed<PtT>::value) {
-      // SHELL is built on the assumption that the plaintext type (in this
-      // case `PtT`) will always fit into the ciphertext underlying type
-      // (in this case `T`). E.g. the plaintext modulus is stored as the
-      // ciphertext type. This is true even in the RNS code paths. This means
-      // that this function can convert `PtT` to a signed version of `T`,
-      // then modulus switch into plaintext field t and type `T` without
-      // overflow.
-      using SignedInteger = std::make_signed_t<T>;
-
-      SignedInteger signed_b = static_cast<SignedInteger>(flat_b(0));
-
-      // Map signed integers into the plaintext modulus field.
-      OP_REQUIRES_VALUE(
-          std::vector<T> wrapped_b_vector, op_ctx,
-          (encoder->template WrapSigned<SignedInteger>({signed_b})));
-
-      wrapped_b = wrapped_b_vector[0];
-    } else {
-      // Since From and To are both unsigned, just cast and copy.
-      wrapped_b = static_cast<T>(flat_b(0));
-    }
-
-    // Now multiply every polynomial in a by the same b.
+    // Now multiply.
     for (int i = 0; i < flat_output.dimension(0); ++i) {
+      // First encode the scalar b
+      // TDOO(jchoncholas): encode all scalars at once beforehand.
+      T wrapped_b;
+      EncodeScalar(op_ctx, flat_b(i), encoder, &wrapped_b);
+
       CtOrPolyVariant const* ct_or_pt_var =
           std::move(flat_a(i).get<CtOrPolyVariant>());
       OP_REQUIRES(op_ctx, ct_or_pt_var != nullptr,
@@ -252,6 +238,32 @@ class MulShellTfScalarOp : public OpKernel {
         CtOrPolyVariant result_var(std::move(result));
         flat_output(i) = std::move(result_var);
       }
+    }
+  }
+
+private:
+  void EncodeScalar(OpKernelContext* op_ctx, PtT const& val, Encoder const* encoder, T* wrapped_val) {
+    if constexpr (std::is_signed<PtT>::value) {
+      // SHELL is built on the assumption that the plaintext type (in this
+      // case `PtT`) will always fit into the ciphertext underlying type
+      // (in this case `T`). E.g. the plaintext modulus is stored as the
+      // ciphertext type. This is true even in the RNS code paths. This means
+      // that this function can convert `PtT` to a signed version of `T`,
+      // then modulus switch into plaintext field t and type `T` without
+      // overflow.
+      using SignedInteger = std::make_signed_t<T>;
+
+      SignedInteger signed_val = static_cast<SignedInteger>(val);
+
+      // Map signed integers into the plaintext modulus field.
+      OP_REQUIRES_VALUE(
+          std::vector<T> wrapped_val_vector, op_ctx,
+          (encoder->template WrapSigned<SignedInteger>({signed_val})));
+
+      *wrapped_val = wrapped_val_vector[0];
+    } else {
+      // Since From and To are both unsigned, just cast and copy.
+      *wrapped_val = static_cast<T>(val);
     }
   }
 };

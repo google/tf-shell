@@ -217,6 +217,12 @@ class TestShellTensor(tf.test.TestCase):
             )
             print(e)
             return
+        
+        # Resize b so the size of the first dimension is 1. This is the
+        # ciphertext packing dimension and tests the code path in tf-shell
+        # where this operation is performed using a special scalar op which
+        # does not require computing the NTT of the plaintext.
+        b = tf.expand_dims(b[0], axis=0)
 
         sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
         ea = tf_shell.to_encrypted(sa, test_context.key)
@@ -231,6 +237,35 @@ class TestShellTensor(tf.test.TestCase):
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
     def test_ct_tf_scalar_mul(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"ct_tf_scalar_mul with context `{test_context}`."):
+                self._test_ct_tf_scalar_mul(test_context)
+
+    def _test_ct_tf_single_scalar_mul(self, test_context):
+        try:
+            # This test performs one multiplication.
+            a = test_utils.uniform_for_n_muls(test_context, 1)
+            b = test_utils.uniform_for_n_muls(test_context, 1, shape=[1])
+        except Exception as e:
+            print(
+                f"Note: Skipping test ct_tf_scalar_mul with context {test_context}. Not enough precision to support this test."
+            )
+            print(e)
+            return
+        
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key)
+
+        ec = ea * b
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key))
+
+        ed = b * ea
+        self.assertAllClose(a * b, tf_shell.to_tensorflow(ed, test_context.key))
+
+        # Check the arguments were not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_ct_tf_single_scalar_mul(self):
         for test_context in self.test_contexts:
             with self.subTest(f"ct_tf_scalar_mul with context `{test_context}`."):
                 self._test_ct_tf_scalar_mul(test_context)
