@@ -64,8 +64,8 @@ class MulCtCtOp : public OpKernel {
         op_ctx, bcast.IsValid(),
         InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
                         " and ", b.shape().DebugString()));
-    auto flat_a = MyBFlat(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
-    auto flat_b = MyBFlat(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
+    auto flat_a = MyBFlat<Variant>(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
+    auto flat_b = MyBFlat<Variant>(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
 
     // Check the inputs have the same shape.
     OP_REQUIRES(
@@ -124,8 +124,8 @@ class MulCtPtOp : public OpKernel {
         op_ctx, bcast.IsValid(),
         InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
                         " and ", b.shape().DebugString()));
-    auto flat_a = MyBFlat(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
-    auto flat_b = MyBFlat(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
+    auto flat_a = MyBFlat<Variant>(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
+    auto flat_b = MyBFlat<Variant>(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
 
     // Check the inputs have the same shape.
     OP_REQUIRES(
@@ -281,8 +281,8 @@ class MulPtPtOp : public OpKernel {
         op_ctx, bcast.IsValid(),
         InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
                         " and ", b.shape().DebugString()));
-    auto flat_a = MyBFlat(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
-    auto flat_b = MyBFlat(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
+    auto flat_a = MyBFlat<Variant>(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
+    auto flat_b = MyBFlat<Variant>(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
 
     // Check the inputs have the same shape.
     OP_REQUIRES(

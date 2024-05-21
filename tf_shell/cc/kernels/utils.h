@@ -92,8 +92,8 @@ StatusOr<T const*> GetVariant(OpKernelContext* ctx, int index) {
   return t;
 }
 
-template <int NDIMS>
-inline Eigen::Tensor<Variant, 1, Eigen::RowMajor, Eigen::DenseIndex> BFlat(
+template <typename T, int NDIMS>
+inline Eigen::Tensor<T, 1, Eigen::RowMajor, Eigen::DenseIndex> BFlat(
     OpKernelContext* op_ctx, Tensor const& t, BCast::Vec const& x_reshape,
     BCast::Vec const& x_bcast) {
   // A TensorFlow is a TTypes<T, NDIM>::Tensor (aka Eigen::TensorMap).
@@ -103,10 +103,10 @@ inline Eigen::Tensor<Variant, 1, Eigen::RowMajor, Eigen::DenseIndex> BFlat(
   // assigns the result of the reshape to an Eigen::Tensor.
   //
   // For a demo, see https://godbolt.org/z/41xvWvb63
-  typedef Eigen::Tensor<Variant, NDIMS, Eigen::RowMajor, Eigen::DenseIndex>
+  typedef Eigen::Tensor<T, NDIMS, Eigen::RowMajor, Eigen::DenseIndex>
       ETensor;
 
-  ETensor reshaped_t = t.template shaped<Variant, NDIMS>(x_reshape);
+  ETensor reshaped_t = t.template shaped<T, NDIMS>(x_reshape);
 
   ETensor broadcasted_t =
       reshaped_t.broadcast(BCast::ToIndexArray<NDIMS>(x_bcast));
@@ -115,7 +115,8 @@ inline Eigen::Tensor<Variant, 1, Eigen::RowMajor, Eigen::DenseIndex> BFlat(
       broadcasted_t.reshape(BCast::ToIndexArray<1>({broadcasted_t.size()})));
 }
 
-inline Eigen::Tensor<Variant, 1, Eigen::RowMajor, Eigen::DenseIndex> MyBFlat(
+template<typename T>
+inline Eigen::Tensor<T, 1, Eigen::RowMajor, Eigen::DenseIndex> MyBFlat(
     OpKernelContext* op_ctx, Tensor const& t, BCast::Vec const& x_reshape,
     BCast::Vec const& x_bcast) {
   // Uses the switch statement approach as in:
@@ -123,21 +124,21 @@ inline Eigen::Tensor<Variant, 1, Eigen::RowMajor, Eigen::DenseIndex> MyBFlat(
   int const ndims = x_reshape.size();
   switch (ndims) {
     case 1:
-      return std::move(BFlat<1>(op_ctx, t, x_reshape, x_bcast));
+      return std::move(BFlat<T, 1>(op_ctx, t, x_reshape, x_bcast));
     case 2:
-      return std::move(BFlat<2>(op_ctx, t, x_reshape, x_bcast));
+      return std::move(BFlat<T, 2>(op_ctx, t, x_reshape, x_bcast));
     case 3:
-      return std::move(BFlat<3>(op_ctx, t, x_reshape, x_bcast));
+      return std::move(BFlat<T, 3>(op_ctx, t, x_reshape, x_bcast));
     case 4:
-      return std::move(BFlat<4>(op_ctx, t, x_reshape, x_bcast));
+      return std::move(BFlat<T, 4>(op_ctx, t, x_reshape, x_bcast));
     case 5:
-      return std::move(BFlat<5>(op_ctx, t, x_reshape, x_bcast));
+      return std::move(BFlat<T, 5>(op_ctx, t, x_reshape, x_bcast));
     case 6:
-      return std::move(BFlat<6>(op_ctx, t, x_reshape, x_bcast));
+      return std::move(BFlat<T, 6>(op_ctx, t, x_reshape, x_bcast));
     default:
       op_ctx->SetStatus(Unimplemented("Broadcast ", t.DebugString(),
                                       " is not supported yet."));
-      return std::move(BFlat<1>(op_ctx, t, x_reshape, x_bcast));
+      return std::move(BFlat<T, 1>(op_ctx, t, x_reshape, x_bcast));
   }
 }
 
