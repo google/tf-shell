@@ -39,3 +39,13 @@ py_test(
         requirement("tensorflow-cpu"),
     ],
 )
+
+py_test(
+    name = "embedding_test",
+    size = "medium",
+    srcs = ["embedding_test.py"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow-cpu"),
+    ],
+)
