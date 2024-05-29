@@ -8,11 +8,8 @@
 		}
 	},
 
-	// Configure tool-specific properties.
 	"customizations": {
-		// Configure properties specific to VS Code.
 		"vscode": {
-			// Add the IDs of extensions you want installed when the container is created.
 			"extensions": [
 				"ms-python.python",
 				"ms-vscode.cpptools-extension-pack",
@@ -20,19 +17,13 @@
 				"minherz.copyright-inserter",
 				"DavidAnson.vscode-markdownlint",
 				"yzhang.markdown-all-in-one",
-				"ms-python.black-formatter"
+				"ms-python.black-formatter",
+				"ms-toolsai.jupyter",
+				"ms-toolsai.tensorboard"
 			]
 		}
 	},
 
 	"mounts": [ "source=/tmp,target=/tmp,type=bind,consistency=cached" ],
-
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [],
-	// Use 'postCreateCommand' to run commands after the container is created.
-	//"postCreateCommand": "echo hi",
-	// Uncomment when using a ptrace-based debugger like C++, Go, and Rust
-	// "runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
-	// Set `remoteUser` to `root` to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
 	"remoteUser": "vscode"
 }
