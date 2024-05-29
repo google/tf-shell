@@ -156,13 +156,19 @@ def train_step(x, y):
 
 
 class TestPlaintextPostScale(tf.test.TestCase):
-    def test_mnist_post_scale_eager(self):
-        tf.config.run_functions_eagerly(True)
+    def _test_mnist_post_scale(self, eager_mode):
+        tf.config.run_functions_eagerly(eager_mode)
 
         (x_batch, y_batch) = next(iter(train_dataset))
 
         # Plaintext
         ps_grads = train_step(x_batch, y_batch)
+
+        if not eager_mode:
+            # With autograph on (eagerly off), the tf.function trace cannot be
+            # reused between plaintext and encrypted calls. Reset the graph
+            # between plaintext and encrypted train_step() calls.
+            tf.keras.backend.clear_session()
 
         # Encrypted
         enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
@@ -175,31 +181,10 @@ class TestPlaintextPostScale(tf.test.TestCase):
             atol=1 / context.scaling_factor * context.num_slots,
         )
 
-
-class TestPlaintextPostScale(tf.test.TestCase):
-    def test_mnist_post_scale_autograph(self):
-        tf.config.run_functions_eagerly(False)
-
-        (x_batch, y_batch) = next(iter(train_dataset))
-
-        # Plaintext
-        ps_grads = train_step(x_batch, y_batch)
-
-        # With autograph on (eagerly off), the tf.function trace cannot be
-        # reused between plaintext and encrypted calls. Reset the graph
-        # between plaintext and encrypted train_step() calls.
+    def test_mnist_post_scale(self):
+        self._test_mnist_post_scale(eager_mode=False)
         tf.keras.backend.clear_session()
-
-        # Encrypted
-        enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
-        shell_ps_grads = train_step(x_batch, enc_y_batch)
-
-        # Compare the gradients.
-        self.assertAllClose(
-            ps_grads,
-            shell_ps_grads,
-            atol=1 / context.scaling_factor * context.num_slots,
-        )
+        self._test_mnist_post_scale(eager_mode=True)
 
 
 if __name__ == "__main__":
