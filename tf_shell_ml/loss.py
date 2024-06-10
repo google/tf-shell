@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from tensorflow.nn import softmax
+from tensorflow.nn import sigmoid
 from tensorflow.math import log
 import tf_shell
 
@@ -35,6 +36,40 @@ class CategoricalCrossentropy:
     def grad(self, y_true, y_pred):
         if self.from_logits:
             y_pred = softmax(y_pred)
+
+        # When using deferred execution, we need to use the __rsub__ method
+        # otherwise it tries to go through the y tensors __sub__ method which
+        # fails when y_true is encrypted (a ShellTensor64).
+        # grad = y_pred - y_true
+        grad = y_true.__rsub__(y_pred)
+
+        if not self.lazy_normalization:
+            # batch_size = y_true.shape.as_list()[0]
+            # batch_size_inv = 1 / batch_size
+            # grad = grad * batch_size_inv
+            raise NotImplementedError("Multiply by scalar op not implemented.")
+        return grad
+
+
+class BinaryCrossentropy:
+
+    def __init__(self, from_logits=False, lazy_normalization=True):
+        self.from_logits = from_logits
+        self.lazy_normalization = lazy_normalization
+
+    def __call__(self, y_true, y_pred):
+        if self.from_logits:
+            y_pred = sigmoid(y_pred)
+
+        batch_size = y_true.shape.as_list()[0]
+        batch_size_inv = 1 / batch_size
+        out = -(y_true * log(y_pred) + (1 - y_true) * log(1 - y_pred))
+        bce = tf_shell.reduce_sum(out, axis=0) * batch_size_inv
+        return bce
+
+    def grad(self, y_true, y_pred):
+        if self.from_logits:
+            y_pred = sigmoid(y_pred)
 
         # When using deferred execution, we need to use the __rsub__ method
         # otherwise it tries to go through the y tensors __sub__ method which
