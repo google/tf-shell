@@ -13,7 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import math
 import tensorflow as tf
 import tf_shell.python.ops.shell_ops as shell_ops
 from tf_shell.python.shell_context import ShellContext64
@@ -34,6 +33,10 @@ class ShellTensor64(tf.experimental.ExtensionType):
     @property
     def shape(self):
         return [self._context.num_slots] + self._raw_tensor.shape
+
+    @property
+    def ndim(self):
+        return self._raw_tensor.ndim + 1
 
     @property
     def dtype(self):
@@ -690,12 +693,16 @@ def matmul(x, y, rotation_key=None):
     """Matrix multiplication is specialized to whether the operands are
     plaintext or ciphertext.
 
-    matmul(ciphertext, plaintext) works as in Tensorflow.
+    matmul(ciphertext, plaintext) works the same way as Tensorflow.
 
     matmul(plaintext, ciphertext) in tf-shell has slightly different semantics
     than plaintext / Tensorflow. tf-shell affects top and bottom halves
     independently, as well as the first dimension repeating the sum of either
     the halves."""
+
+    if len(x.shape) < 2 or len(y.shape) < 2:
+        raise ValueError(f"matmul not supported for tensors with rank < 2. Got {x.shape} and {y.shape}.")
+
     if isinstance(x, ShellTensor64) and isinstance(y, tf.Tensor):
         if x._underlying_dtype != y.dtype:
             raise ValueError(
@@ -820,5 +827,25 @@ def reshape(x, shape):
         )
     elif isinstance(x, tf.Tensor):
         return tf.reshape(x, shape)
+    else:
+        raise ValueError("Unsupported type for expand_dims")
+
+def broadcast_to(x, shape):
+    if isinstance(x, ShellTensor64):
+        if shape[0] != x._context.num_slots:
+            raise ValueError(
+                "Cannot broadcast_to over axis 0 for ShellTensor64, this is the batching dimension."
+            )
+
+        return ShellTensor64(
+            _raw_tensor=tf.broadcast_to(x._raw_tensor, shape[1:]),
+            _context=x._context,
+            _underlying_dtype=x._underlying_dtype,
+            _scaling_factor=x._scaling_factor,
+            _is_enc=x._is_enc,
+            _noise_bit_count=x._noise_bit_count,
+        )
+    elif isinstance(x, tf.Tensor):
+        return tf.broadcast_to(x, shape)
     else:
         raise ValueError("Unsupported type for expand_dims")
