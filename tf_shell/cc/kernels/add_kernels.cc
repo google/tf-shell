@@ -106,13 +106,10 @@ class AddCtCtOp : public OpKernel {
         op_ctx, bcast.IsValid(),
         InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
                         " and ", b.shape().DebugString()));
-    auto flat_a = MyBFlat<Variant>(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
-    auto flat_b = MyBFlat<Variant>(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
-
-    // Check the inputs have the same shape.
-    OP_REQUIRES(
-        op_ctx, flat_a.size() == flat_b.size(),
-        InvalidArgument("Broadcasted inputs must have the same shape."));
+    auto flat_a = a.flat<Variant>();
+    auto flat_b = b.flat<Variant>();
+    IndexConverterFunctor a_bcaster(bcast.output_shape(), a.shape());
+    IndexConverterFunctor b_bcaster(bcast.output_shape(), b.shape());
 
     // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
@@ -122,14 +119,14 @@ class AddCtCtOp : public OpKernel {
 
     for (int i = 0; i < flat_output.dimension(0); ++i) {
       SymmetricCtVariant<T> const* ct_a_var =
-          std::move(flat_a(i).get<SymmetricCtVariant<T>>());
+          std::move(flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>());
       OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index: ", i,
                                   " for input a did not unwrap successfully."));
       SymmetricCt const& ct_a = ct_a_var->ct;
 
       SymmetricCtVariant<T> const* ct_b_var =
-          std::move(flat_b(i).get<SymmetricCtVariant<T>>());
+          std::move(flat_b(b_bcaster(i)).get<SymmetricCtVariant<T>>());
       OP_REQUIRES(op_ctx, ct_b_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index: ", i,
                                   " for input b did not unwrap successfully."));
@@ -166,13 +163,10 @@ class AddCtPtOp : public OpKernel {
         op_ctx, bcast.IsValid(),
         InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
                         " and ", b.shape().DebugString()));
-    auto flat_a = MyBFlat<Variant>(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
-    auto flat_b = MyBFlat<Variant>(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
-
-    // Check the inputs have the same shape.
-    OP_REQUIRES(
-        op_ctx, flat_a.size() == flat_b.size(),
-        InvalidArgument("Broadcasted inputs must have the same shape."));
+    auto flat_a = a.flat<Variant>();
+    auto flat_b = b.flat<Variant>();
+    IndexConverterFunctor a_bcaster(bcast.output_shape(), a.shape());
+    IndexConverterFunctor b_bcaster(bcast.output_shape(), b.shape());
 
     // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
@@ -182,14 +176,14 @@ class AddCtPtOp : public OpKernel {
 
     for (int i = 0; i < flat_output.dimension(0); ++i) {
       SymmetricCtVariant<T> const* ct_a_var =
-          std::move(flat_a(i).get<SymmetricCtVariant<T>>());
+          std::move(flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>());
       OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index: ", i,
                                   " for input a did not unwrap successfully."));
       SymmetricCt const& ct_a = ct_a_var->ct;
 
       PolynomialVariant<T> const* pv_b_var =
-          std::move(flat_b(i).get<PolynomialVariant<T>>());
+          std::move(flat_b(b_bcaster(i)).get<PolynomialVariant<T>>());
       OP_REQUIRES(op_ctx, pv_b_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index: ", i,
                                   " for input b did not unwrap successfully."));
@@ -229,13 +223,10 @@ class AddPtPtOp : public OpKernel {
         op_ctx, bcast.IsValid(),
         InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
                         " and ", b.shape().DebugString()));
-    auto flat_a = MyBFlat<Variant>(op_ctx, a, bcast.x_reshape(), bcast.x_bcast());
-    auto flat_b = MyBFlat<Variant>(op_ctx, b, bcast.y_reshape(), bcast.y_bcast());
-
-    // Check the inputs have the same shape.
-    OP_REQUIRES(
-        op_ctx, flat_a.size() == flat_b.size(),
-        InvalidArgument("Broadcasted inputs must have the same shape."));
+    auto flat_a = a.flat<Variant>();
+    auto flat_b = b.flat<Variant>();
+    IndexConverterFunctor a_bcaster(bcast.output_shape(), a.shape());
+    IndexConverterFunctor b_bcaster(bcast.output_shape(), b.shape());
 
     // Allocate the output tensor which is the same size as one of the inputs.
     Tensor* output;
@@ -245,14 +236,14 @@ class AddPtPtOp : public OpKernel {
 
     for (int i = 0; i < flat_output.dimension(0); ++i) {
       PolynomialVariant<T> const* pv_a_var =
-          std::move(flat_a(i).get<PolynomialVariant<T>>());
+          std::move(flat_a(a_bcaster(i)).get<PolynomialVariant<T>>());
       OP_REQUIRES(op_ctx, pv_a_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index: ", i,
                                   " for input a did not unwrap successfully."));
       RnsPolynomial const& pt_a = pv_a_var->poly;
 
       PolynomialVariant<T> const* pv_b_var =
-          std::move(flat_b(i).get<PolynomialVariant<T>>());
+          std::move(flat_b(b_bcaster(i)).get<PolynomialVariant<T>>());
       OP_REQUIRES(op_ctx, pv_b_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index: ", i,
                                   " for input b did not unwrap successfully."));
