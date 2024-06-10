@@ -199,7 +199,7 @@ class TestShellTensor(tf.test.TestCase):
         self.assertAllClose(b, tf_shell.to_tensorflow(sb))
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
-    def test_ct_pt_mul(self):
+    def test_ct_pt_mul_with_broadcast(self):
         for test_context in self.test_contexts:
             with self.subTest(
                 f"ct_pt_mul_with_broadcast with context `{test_context}`."

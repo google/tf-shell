@@ -92,55 +92,72 @@ StatusOr<T const*> GetVariant(OpKernelContext* ctx, int index) {
   return t;
 }
 
-template <typename T, int NDIMS>
-inline Eigen::Tensor<T, 1, Eigen::RowMajor, Eigen::DenseIndex> BFlat(
-    OpKernelContext* op_ctx, Tensor const& t, BCast::Vec const& x_reshape,
-    BCast::Vec const& x_bcast) {
-  // A TensorFlow is a TTypes<T, NDIM>::Tensor (aka Eigen::TensorMap).
-  // Eigen::TensorMap is a view into an Eigen::Tensor. When performing a
-  // reshape, broadcast, or even eval on an Eigen::TensorMap, it cannot be
-  // assigned to another Eigen::TensorMap. This is why the following code
-  // assigns the result of the reshape to an Eigen::Tensor.
-  //
-  // For a demo, see https://godbolt.org/z/41xvWvb63
-  typedef Eigen::Tensor<T, NDIMS, Eigen::RowMajor, Eigen::DenseIndex>
-      ETensor;
-
-  ETensor reshaped_t = t.template shaped<T, NDIMS>(x_reshape);
-
-  ETensor broadcasted_t =
-      reshaped_t.broadcast(BCast::ToIndexArray<NDIMS>(x_bcast));
-
-  return std::move(
-      broadcasted_t.reshape(BCast::ToIndexArray<1>({broadcasted_t.size()})));
-}
-
-template<typename T>
-inline Eigen::Tensor<T, 1, Eigen::RowMajor, Eigen::DenseIndex> MyBFlat(
-    OpKernelContext* op_ctx, Tensor const& t, BCast::Vec const& x_reshape,
-    BCast::Vec const& x_bcast) {
-  // Uses the switch statement approach as in:
-  // `tensorflow/tensorflow/core/kernels/broadcast_to_op.h`
-  int const ndims = x_reshape.size();
-  switch (ndims) {
-    case 1:
-      return std::move(BFlat<T, 1>(op_ctx, t, x_reshape, x_bcast));
-    case 2:
-      return std::move(BFlat<T, 2>(op_ctx, t, x_reshape, x_bcast));
-    case 3:
-      return std::move(BFlat<T, 3>(op_ctx, t, x_reshape, x_bcast));
-    case 4:
-      return std::move(BFlat<T, 4>(op_ctx, t, x_reshape, x_bcast));
-    case 5:
-      return std::move(BFlat<T, 5>(op_ctx, t, x_reshape, x_bcast));
-    case 6:
-      return std::move(BFlat<T, 6>(op_ctx, t, x_reshape, x_bcast));
-    default:
-      op_ctx->SetStatus(Unimplemented("Broadcast ", t.DebugString(),
-                                      " is not supported yet."));
-      return std::move(BFlat<T, 1>(op_ctx, t, x_reshape, x_bcast));
+// A class to help switching indexing schemes from a broadcasted tensor to the
+// underlying tensor which resides in memory.
+// 
+// Background:
+// A TensorFlow Tensor is of type TTypes<T, NDIM>::Tensor (aka Eigen::TensorMap).
+// Eigen::TensorMap is like a view into an Eigen::Tensor. When performing a
+// reshape, broadcast, or even an eval operation on an Eigen::TensorMap, it
+// cannot be assigned to another Eigen::TensorMap. This means that broadcasting
+// a tensor requires fully materializing it (i.e. a deep copy). This is slow an
+// unnecessary. Instead, this class will switch the indexing scheme from the
+// a broadcasted tensor to the underlying tensor.
+// 
+// For a demo of why TensorMaps cannot avoid materializing after a broadcast
+// operation, see https://godbolt.org/z/41xvWvb63.
+//
+// Say a tensor should be broadcasted from `underlying_shape` to `bc_shape`.
+// When this class is called via the () operator, it returns the index into the
+// underlying tensor computed from the flat broadcasted index `bc_flat_index`.
+class IndexConverterFunctor {
+ public:
+  IndexConverterFunctor(BCast::Vec const& bc_shape,
+                        tensorflow::TensorShape const& underlying_shape)
+      : bc_shape_(bc_shape), underlying_shape_(underlying_shape) {
+    if (BCast::ToShape(bc_shape) == underlying_shape) {
+      functor_ = &IndexConverterFunctor::identity;
+    } else {
+      functor_ = &IndexConverterFunctor::broadcastToUnderlyingIndex;
+    };
   }
-}
+
+  inline int operator()(int bc_flat_index) {
+    return std::invoke(functor_, this, bc_flat_index);
+  }
+
+ private:
+  int (IndexConverterFunctor::*functor_)(int);
+  BCast::Vec const& bc_shape_;
+  tensorflow::TensorShape const& underlying_shape_;
+
+  int identity(int bc_flat_index) { return bc_flat_index; }
+
+  int broadcastToUnderlyingIndex(int bc_flat_index) {
+    // First convert the flat indexing scheme to the output_shape.
+    auto const bc_ndims = bc_shape_.size();
+    std::vector<int> bc_full_index(bc_ndims);
+    for (int i = bc_ndims - 1; i >= 0; --i) {
+      bc_full_index[i] = bc_flat_index % bc_shape_[i];
+      bc_flat_index /= bc_shape_[i];
+    }
+
+    // Undo the broadcasting.
+    assert(bcast.size() == bc_ndims);
+    for (size_t i = 0; i < bc_ndims; ++i) {
+      bc_full_index[i] %= underlying_shape_.dim_size(i);
+    }
+
+    // Compute the flat index of the underlying shape.
+    int underlying_index = 0;
+    for (int i = 0; i < underlying_shape_.dims(); ++i) {
+      underlying_index *= underlying_shape_.dim_size(i);
+      underlying_index += bc_full_index[i];
+    }
+
+    return underlying_index;
+  }
+};
 
 // Status macros from
 // https://github.com/abseil/abseil-cpp/issues/976#issuecomment-1664601671
