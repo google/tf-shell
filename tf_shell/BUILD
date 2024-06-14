@@ -5,9 +5,9 @@ filegroup(
     srcs = glob([
         "cc/kernels/*.cc",
         "cc/kernels/*.h",
-    ]) + [
-        "cc/ops/shell_ops.cc",
-    ],
+        "cc/ops/*.cc",
+        "cc/ops/*.h",
+    ]),
 )
 
 cc_binary(
