@@ -128,7 +128,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 other = tf.broadcast_to(other, (self._context.num_slots, 1))
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
-                other = tf.broadcast_to(other, [self._context.num_slots] + other.shape[1:])
+                other = tf.broadcast_to(
+                    other, [self._context.num_slots] + other.shape[1:]
+                )
 
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self and attempt the addition again.
@@ -195,7 +197,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 other = tf.broadcast_to(other, (self._context.num_slots, 1))
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
-                other = tf.broadcast_to(other, [self._context.num_slots] + other.shape[1:])
+                other = tf.broadcast_to(
+                    other, [self._context.num_slots] + other.shape[1:]
+                )
 
             # Lift tensorflow tensor to shell tensor with the same scaling
             # factor as self and attempt the subtraction again.
@@ -220,8 +224,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 other = tf.broadcast_to(other, (self._context.num_slots, 1))
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
-                other = tf.broadcast_to(other, [self._context.num_slots] + other.shape[1:])
-
+                other = tf.broadcast_to(
+                    other, [self._context.num_slots] + other.shape[1:]
+                )
 
             # Import to a shell plaintext, which pads the first dimension with
             # zeros out to the number of slots.
@@ -701,7 +706,9 @@ def matmul(x, y, rotation_key=None):
     the halves."""
 
     if len(x.shape) < 2 or len(y.shape) < 2:
-        raise ValueError(f"matmul not supported for tensors with rank < 2. Got {x.shape} and {y.shape}.")
+        raise ValueError(
+            f"matmul not supported for tensors with rank < 2. Got {x.shape} and {y.shape}."
+        )
 
     if isinstance(x, ShellTensor64) and isinstance(y, tf.Tensor):
         if x._underlying_dtype != y.dtype:
@@ -830,6 +837,7 @@ def reshape(x, shape):
     else:
         raise ValueError("Unsupported type for expand_dims")
 
+
 def broadcast_to(x, shape):
     if isinstance(x, ShellTensor64):
         if shape[0] != x._context.num_slots:
@@ -849,3 +857,30 @@ def broadcast_to(x, shape):
         return tf.broadcast_to(x, shape)
     else:
         raise ValueError("Unsupported type for expand_dims")
+
+
+def segment_sum(x, segments, num_segments, rotation_key=None):
+    if not isinstance(segments, tf.Tensor):
+        raise ValueError("`segments` must be a TensorFlow tensor.")
+
+    if isinstance(x, ShellTensor64):
+        if not isinstance(rotation_key, ShellRotationKey64):
+            raise ValueError(
+                f"Rotation key must be provided. Instead saw {rotation_key}."
+            )
+        raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
+
+        return ShellTensor64(
+            _raw_tensor=shell_ops.segment_sum_ct(
+                x._context._raw_context, x._raw_tensor, segments, num_segments, raw_rotation_key
+            ),
+            _context=x._context,
+            _underlying_dtype=x._underlying_dtype,
+            _scaling_factor=x._scaling_factor,
+            _is_enc=x._is_enc,
+            _noise_bit_count=x._noise_bit_count,
+        )
+    elif isinstance(x, tf.Tensor):
+        return tf.math.unsorted_segment_sum(x, segments, num_segments)
+    else:
+        raise ValueError("Unsupported type for segment_sum")

@@ -324,3 +324,16 @@ REGISTER_OP("ExpandDimsVariant")
       c->set_output(0, output);
       return OkStatus();
     });
+
+// Segment sum where the segment_ids are plaintexts.
+// Based on : https://github.com/tensorflow/tensorflow/blob/dfdba938a0048611319ce192d8f17639e058ad00/tensorflow/core/ops/math_ops.cc#L1293
+REGISTER_OP("UnsortedCtSegmentSum")
+    .Input("shell_context: variant")
+    .Input("data: variant")
+    .Input("segment_ids: Tindices")
+    .Input("num_segments: Tnumsegments")
+    .Input("rotation_key: variant")
+    .Output("output: variant")
+    .Attr("Tindices: {int32,int64}")
+    .Attr("Tnumsegments: {int32,int64} = DT_INT32")
+    .SetShapeFn(ShellSegmentReductionWithNumSegmentsShape);

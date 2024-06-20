@@ -188,6 +188,14 @@ class DecryptOp : public OpKernel {
                                     " did not unwrap successfully."));
         SymmetricCt const& ct = ct_var->ct;
 
+        // Skip empy ciphertexts (constructed with shell's ::CreateZero).
+        if (ct.Len() == 0) {
+          for (size_t slot = 0; slot < num_slots; ++slot) {
+            flat_output(slot, i) = static_cast<To>(0);
+          }
+          continue;
+        }
+
         // Decrypt() returns coefficients in underlying (e.g. uint64) form after
         // doing the outer modulo and inverse NTT.
         OP_REQUIRES_VALUE(

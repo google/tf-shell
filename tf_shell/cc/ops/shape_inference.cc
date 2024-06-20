@@ -113,3 +113,43 @@ Status ShellMatMulPtCtShape(InferenceContext* c) {
   c->set_output(0, output_shape);
   return OkStatus();
 }
+
+// Based on
+// https://github.com/tensorflow/tensorflow/blob/c6e9fd55508e466aa7db265eb5742ac9e4c4332e/tensorflow/core/framework/common_shape_fns.cc#L2408
+Status ShellSegmentReductionWithNumSegmentsShape(InferenceContext* c) {
+  ShapeHandle s_data = c->input(1);
+  ShapeHandle s_segment_ids = c->input(2);
+  ShapeHandle s_num_segments = c->input(3);
+  TF_RETURN_IF_ERROR(c->WithRank(s_num_segments, 0, &s_num_segments));
+
+  ShapeHandle out;
+
+  if (c->RankKnown(s_segment_ids)) {
+    // Leading dimensions of data must be compatible with dimensions of
+    // s_segment_ids, but ignore the batch axis packing dimension which
+    // is checked at op kernel time.
+    ShapeHandle s_segment_ids_suffix;
+    TF_RETURN_IF_ERROR(c->Subshape(s_segment_ids, 1, &s_segment_ids_suffix));
+    ShapeHandle matching_prefix;
+    TF_RETURN_IF_ERROR(c->MergePrefix(s_data, s_segment_ids_suffix, &s_data,
+                                      &s_segment_ids_suffix));
+
+    // Get the value of the num_segments input tensor.
+    DimensionHandle num_segments_dim;
+    TF_RETURN_IF_ERROR(c->MakeDimForScalarInput(3, &num_segments_dim));
+
+    // Output is {2} + {ct dim} + {segment_id_rank} + s_data[segment_id_rank -
+    // 1:]. 2 is because the top and bottom of the ciphertexts are treated
+    // independently.
+    ShapeHandle s_data_suffix;
+    auto rank = c->Rank(s_segment_ids_suffix);
+    TF_RETURN_IF_ERROR(c->Subshape(s_data, rank, &s_data_suffix));
+    TF_RETURN_IF_ERROR(
+        c->Concatenate(c->Vector(num_segments_dim), s_data_suffix, &out));
+    TF_RETURN_IF_ERROR(c->Concatenate(c->Vector(c->MakeDim(2)), out, &out));
+  } else {
+    out = c->UnknownShape();
+  }
+  c->set_output(0, out);
+  return OkStatus();
+}
