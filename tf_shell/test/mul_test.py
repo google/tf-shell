@@ -217,7 +217,7 @@ class TestShellTensor(tf.test.TestCase):
             )
             print(e)
             return
-        
+
         # Resize b so the size of the first dimension is 1. This is the
         # ciphertext packing dimension and tests the code path in tf-shell
         # where this operation is performed using a special scalar op which
@@ -252,7 +252,7 @@ class TestShellTensor(tf.test.TestCase):
             )
             print(e)
             return
-        
+
         sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
         ea = tf_shell.to_encrypted(sa, test_context.key)
 

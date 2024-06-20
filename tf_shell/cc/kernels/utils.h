@@ -94,16 +94,16 @@ StatusOr<T const*> GetVariant(OpKernelContext* ctx, int index) {
 
 // A class to help switching indexing schemes from a broadcasted tensor to the
 // underlying tensor which resides in memory.
-// 
+//
 // Background:
-// A TensorFlow Tensor is of type TTypes<T, NDIM>::Tensor (aka Eigen::TensorMap).
-// Eigen::TensorMap is like a view into an Eigen::Tensor. When performing a
-// reshape, broadcast, or even an eval operation on an Eigen::TensorMap, it
-// cannot be assigned to another Eigen::TensorMap. This means that broadcasting
-// a tensor requires fully materializing it (i.e. a deep copy). This is slow an
-// unnecessary. Instead, this class will switch the indexing scheme from the
-// a broadcasted tensor to the underlying tensor.
-// 
+// A TensorFlow Tensor is of type TTypes<T, NDIM>::Tensor (aka
+// Eigen::TensorMap). Eigen::TensorMap is like a view into an Eigen::Tensor.
+// When performing a reshape, broadcast, or even an eval operation on an
+// Eigen::TensorMap, it cannot be assigned to another Eigen::TensorMap. This
+// means that broadcasting a tensor requires fully materializing it (i.e. a deep
+// copy). This is slow an unnecessary. Instead, this class will switch the
+// indexing scheme from the a broadcasted tensor to the underlying tensor.
+//
 // For a demo of why TensorMaps cannot avoid materializing after a broadcast
 // operation, see https://godbolt.org/z/41xvWvb63.
 //

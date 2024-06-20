@@ -252,7 +252,8 @@ class MulShellTfScalarOp : public OpKernel {
   }
 
  private:
-  void EncodeScalar(OpKernelContext* op_ctx, PtT const& val, Encoder const* encoder, T* wrapped_val) {
+  void EncodeScalar(OpKernelContext* op_ctx, PtT const& val,
+                    Encoder const* encoder, T* wrapped_val) {
     if constexpr (std::is_signed<PtT>::value) {
       // SHELL is built on the assumption that the plaintext type (in this
       // case `PtT`) will always fit into the ciphertext underlying type

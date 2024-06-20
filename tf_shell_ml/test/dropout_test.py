@@ -56,28 +56,36 @@ class TestDropout(tf.test.TestCase):
         x = tf.random.uniform((context.num_slots, 100)) + 1
 
         dropout_layer = tf_shell_ml.ShellDropout(0.2, per_batch=per_batch)
-        
+
         notrain_y = dropout_layer(x, training=False)
         self.assertAllEqual(notrain_y, x)
 
         train_y = dropout_layer(x, training=True)
-        self.assertLess(tf.math.count_nonzero(train_y), tf.size(train_y, out_type=tf.int64))
+        self.assertLess(
+            tf.math.count_nonzero(train_y), tf.size(train_y, out_type=tf.int64)
+        )
 
         enc_x = tf_shell.to_encrypted(x, key, context)
         dropout_layer = tf_shell_ml.ShellDropout(0.2, per_batch=per_batch)
-        
+
         notrain_enc_y = dropout_layer(enc_x, training=False)
-        self.assertAllClose(tf_shell.to_tensorflow(notrain_enc_y, key), x, atol=1/context.scaling_factor)
+        self.assertAllClose(
+            tf_shell.to_tensorflow(notrain_enc_y, key),
+            x,
+            atol=1 / context.scaling_factor,
+        )
 
         enc_train_y = dropout_layer(enc_x, training=True)
         dec_train_y = tf_shell.to_tensorflow(enc_train_y, key)
-        self.assertLess(tf.math.count_nonzero(dec_train_y), tf.size(dec_train_y, out_type=tf.int64))
+        self.assertLess(
+            tf.math.count_nonzero(dec_train_y), tf.size(dec_train_y, out_type=tf.int64)
+        )
 
     def _test_dropout_back(self, per_batch):
         x = tf.random.uniform((context.num_slots, 100)) + 1
 
         dropout_layer = tf_shell_ml.ShellDropout(0.2, per_batch=per_batch)
-        
+
         notrain_y = dropout_layer(x, training=True)
         dy = tf.ones_like(notrain_y)
 
@@ -86,8 +94,8 @@ class TestDropout(tf.test.TestCase):
         enc_dy = tf_shell.to_encrypted(dy, key, context)
         enc_dx = dropout_layer.backward(enc_dy)
         dec_dx = tf_shell.to_tensorflow(enc_dx, key)
-        self.assertAllClose(dx, dec_dx, atol=1/context.scaling_factor)
-    
+        self.assertAllClose(dx, dec_dx, atol=1 / context.scaling_factor)
+
     def test_dropout(self):
         self._test_dropout_forward(False)
         self._test_dropout_back(False)

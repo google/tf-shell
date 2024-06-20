@@ -8,31 +8,37 @@ import test_utils
 # reordering ciphertext - plaintext operations which look like
 # ((ct + pt) + pt) to (ct + (pt + pt).
 
+
 @tf.function
 def ct_pt_pt_add(ct, pt):
     return ((((((ct + pt) + pt) + pt) + pt) + pt) + pt) + pt
+
 
 @tf.function
 def ct_pt_pt_sub(ct, pt):
     return ((((((ct - pt) - pt) - pt) - pt) - pt) - pt) - pt
 
+
 @tf.function
 def ct_pt_pt_add_sub(ct, pt):
     return ((((((ct + pt) - pt) + pt) - pt) + pt) - pt) + pt
 
+
 @tf.function
 def ct_pt_pt_mul(ct, pt):
-    return ((ct * pt) * pt)
+    return (ct * pt) * pt
+
 
 @tf.function
 def ct_pt_pt_add_mul_no_opt(ct, pt):
     # This should not be optimized, mul and add are not commutative.
-    return ((ct + pt) * pt)
+    return (ct + pt) * pt
+
 
 @tf.function
 def ct_pt_pt_mul_add_no_opt(ct, pt):
     # This should not be optimized, mul and add are not commutative.
-    return ((ct * pt) + pt)
+    return (ct * pt) + pt
 
 
 def count_ct_pt_ops(graph, op_name):
@@ -128,11 +134,19 @@ class TestCtPtOptimizer(tf.test.TestCase):
             with self.subTest(f"Optimizer for func ct_pt_pt_mul."):
                 self._test_func(test_context, ct_pt_pt_mul, 2, 1, "MulCtPt64")
             with self.subTest(f"Optimizer for func ct_pt_pt_add_mul_no_opt."):
-                self._test_func(test_context, ct_pt_pt_add_mul_no_opt, 1, 1, "MulCtPt64")
-                self._test_func(test_context, ct_pt_pt_add_mul_no_opt, 1, 1, "AddCtPt64")
+                self._test_func(
+                    test_context, ct_pt_pt_add_mul_no_opt, 1, 1, "MulCtPt64"
+                )
+                self._test_func(
+                    test_context, ct_pt_pt_add_mul_no_opt, 1, 1, "AddCtPt64"
+                )
             with self.subTest(f"Optimizer for func ct_pt_pt_mul_add_no_opt."):
-                self._test_func(test_context, ct_pt_pt_mul_add_no_opt, 1, 1, "MulCtPt64")
-                self._test_func(test_context, ct_pt_pt_mul_add_no_opt, 1, 1, "AddCtPt64")
+                self._test_func(
+                    test_context, ct_pt_pt_mul_add_no_opt, 1, 1, "MulCtPt64"
+                )
+                self._test_func(
+                    test_context, ct_pt_pt_mul_add_no_opt, 1, 1, "AddCtPt64"
+                )
 
 
 class TestCtPtAutoEnableOptimizer(tf.test.TestCase):

@@ -12,19 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "shape_inference.h"
 #include "tensorflow/core/framework/common_shape_fns.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/shape_inference.h"
-
-#include "shape_inference.h"
 
 using tensorflow::OkStatus;
 using tensorflow::errors::InvalidArgument;
 using tensorflow::shape_inference::DimensionHandle;
 using tensorflow::shape_inference::InferenceContext;
 using tensorflow::shape_inference::ScalarShape;
-using tensorflow::shape_inference::UnchangedShape;
 using tensorflow::shape_inference::ShapeHandle;
+using tensorflow::shape_inference::UnchangedShape;
 
 // Tensorflow does not have size_t but Shell Context parameters require it.
 // Code below must assume size_t is a unit64 because of this.
@@ -326,7 +325,8 @@ REGISTER_OP("ExpandDimsVariant")
     });
 
 // Segment sum where the segment_ids are plaintexts.
-// Based on : https://github.com/tensorflow/tensorflow/blob/dfdba938a0048611319ce192d8f17639e058ad00/tensorflow/core/ops/math_ops.cc#L1293
+// Based on :
+// https://github.com/tensorflow/tensorflow/blob/dfdba938a0048611319ce192d8f17639e058ad00/tensorflow/core/ops/math_ops.cc#L1293
 REGISTER_OP("UnsortedCtSegmentSum")
     .Input("shell_context: variant")
     .Input("data: variant")

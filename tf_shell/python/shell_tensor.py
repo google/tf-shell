@@ -872,7 +872,11 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
 
         return ShellTensor64(
             _raw_tensor=shell_ops.segment_sum_ct(
-                x._context._raw_context, x._raw_tensor, segments, num_segments, raw_rotation_key
+                x._context._raw_context,
+                x._raw_tensor,
+                segments,
+                num_segments,
+                raw_rotation_key,
             ),
             _context=x._context,
             _underlying_dtype=x._underlying_dtype,

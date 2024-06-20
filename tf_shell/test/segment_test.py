@@ -99,7 +99,9 @@ class TestShellTensor(tf.test.TestCase):
 
         # Check shape inference function (used in non-eager mode) matches the
         # real output.
-        inf_shape = self.get_inferred_shape(ea, segments, num_segments, test_context.rotation_key)
+        inf_shape = self.get_inferred_shape(
+            ea, segments, num_segments, test_context.rotation_key
+        )
         self.assertAllClose(ess.shape, inf_shape)
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
@@ -107,7 +109,9 @@ class TestShellTensor(tf.test.TestCase):
         pt_ss_top, pt_ss_bottom = self.plaintext_segment_sum(a, segments, num_segments)
 
         self.assertAllClose(pt_ss_top, ss[0][0])
-        self.assertAllClose(pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1])
+        self.assertAllClose(
+            pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1]
+        )
 
         # Ensure initial arguments are not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(sa))
@@ -150,7 +154,9 @@ class TestShellTensor(tf.test.TestCase):
 
         # Check shape inference function (used in non-eager mode) matches the
         # real output.
-        inf_shape = self.get_inferred_shape(ea, segments, num_segments, test_context.rotation_key)
+        inf_shape = self.get_inferred_shape(
+            ea, segments, num_segments, test_context.rotation_key
+        )
         self.assertAllClose(ess.shape, inf_shape)
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
@@ -158,7 +164,9 @@ class TestShellTensor(tf.test.TestCase):
         pt_ss_top, pt_ss_bottom = self.plaintext_segment_sum(a, segments, num_segments)
 
         self.assertAllClose(pt_ss_top, ss[0][0])
-        self.assertAllClose(pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1])
+        self.assertAllClose(
+            pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1]
+        )
 
         # Ensure initial arguments are not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(sa))

@@ -96,14 +96,19 @@ class TestEmbedding(tf.test.TestCase):
 
         dx = forward_backward(x)
 
-        self.assertAllEqual(dx[special_index,:], tf.constant(context.num_slots, shape=(output_dim,)))
+        self.assertAllEqual(
+            dx[special_index, :], tf.constant(context.num_slots, shape=(output_dim,))
+        )
 
         # Make sure the rest of the gradient elements are 0
         for i in range(0, input_dim):
             if i == special_index:
-                self.assertAllEqual(dx[special_index,:], tf.constant(context.num_slots, shape=(output_dim,)))
+                self.assertAllEqual(
+                    dx[special_index, :],
+                    tf.constant(context.num_slots, shape=(output_dim,)),
+                )
             else:
-                self.assertAllEqual(dx[i,:], tf.constant(0, shape=(output_dim,)))
+                self.assertAllEqual(dx[i, :], tf.constant(0, shape=(output_dim,)))
 
     def test_embedding_eager(self):
         tf.config.run_functions_eagerly(True)
