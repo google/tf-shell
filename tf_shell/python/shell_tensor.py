@@ -870,6 +870,8 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
             )
         raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
 
+        max_num_adds = tf.cast(tf.reduce_max(segments), x._noise_bit_count.dtype)
+
         return ShellTensor64(
             _raw_tensor=shell_ops.segment_sum_ct(
                 x._context._raw_context,
@@ -882,7 +884,7 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=x._is_enc,
-            _noise_bit_count=x._noise_bit_count,
+            _noise_bit_count=max_num_adds + x._noise_bit_count,
         )
     elif isinstance(x, tf.Tensor):
         return tf.math.unsorted_segment_sum(x, segments, num_segments)

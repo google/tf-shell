@@ -109,3 +109,7 @@ class ShellDense:
             grad_weights.append(d_bias)
 
         return grad_weights, d_x
+
+    def unpack(self, plaintext_packed_dx):
+        batch_size = plaintext_packed_dx.shape[0] // 2
+        return plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]

@@ -20,31 +20,16 @@ import numpy as np
 import tf_shell
 import tf_shell_ml
 
-# # Num plaintext bits: 32, noise bits: 84
-# # Max representable value: 654624
-# context = tf_shell.create_context64(
-#     log_n=11,
-#     main_moduli=[288230376151748609, 144115188076060673],
-#     plaintext_modulus=4294991873,
-#     scaling_factor=3,
-#     mul_depth_supported=3,
-#     seed="test_seed",
-# )
-# 61 bits of security according to lattice estimator primal_bdd.
-# Runtime 170 seconds (83ms/example).
-
 # Num plaintext bits: 32, noise bits: 84
 # Max representable value: 654624
 context = tf_shell.create_context64(
-    log_n=12,
-    main_moduli=[288230376151760897, 288230376152137729],
+    log_n=9,
+    main_moduli=[288230376151748609, 144115188076060673],
     plaintext_modulus=4294991873,
     scaling_factor=3,
     mul_depth_supported=3,
     seed="test_seed",
 )
-# 120 bits of security according to lattice estimator primal_bdd.
-# Runtime 388 seconds (95ms/example).
 
 key = tf_shell.create_key64(context)
 rotation_key = tf_shell.create_rotation_key64(context, key)
@@ -80,8 +65,12 @@ class TestEmbedding(tf.test.TestCase):
         output_dim = 10
         embedding_layer = tf_shell_ml.ShellEmbedding(input_dim, output_dim)
 
+        sentence_length = 3
         special_index = 2
-        x = tf.ones((context.num_slots, 1), dtype=tf.int64) * special_index
+        x = (
+            tf.ones((context.num_slots, sentence_length), dtype=tf.int64)
+            * special_index
+        )
 
         @tf.function
         def forward_backward(x):
@@ -90,23 +79,24 @@ class TestEmbedding(tf.test.TestCase):
             dy = tf.ones_like(y)
             enc_dy = tf_shell.to_encrypted(dy, key, context)
 
-            embedding_layer.backward_accum(enc_dy, rotation_key)
-            dx = embedding_layer.decrypt_grad(key)
+            enc_dx = embedding_layer.backward(enc_dy, rotation_key)
+            packed_dx = tf_shell.to_tensorflow(enc_dx, key)
+            dx = embedding_layer.unpack(packed_dx)
+
             return dx
 
         dx = forward_backward(x)
 
-        self.assertAllEqual(
-            dx[special_index, :], tf.constant(context.num_slots, shape=(output_dim,))
-        )
-
-        # Make sure the rest of the gradient elements are 0
         for i in range(0, input_dim):
+            # Check dx[ special_index] has counted the number of elements.
             if i == special_index:
                 self.assertAllEqual(
                     dx[special_index, :],
-                    tf.constant(context.num_slots, shape=(output_dim,)),
+                    tf.constant(
+                        context.num_slots * sentence_length, shape=(output_dim,)
+                    ),
                 )
+            # Make sure the rest of the gradient elements are 0.
             else:
                 self.assertAllEqual(dx[i, :], tf.constant(0, shape=(output_dim,)))
 
