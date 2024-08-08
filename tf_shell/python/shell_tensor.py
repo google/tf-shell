@@ -124,12 +124,15 @@ class ShellTensor64(tf.experimental.ExtensionType):
             )
 
         elif isinstance(other, tf.Tensor):
-            if other.shape == (1,) or other.shape == ():
-                # In the special case of scalar addition, instead of padding
-                # with zeros replicate the scalar across all slots.
-                other = tf.broadcast_to(other, (self._context.num_slots, 1))
+            if other.shape == () or other.shape == (1,):
+                # In the special case of scalar subtraction, instead of padding
+                # with zeros replicate the scalar across all slots and broadcast
+                # to the correct shape.
+                other = tf.broadcast_to(other, (self._context.num_slots,))
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
+                # In the special case of broadcasting over the packing'
+                # dimension, replicate the scalar across all slots.
                 other = tf.broadcast_to(
                     other, [self._context.num_slots] + other.shape[1:]
                 )
@@ -193,10 +196,11 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _noise_bit_count=self._noise_bit_count + 1,
             )
         elif isinstance(other, tf.Tensor):
-            if other.shape == (1,) or other.shape == ():
+            if other.shape == () or other.shape == (1,):
                 # In the special case of scalar subtraction, instead of padding
-                # with zeros replicate the scalar across all slots.
-                other = tf.broadcast_to(other, (self._context.num_slots, 1))
+                # with zeros replicate the scalar across all slots and broadcast
+                # to the correct shape.
+                other = tf.broadcast_to(other, (self._context.num_slots,))
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
                 other = tf.broadcast_to(
@@ -220,10 +224,11 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
     def __rsub__(self, other):
         if isinstance(other, tf.Tensor):
-            if other.shape == (1,) or other.shape == ():
+            if other.shape == () or other.shape == (1,):
                 # In the special case of scalar subtraction, instead of padding
-                # with zeros replicate the scalar across all slots.
-                other = tf.broadcast_to(other, (self._context.num_slots, 1))
+                # with zeros replicate the scalar across all slots and broadcast
+                # to the correct shape.
+                other = tf.broadcast_to(other, (self._context.num_slots,))
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
                 other = tf.broadcast_to(
@@ -332,13 +337,15 @@ class ShellTensor64(tf.experimental.ExtensionType):
             )
         elif isinstance(other, tf.Tensor):
             # Multiplying by a scalar uses a special op which is more efficient
-            # than the caller creating creating a ShellTensor the same
-            # dimensions as self and multiplying.
-            if (
-                other.shape == (1,)
-                or other.shape == ()
-                or (other.shape[0] == 1 and len(other.shape) == len(self.shape))
-            ):
+            # than the caller creating a ShellTensor the same dimensions as self
+            # and multiplying. Note this includes the case when broadcasting
+            # over the packing dimension.
+            if other.shape == () or other.shape[0] == 1:
+                # If not a scalar, remove the outer dim (which is always 1).
+                if other.shape != ():
+                    assert other.shape[0] == 1
+                    other = tf.reshape(other, other.shape[1:])
+
                 # Encode the other scalar tensor to the same scaling factor as
                 # self.
                 other = _encode_scaling(other, self._scaling_factor)

@@ -207,13 +207,15 @@ class MulShellTfScalarOp : public OpKernel {
         op_ctx, bcast.IsValid(),
         InvalidArgument("Invalid broadcast between ", a.shape().DebugString(),
                         " and ", b.shape().DebugString()));
-    auto flat_a = a.flat<Variant>();  // a is not broadcasted, just b.
+    auto flat_a = a.flat<Variant>();
     auto flat_b = b.flat<PtT>();
+    IndexConverterFunctor a_bcaster(bcast.output_shape(), a.shape());
     IndexConverterFunctor b_bcaster(bcast.output_shape(), b.shape());
 
     // Allocate the output tensor which is the same shape as the first input.
     Tensor* output;
-    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, a.shape(), &output));
+    TensorShape output_shape = BCast::ToShape(bcast.output_shape());
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
     auto flat_output = output->flat<Variant>();
 
     // Now multiply.
@@ -224,7 +226,7 @@ class MulShellTfScalarOp : public OpKernel {
       EncodeScalar(op_ctx, flat_b(b_bcaster(i)), encoder, &wrapped_b);
 
       CtOrPolyVariant const* ct_or_pt_var =
-          std::move(flat_a(i).get<CtOrPolyVariant>());
+          std::move(flat_a(a_bcaster(i)).get<CtOrPolyVariant>());
       OP_REQUIRES(op_ctx, ct_or_pt_var != nullptr,
                   InvalidArgument("Input at flat index:", i,
                                   " for input a did not unwrap successfully."));

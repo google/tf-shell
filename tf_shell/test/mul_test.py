@@ -68,6 +68,37 @@ class TestShellTensor(tf.test.TestCase):
                 )
             )
 
+        # Test with empty outer shape.
+        cls.test_contexts.append(
+            test_utils.TestContext(
+                outer_shape=[],
+                plaintext_dtype=tf.int32,
+                # Num plaintext bits: 22, noise bits: 36
+                # Max representable value: 65728
+                log_n=11,
+                main_moduli=[144115188076060673],
+                aux_moduli=[],
+                plaintext_modulus=4206593,
+                scaling_factor=1,
+                mul_depth_supported=1,
+            )
+        )
+
+        cls.test_contexts.append(
+            test_utils.TestContext(
+                outer_shape=[1],
+                plaintext_dtype=tf.int32,
+                # Num plaintext bits: 22, noise bits: 36
+                # Max representable value: 65728
+                log_n=11,
+                main_moduli=[144115188076060673],
+                aux_moduli=[],
+                plaintext_modulus=4206593,
+                scaling_factor=1,
+                mul_depth_supported=1,
+            )
+        )
+
     @classmethod
     def tearDownClass(cls):
         cls.test_contexts = None
@@ -79,7 +110,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_ct_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -100,10 +131,16 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_ct_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"ct_ct_mul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_ct_mul(test_context)
 
     def _test_ct_ct_mul_with_broadcast(self, test_context):
+        if len(test_context.outer_shape) < 2:
+            print(
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough dimensions to support this test."
+            )
+            return
+
         try:
             # This test performs one multiplication.
             a = test_utils.uniform_for_n_muls(test_context, 1)
@@ -112,7 +149,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1, shape=b_shape)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_ct_mul_with_broadcast with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -133,9 +170,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_ct_mul_with_broadcast(self):
         for test_context in self.test_contexts:
-            with self.subTest(
-                f"ct_ct_mul_with_broadcast with context `{test_context}`."
-            ):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_ct_mul_with_broadcast(test_context)
 
     def _test_ct_pt_mul(self, test_context):
@@ -145,7 +180,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_pt_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -167,10 +202,16 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_pt_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"ct_pt_mul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_pt_mul(test_context)
 
     def _test_ct_pt_mul_with_broadcast(self, test_context):
+        if len(test_context.outer_shape) < 2:
+            print(
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough dimensions to support this test."
+            )
+            return
+
         try:
             # This test performs one multiplication.
             a = test_utils.uniform_for_n_muls(test_context, 1)
@@ -179,7 +220,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1, shape=b_shape)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_pt_mul_with_broadcast with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -201,74 +242,86 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_pt_mul_with_broadcast(self):
         for test_context in self.test_contexts:
-            with self.subTest(
-                f"ct_pt_mul_with_broadcast with context `{test_context}`."
-            ):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_pt_mul_with_broadcast(test_context)
 
-    def _test_ct_tf_scalar_mul(self, test_context):
+    def _test_ct_tf_scalar_mul(self, test_context, scalar_shape):
         try:
             # This test performs one multiplication.
             a = test_utils.uniform_for_n_muls(test_context, 1)
-            b = test_utils.uniform_for_n_muls(test_context, 1)
+
+            # Choose a random scalar to add to a.
+            b = test_utils.uniform_for_n_muls(test_context, 1, shape=scalar_shape)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_tf_scalar_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
 
-        # Resize b so the size of the first dimension is 1. This is the
-        # ciphertext packing dimension and tests the code path in tf-shell
-        # where this operation is performed using a special scalar op which
-        # does not require computing the NTT of the plaintext.
-        b = tf.expand_dims(b[0], axis=0)
-
-        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
-        ea = tf_shell.to_encrypted(sa, test_context.key)
-
+        ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
+        c = a * b
         ec = ea * b
-        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key))
 
+        # The shell tensor should have the same shape as the TensorFlow Tensor.
+        self.assertEqual(c.shape, ec.shape)
+        # The values should also be the same.
+        self.assertAllClose(c, tf_shell.to_tensorflow(ec, test_context.key))
+
+        d = b * a
         ed = b * ea
-        self.assertAllClose(a * b, tf_shell.to_tensorflow(ed, test_context.key))
+        # The shell tensor should have the same shape as the TensorFlow Tensor.
+        self.assertEqual(d.shape, ed.shape)
+        # The values should also be the same.
+        self.assertAllClose(d, tf_shell.to_tensorflow(ed, test_context.key))
 
         # Check the arguments were not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
     def test_ct_tf_scalar_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"ct_tf_scalar_mul with context `{test_context}`."):
-                self._test_ct_tf_scalar_mul(test_context)
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
+                for scalar_shape in [[], [1], [1] + test_context.outer_shape]:
+                    self._test_ct_tf_scalar_mul(test_context, scalar_shape)
 
-    def _test_ct_tf_single_scalar_mul(self, test_context):
+    def _test_pt_tf_scalar_mul(self, test_context, scalar_shape):
         try:
             # This test performs one multiplication.
             a = test_utils.uniform_for_n_muls(test_context, 1)
-            b = test_utils.uniform_for_n_muls(test_context, 1, shape=[1])
+
+            # Choose a random scalar to add to a.
+            b = test_utils.uniform_for_n_muls(test_context, 1, shape=scalar_shape)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_tf_scalar_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
 
         sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
-        ea = tf_shell.to_encrypted(sa, test_context.key)
+        c = a * b
+        sc = sa * b
 
-        ec = ea * b
-        self.assertAllClose(a * b, tf_shell.to_tensorflow(ec, test_context.key))
+        # The shell tensor should have the same shape as the TensorFlow Tensor.
+        self.assertEqual(c.shape, sc.shape)
+        # The values should also be the same.
+        self.assertAllClose(c, tf_shell.to_tensorflow(sc))
 
-        ed = b * ea
-        self.assertAllClose(a * b, tf_shell.to_tensorflow(ed, test_context.key))
+        d = b * a
+        sd = b * sa
+        # The shell tensor should have the same shape as the TensorFlow Tensor.
+        self.assertEqual(d.shape, sd.shape)
+        # The values should also be the same.
+        self.assertAllClose(d, tf_shell.to_tensorflow(sd))
 
         # Check the arguments were not modified.
-        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
 
-    def test_ct_tf_single_scalar_mul(self):
+    def test_pt_tf_scalar_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"ct_tf_scalar_mul with context `{test_context}`."):
-                self._test_ct_tf_scalar_mul(test_context)
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
+                for scalar_shape in [[], [1], [1] + test_context.outer_shape]:
+                    self._test_pt_tf_scalar_mul(test_context, scalar_shape)
 
     def _test_ct_tf_mul(self, test_context):
         try:
@@ -277,7 +330,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_tf_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -296,10 +349,16 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_tf_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"ct_tf_mul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_tf_mul(test_context)
 
     def _test_ct_tf_mul_with_broadcast(self, test_context):
+        if len(test_context.outer_shape) < 2:
+            print(
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough dimensions to support this test."
+            )
+            return
+
         try:
             # This test performs one multiplication.
             a = test_utils.uniform_for_n_muls(test_context, 1)
@@ -308,7 +367,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1, shape=b_shape)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_tf_mul_with_broadcast with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -327,9 +386,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_tf_mul_with_broadcast(self):
         for test_context in self.test_contexts:
-            with self.subTest(
-                f"ct_tf_mul_with_broadcast with context `{test_context}`."
-            ):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_tf_mul_with_broadcast(test_context)
 
     def _test_ct_list_mul(self, test_context):
@@ -339,7 +396,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test ct_tf_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -366,7 +423,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_list_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"ct_list_mul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_list_mul(test_context)
 
     def _test_pt_pt_mul(self, test_context):
@@ -376,7 +433,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test pt_pt_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -393,7 +450,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_pt_pt_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"pt_pt_mul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_pt_pt_mul(test_context)
 
     def _test_pt_tf_mul(self, test_context):
@@ -403,7 +460,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test pt_tf_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -421,7 +478,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_pt_tf_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"pt_tf_mul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_pt_tf_mul(test_context)
 
     def _test_pt_list_mul(self, test_context):
@@ -431,7 +488,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1)
         except Exception as e:
             print(
-                f"Note: Skipping test pt_list_mul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -457,7 +514,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_pt_list_mul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"pt_list_mul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_pt_list_mul(test_context)
 
 

@@ -27,7 +27,7 @@ py_test(
 
 py_test(
     name = "add_test",
-    size = "small",
+    size = "medium",
     srcs = [
         "add_test.py",
         "test_utils.py",
@@ -41,7 +41,7 @@ py_test(
 
 py_test(
     name = "mul_test",
-    size = "small",
+    size = "medium",
     srcs = [
         "mul_test.py",
         "test_utils.py",

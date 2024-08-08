@@ -163,8 +163,6 @@ class DecryptOp : public OpKernel {
     Key const* secret_key = &key_var->key;
 
     Tensor const& input = op_ctx->input(2);
-    OP_REQUIRES(op_ctx, input.dim_size(0) > 0,
-                InvalidArgument("Cannot decrypt empty ciphertext"));
     auto flat_input = input.flat<Variant>();
 
     size_t num_slots = 1 << shell_ctx->LogN();
