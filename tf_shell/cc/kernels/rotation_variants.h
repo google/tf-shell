@@ -77,3 +77,29 @@ class SingleRotationKeyVariant {
 
   RotationKey key;
 };
+
+template <typename T>
+class FastRotationKeyVariant {
+  using ModularInt = rlwe::MontgomeryInt<T>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+
+ public:
+  FastRotationKeyVariant() {}
+
+  // Create with gadget first, then create and add keys.
+  FastRotationKeyVariant(std::vector<RnsPolynomial> keys) : keys(std::move(keys)) {}
+
+  static inline char const kTypeName[] = "ShellFastRotationKeyVariant";
+
+  std::string TypeName() const { return kTypeName; }
+
+  // TODO(jchoncholas): implement for networking
+  void Encode(VariantTensorData* data) const {};
+
+  // TODO(jchoncholas): implement for networking
+  bool Decode(VariantTensorData const& data) { return true; };
+
+  std::string DebugString() const { return "ShellFastRotationKeyVariant"; }
+
+  std::vector<RnsPolynomial> keys;
+};

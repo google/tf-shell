@@ -67,17 +67,6 @@ class TestShellTensorRotation(tf.test.TestCase):
     def tearDownClass(cls):
         cls.test_contexts = None
 
-    # TensorFlow's roll has slightly different semantics than encrypted roll.
-    # Encrypted rotation affects top and bottom halves independently.
-    # This function emulates this in plaintext by splitting the tensor in half,
-    # rotating each half, and then concatenating them back together.
-    def plaintext_roll(self, t, shift):
-        top, bottom = tf.split(t, num_or_size_splits=2, axis=0)
-        top = tf.roll(top, shift, axis=0)
-        bottom = tf.roll(bottom, shift, axis=0)
-        rotated_tftensor = tf.concat([top, bottom], axis=0)
-        return rotated_tftensor
-
     def _test_roll(self, test_context, roll_num):
         # Create a tensor with the shape of slots x (outer_shape) where each
         # column of the first dimensions counts from 0 to slots-1. First check
@@ -104,7 +93,7 @@ class TestShellTensorRotation(tf.test.TestCase):
                 tftensor, multiples=[1] * (i + 1) + [test_context.outer_shape[i]]
             )
 
-        rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
+        rolled_tftensor = test_utils.plaintext_roll(tftensor, roll_num)
 
         s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
         enc = tf_shell.to_encrypted(s, test_context.key)
@@ -159,7 +148,7 @@ class TestShellTensorRotation(tf.test.TestCase):
                 tftensor, multiples=[1] * (i + 1) + [test_context.outer_shape[i]]
             )
 
-        rolled_tftensor = self.plaintext_roll(tftensor, roll_num)
+        rolled_tftensor = test_utils.plaintext_roll(tftensor, roll_num)
 
         s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
         enc = tf_shell.to_encrypted(s, test_context.key)
@@ -185,20 +174,6 @@ class TestShellTensorRotation(tf.test.TestCase):
                 ):
                     self._test_roll_mod_reduced(test_context, roll_num)
 
-    # TensorFlow's reduce_sum has slightly different semantics than encrypted
-    # reduce_sum. Encrypted reduce_sum affects top and bottom halves
-    # independently, as well as repeating the sum across the halves. This
-    # function emulates this in plaintext.
-    def plaintext_reduce_sum_axis_0(self, t):
-        half_slots = t.shape[0] // 2
-        bottom_answer = tf.math.reduce_sum(t[0:half_slots], axis=0, keepdims=True)
-        top_answer = tf.math.reduce_sum(t[half_slots:], axis=0, keepdims=True)
-
-        repeated_bottom_answer = tf.repeat(bottom_answer, repeats=half_slots, axis=0)
-        repeated_top_answer = tf.repeat(top_answer, repeats=half_slots, axis=0)
-
-        return tf.concat([repeated_bottom_answer, repeated_top_answer], 0)
-
     def _test_reduce_sum_axis_0(self, test_context):
         # reduce_sum across axis 0 requires adding over all the slots.
         try:
@@ -221,7 +196,7 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         tftensor_out = tf_shell.to_tensorflow(enc_reduce_sum, test_context.key)
         self.assertAllClose(
-            tftensor_out, self.plaintext_reduce_sum_axis_0(tftensor), atol=1e-3
+            tftensor_out, test_utils.plaintext_reduce_sum_axis_0(tftensor), atol=1e-3
         )
 
     def test_reduce_sum_axis_0(self):

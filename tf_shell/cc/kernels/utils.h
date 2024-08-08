@@ -35,7 +35,8 @@ using tensorflow::Variant;
 using tensorflow::errors::InvalidArgument;
 using tensorflow::errors::Unimplemented;
 
-using std::vector;
+// The substitution power for Galois rotation by one slot.
+constexpr int base_power = 5;
 
 // Given an OpKernelContext and an index, returns the scalar value at that index
 // in the context. If the tensor is not a scalar, returns an error.
@@ -53,7 +54,7 @@ StatusOr<T> GetScalar(OpKernelContext* ctx, int index) {
 // Given an OpKernelContext and an index, returns the vector value at that index
 // in the context. If the tensor is not a vector, returns an error.
 template <typename T>
-StatusOr<vector<T>> GetVector(OpKernelContext* ctx, int index) {
+StatusOr<std::vector<T>> GetVector(OpKernelContext* ctx, int index) {
   Tensor const& input = ctx->input(index);
 
   if (!TensorShapeUtils::IsVector(input.shape())) {
@@ -63,7 +64,7 @@ StatusOr<vector<T>> GetVector(OpKernelContext* ctx, int index) {
   size_t n = input.NumElements();
   auto in_vec = input.vec<T>();
 
-  vector<T> res;
+  std::vector<T> res;
   res.reserve(n);
   for (size_t i = 0; i < n; ++i) {
     res.push_back(in_vec(i));

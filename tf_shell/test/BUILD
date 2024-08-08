@@ -95,6 +95,20 @@ py_test(
 )
 
 py_test(
+    name = "rotation_test_fast",
+    size = "large",
+    srcs = [
+        "rotation_test_fast.py",
+        "test_utils.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
     name = "shape_test",
     size = "small",
     srcs = [

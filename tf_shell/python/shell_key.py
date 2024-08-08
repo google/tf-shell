@@ -80,3 +80,42 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
     return ShellRotationKey64(
         _raw_rot_keys_at_level=raw_rot_keys_at_level, context=context
     )
+
+class ShellFastRotationKey64(tf.experimental.ExtensionType):
+    _raw_rot_keys_at_level: typing.Mapping[int, tf.Tensor]
+    context: ShellContext64
+
+    def _get_key_at_level(self, level):
+        if level not in self._raw_rot_keys_at_level:
+            raise ValueError(f"No rotation key at level {level}.")
+        return self._raw_rot_keys_at_level[level]
+
+
+def create_fast_rotation_key64(context, key, skip_at_mul_depth=[]):
+    """Create fast rotation keys for any multiplicative depth of the given context.
+    Rotation key contains keys *decrypt* a previously "fast" rotated ciphertext.
+    These keys are much faster to generated than regular rotation keys, and
+    they are not needed for the rotation operation itself, only for decryption.
+    Fast rotation is only supported for degree 1 ciphertexts.
+    """
+    if not isinstance(context, ShellContext64):
+        raise ValueError("context must be a ShellContext64.")
+
+    if context.level != key.level:
+        raise ValueError("Context and key levels must match.")
+
+    raw_rot_keys_at_level = {}
+    while context.mul_depth_supported >= 0:
+        if context.mul_depth_supported not in skip_at_mul_depth:
+            raw_rot_keys_at_level[context.level] = shell_ops.fast_rotation_key_gen64(
+                context._raw_context, key._raw_key
+            )
+
+        if context.mul_depth_supported == 0 or context.level == 1:
+            break
+        context = mod_reduce_context64(context)
+        key = mod_reduce_key64(key)
+
+    return ShellFastRotationKey64(
+        _raw_rot_keys_at_level=raw_rot_keys_at_level, context=context
+    )

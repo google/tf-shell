@@ -20,6 +20,7 @@ from tf_shell.python.shell_context import mod_reduce_context64
 from tf_shell.python.shell_key import ShellKey64
 from tf_shell.python.shell_key import mod_reduce_key64
 from tf_shell.python.shell_key import ShellRotationKey64
+from tf_shell.python.shell_key import ShellFastRotationKey64
 
 
 class ShellTensor64(tf.experimental.ExtensionType):
@@ -29,6 +30,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
     _scaling_factor: int
     _is_enc: bool
     _noise_bit_count: tf.Tensor
+    _is_fast_rotated: bool = False
 
     @property
     def shape(self):
@@ -289,6 +291,10 @@ class ShellTensor64(tf.experimental.ExtensionType):
             matched_self, matched_other = _match_moduli_and_scaling(self, other)
 
             if self.is_encrypted and other.is_encrypted:
+                if self._is_fast_rotated or other._is_fast_rotated:
+                    raise ValueError(
+                        "A ShellTensor which has been fast-rotated or fast-reduced-summed cannot be multiplied with another ciphertext."
+                    )
                 raw_result = shell_ops.mul_ct_ct64(
                     matched_self._context._raw_context,
                     matched_self._raw_tensor,
@@ -573,7 +579,25 @@ def to_tensorflow(s_tensor, key=None):
     # Find out what dtype shell thinks the plaintext is.
     shell_dtype = _get_shell_dtype_from_underlying(s_tensor._underlying_dtype)
 
-    if s_tensor.is_encrypted:
+    if s_tensor.is_encrypted and s_tensor._is_fast_rotated:
+        if not isinstance(key, ShellFastRotationKey64):
+            raise ValueError(
+                "ShellFastRotationKey must be provided to decrypt a fast-rotated ShellTensor."
+            )
+
+        # Get the correct rotation key for the level of this ciphertext.
+        raw_rotation_key = key._get_key_at_level(s_tensor._context.level)
+
+        # Decrypt op returns a tf Tensor.
+        tf_tensor = shell_ops.decrypt_fast_rotated64(
+            s_tensor._context._raw_context,
+            raw_rotation_key,
+            s_tensor._raw_tensor,
+            dtype=shell_dtype,
+            batching_dim=s_tensor._context.num_slots,
+        )
+
+    elif s_tensor.is_encrypted:
         if not isinstance(key, ShellKey64):
             raise ValueError(
                 "Key must be provided to decrypt an encrypted ShellTensor."
@@ -592,7 +616,7 @@ def to_tensorflow(s_tensor, key=None):
             batching_dim=s_tensor._context.num_slots,
         )
 
-    else:
+    elif not s_tensor.is_encrypted:
         # Convert from polynomial representation to plaintext tensorflow tensor.
         # Always convert to int64, then handle the fixed point as appropriate.
         tf_tensor = shell_ops.polynomial_export64(
@@ -601,6 +625,9 @@ def to_tensorflow(s_tensor, key=None):
             dtype=shell_dtype,
             batching_dim=s_tensor._context.num_slots,
         )
+
+    else:
+        raise ValueError(f"Invalid ShellTensor state. Got {s_tensor}.")
 
     # Shell tensor represents floats as integers * scaling_factor.
     return _decode_scaling(
@@ -692,6 +719,33 @@ def reduce_sum(x, axis, rotation_key=None):
         return tf.reduce_sum(x, axis)
     else:
         raise ValueError(f"Unsupported type for reduce_sum. Got {type(x)}.")
+
+
+def fast_reduce_sum(x):
+    """Fast reduce sum is a special case of reduce sum where the encrypted
+    input is reduce_summed, however it skips the keyswitching so the resulting
+    ciphertext is no longer valid under the original secret key. The plaintext
+    can still be recovered, through a special decryption process. This means
+    a fast_reduce_summed ciphertext has limited subsequent operations, i.e. only
+    add / multiply by plaintexts are supported. See the op kernel for a more
+    technical explanation."""
+    if not isinstance(x, ShellTensor64):
+        raise ValueError("Input must be ShellTensor.")
+    if not x._is_enc:
+        raise ValueError("Unencrypted fast_reduce_sum not supported yet.")
+
+    # Fast reduce sum does num_slots/2 additions.
+    result_noise_bits = x._noise_bit_count * x._context.num_slots / 2
+
+    return ShellTensor64(
+        _raw_tensor=shell_ops.fast_reduce_sum_by_rotation64(x._raw_tensor),
+        _context=x._context,
+        _underlying_dtype=x._underlying_dtype,
+        _scaling_factor=x._scaling_factor,
+        _is_enc=True,
+        _noise_bit_count=result_noise_bits,
+        _is_fast_rotated=True,
+    )
 
 
 def matmul(x, y, rotation_key=None):

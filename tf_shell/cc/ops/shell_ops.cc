@@ -207,6 +207,41 @@ REGISTER_OP("ReduceSumByRotation64")
     .Output("repeated_reduce_sum: variant")
     .SetShapeFn(UnchangedShape);
 
+REGISTER_OP("FastRotationKeyGen64")
+    .Input("context: variant")
+    .Input("key: variant")
+    .Output("fast_rotation_key: variant")
+    .SetShapeFn(ScalarShape);
+
+REGISTER_OP("FastReduceSumByRotation64")
+    .Input("value: variant")
+    .Output("repeated_reduce_sum: variant")
+    .SetShapeFn([](InferenceContext* c) {
+      // ReduceSum over the packing dimension does not change the shape.
+      c->set_output(0, c->input(0));
+      return OkStatus();
+    });
+
+REGISTER_OP("DecryptFastRotated64")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("batching_dim: int")
+    .Input("context: variant")
+    .Input("fast_rotation_key: variant")
+    .Input("val: variant")
+    .Output("out: dtype")
+    .SetShapeFn([](InferenceContext* c) {
+      tsl::int32 batching_dim;
+      TF_RETURN_IF_ERROR(c->GetAttr("batching_dim", &batching_dim));
+      ShapeHandle batching_dim_shape = c->MakeShape({batching_dim});
+
+      ShapeHandle output;
+      TF_RETURN_IF_ERROR(
+          c->Concatenate(batching_dim_shape, c->input(2), &output));
+
+      c->set_output(0, output);
+      return OkStatus();
+    });
+
 REGISTER_OP("ReduceSum64")
     .Input("value: variant")
     .Attr("axis: int")

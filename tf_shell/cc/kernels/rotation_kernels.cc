@@ -101,9 +101,6 @@ class RotationKeyGenOp : public OpKernel {
                     out->scalar<Variant>()().DebugString(), "'"));
     gadget = &key_variant->gadget;
 
-    // The substitution power for Galois rotation by one slot.
-    constexpr int base_power = 5;
-
     // This method of rotation only allows us to rotate within half of the
     // polynomial slots. E.g. for n slots, slot 0 can be rotated to at most
     // n/2-1 and n/2 to n-1. This has implications for how batching is done if
@@ -127,7 +124,7 @@ class RotationKeyGenOp : public OpKernel {
       // Skip rotation key at zero.
       if (start == 0) ++start;
 
-      int sub_power = base_power;
+      uint sub_power = base_power;
       for (int i = 1; i < start; ++i) {
         sub_power *= base_power;
         sub_power %= two_n;
@@ -254,6 +251,10 @@ class RollOp : public OpKernel {
   }
 };
 
+// Performs a reduce sum over the packing dimension of a ciphertext. This
+// requires rotating the ciphertexts log_2(n) times, summing after each
+// rotation. The rotation is performed using Galois key-switching keys and the
+// output ciphertext is valid under the original secret key.
 template <typename T>
 class ReduceSumByRotationOp : public OpKernel {
  private:
@@ -273,7 +274,7 @@ class ReduceSumByRotationOp : public OpKernel {
 
     auto flat_value = value.flat<Variant>();
 
-    // Recover num_slots from first ciphertext to validate shift argument.
+    // Recover num_slots from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
         std::move(flat_value(0).get<SymmetricCtVariant<T>>());
     OP_REQUIRES(
@@ -343,6 +344,9 @@ class ReduceSumByRotationOp : public OpKernel {
   }
 };
 
+// Performs a reduce sum operation on a ciphertext where the axis to reduce over
+// is not the ciphertext packing dimension. As such, this operation does not
+// require ciphertext rotations, just addition.
 template <typename T>
 class ReduceSumOp : public OpKernel {
  private:

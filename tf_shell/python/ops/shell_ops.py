@@ -56,6 +56,11 @@ roll64 = shell_ops.roll64
 reduce_sum_by_rotation64 = shell_ops.reduce_sum_by_rotation64
 reduce_sum64 = shell_ops.reduce_sum64
 
+# Fast rotations
+fast_rotation_key_gen64 = shell_ops.fast_rotation_key_gen64
+fast_reduce_sum_by_rotation64 = shell_ops.fast_reduce_sum_by_rotation64
+decrypt_fast_rotated64 = shell_ops.decrypt_fast_rotated64
+
 # Modulus switching.
 modulus_reduce_context64 = shell_ops.modulus_reduce_context64
 modulus_reduce_key64 = shell_ops.modulus_reduce_key64

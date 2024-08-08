@@ -22,6 +22,7 @@ from tf_shell.python.shell_tensor import to_encrypted
 from tf_shell.python.shell_tensor import to_tensorflow
 from tf_shell.python.shell_tensor import roll
 from tf_shell.python.shell_tensor import reduce_sum
+from tf_shell.python.shell_tensor import fast_reduce_sum
 from tf_shell.python.shell_tensor import matmul
 from tf_shell.python.shell_tensor import expand_dims
 from tf_shell.python.shell_tensor import reshape
@@ -38,3 +39,5 @@ from tf_shell.python.shell_key import mod_reduce_key64
 
 from tf_shell.python.shell_key import ShellRotationKey64
 from tf_shell.python.shell_key import create_rotation_key64
+from tf_shell.python.shell_key import ShellFastRotationKey64
+from tf_shell.python.shell_key import create_fast_rotation_key64
