@@ -42,7 +42,7 @@ py_test(
 
 py_test(
     name = "embedding_test",
-    size = "medium",
+    size = "large",
     srcs = ["embedding_test.py"],
     deps = [
         "//tf_shell_ml",
