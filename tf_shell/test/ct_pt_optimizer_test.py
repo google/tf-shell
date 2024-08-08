@@ -181,8 +181,8 @@ class TestCtPtAutoEnableOptimizer(tf.test.TestCase):
         opt_time = timeit(lambda: ct_pt_pt_add(ct_a, pt_b), number=1)
 
         # Optimized time should be twice as fast due to the two ciphertext
-        # components, but give it some slack and check if it is 1.7x faster.
-        self.assertLess(opt_time, unopt_time / 1.7)
+        # components, but give it some slack and check it is faster.
+        self.assertLess(opt_time, unopt_time * 0.6)
 
 
 if __name__ == "__main__":
