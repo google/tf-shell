@@ -121,10 +121,13 @@ class TestShellTensorFastRotation(tf.test.TestCase):
         test_context = self.test_contexts[0]
         print(f"test context num slots {test_context.shell_context.num_slots}")
         tftensor = tf.ones(
-            [test_context.shell_context.num_slots, 1], dtype=test_context.plaintext_dtype
+            [test_context.shell_context.num_slots, 1],
+            dtype=test_context.plaintext_dtype,
         )
 
-        enc = tf_shell.to_encrypted(tftensor, test_context.key, test_context.shell_context)
+        enc = tf_shell.to_encrypted(
+            tftensor, test_context.key, test_context.shell_context
+        )
         enc_degree_two = enc * enc
 
         with self.assertRaisesOpError("Only Degree 1 ciphertexts supported."):

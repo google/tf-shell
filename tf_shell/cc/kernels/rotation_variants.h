@@ -87,7 +87,8 @@ class FastRotationKeyVariant {
   FastRotationKeyVariant() {}
 
   // Create with gadget first, then create and add keys.
-  FastRotationKeyVariant(std::vector<RnsPolynomial> keys) : keys(std::move(keys)) {}
+  FastRotationKeyVariant(std::vector<RnsPolynomial> keys)
+      : keys(std::move(keys)) {}
 
   static inline char const kTypeName[] = "ShellFastRotationKeyVariant";
 

@@ -81,6 +81,7 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
         _raw_rot_keys_at_level=raw_rot_keys_at_level, context=context
     )
 
+
 class ShellFastRotationKey64(tf.experimental.ExtensionType):
     _raw_rot_keys_at_level: typing.Mapping[int, tf.Tensor]
     context: ShellContext64
