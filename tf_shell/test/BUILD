@@ -17,6 +17,7 @@ py_test(
     size = "small",
     srcs = [
         "basic_test.py",
+        "test_utils.py",
     ],
     deps = [
         "//tf_shell:tf_shell_lib",

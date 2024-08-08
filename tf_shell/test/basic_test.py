@@ -15,6 +15,7 @@
 # limitations under the License.
 import tensorflow as tf
 import tf_shell
+import test_utils
 
 import numpy as np
 import sys
@@ -23,103 +24,167 @@ np.set_printoptions(threshold=sys.maxsize)
 
 
 class TestShellTensor(tf.test.TestCase):
-    log_slots = 11
-    slots = 2**log_slots
+    # log_slots = 11
+    # slots = 2**log_slots
 
-    def get_context():
-        return tf_shell.create_context64(
-            log_n=TestShellTensor.log_slots,
-            main_moduli=[8556589057, 8388812801],
-            plaintext_modulus=40961,
-        )
+    # def get_context():
+    #     return tf_shell.create_context64(
+    #         log_n=TestShellTensor.log_slots,
+    #         main_moduli=[8556589057, 8388812801],
+    #         plaintext_modulus=40961,
+    #     )
 
-    def test_create_shell_tensor_positive(self):
-        context = TestShellTensor.get_context()
-        tf_tensor = tf.random.uniform(
-            [TestShellTensor.slots, 3], dtype=tf.int32, maxval=100
-        )
-        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
-        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
-        self.assertAllClose(tf_tensor_out, tf_tensor)
+    test_contexts = None
 
-    def test_create_shell_tensor_negative(self):
-        context = TestShellTensor.get_context()
-        tf_tensor = (
-            tf.random.uniform([TestShellTensor.slots, 3], dtype=tf.int32, maxval=100)
-            - 50
-        )
-        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
-        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
-        self.assertAllClose(tf_tensor_out, tf_tensor)
+    @classmethod
+    def setUpClass(cls):
+        # Create test contexts used for all multiplication tests.
+        int_dtypes = [
+            tf.uint8,
+            tf.int8,
+            tf.uint16,
+            tf.int16,
+            tf.uint32,
+            tf.int32,
+            tf.uint64,
+            tf.int64,
+        ]
+        cls.test_contexts = []
 
-    def test_shape(self):
-        context = TestShellTensor.get_context()
-        tf_tensor = tf.random.uniform(
-            [TestShellTensor.slots, 3], dtype=tf.int32, maxval=100
-        )
-        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
-        self.assertAllClose(tf_tensor.shape, shell_tensor.shape)
-        self.assertAllClose(tf_tensor.shape, shell_tensor.shape)
-
-        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
-        self.assertAllClose(tf_tensor.shape, tf_tensor_out.shape)
-
-    def test_create_shell_tensor_multi_dim(self):
-        context = TestShellTensor.get_context()
-        tf_tensor = tf.random.uniform(
-            [TestShellTensor.slots, 3, 5, 6], dtype=tf.int32, maxval=100
-        )
-        shell_tensor = tf_shell.to_shell_plaintext(tf_tensor, context)
-        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
-        self.assertAllClose(tf_tensor_out, tf_tensor)
-
-    def test_encrypt_decrypt_positive(self):
-        context = TestShellTensor.get_context()
-        key = tf_shell.create_key64(context)
-        tf_tensor = tf.random.uniform(
-            [TestShellTensor.slots, 3, 2, 12], dtype=tf.int32, maxval=100
-        )
-
-        enc = tf_shell.to_encrypted(tf_tensor, key, context)
-        tf_tensor_out = tf_shell.to_tensorflow(enc, key)
-        self.assertAllClose(tf_tensor_out, tf_tensor)
-
-    def test_encrypt_decrypt_negative(self):
-        context = TestShellTensor.get_context()
-        key = tf_shell.create_key64(context)
-        tf_tensor = (
-            tf.random.uniform(
-                [TestShellTensor.slots, 3, 2, 12], dtype=tf.int32, maxval=100
+        for int_dtype in int_dtypes:
+            cls.test_contexts.append(
+                test_utils.TestContext(
+                    outer_shape=[3, 2, 3],
+                    plaintext_dtype=int_dtype,
+                    log_n=11,
+                    main_moduli=[8556589057, 8388812801],
+                    aux_moduli=[],
+                    plaintext_modulus=40961,
+                    scaling_factor=1,
+                    mul_depth_supported=1,
+                )
             )
-            - 50
+
+        for float_dtype in [tf.float32, tf.float64]:
+            cls.test_contexts.append(
+                test_utils.TestContext(
+                    outer_shape=[3, 2, 3],
+                    plaintext_dtype=float_dtype,
+                    log_n=11,
+                    main_moduli=[8556589057, 8388812801],
+                    aux_moduli=[],
+                    plaintext_modulus=40961,
+                    scaling_factor=8,
+                    mul_depth_supported=1,
+                )
+            )
+
+        # Test with empty outer shape.
+        cls.test_contexts.append(
+            test_utils.TestContext(
+                outer_shape=[],
+                plaintext_dtype=tf.int32,
+                log_n=11,
+                main_moduli=[8556589057, 8388812801],
+                aux_moduli=[],
+                plaintext_modulus=40961,
+                scaling_factor=1,
+                mul_depth_supported=1,
+            )
         )
 
-        enc = tf_shell.to_encrypted(tf_tensor, key, context)
-        tf_tensor_out = tf_shell.to_tensorflow(enc, key)
+    def _test_create_shell_tensor(self, test_context):
+        tf_tensor = test_utils.uniform_for_n_adds(test_context, 0)
+        shell_tensor = tf_shell.to_shell_plaintext(
+            tf_tensor, test_context.shell_context
+        )
+        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
         self.assertAllClose(tf_tensor_out, tf_tensor)
 
-    def test_encode_python(self):
-        context = TestShellTensor.get_context()
-        key = tf_shell.create_key64(context)
+    def test_create_shell_tensor(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
+                self._test_create_shell_tensor(test_context)
+
+    def _test_encrypt_decrypt(self, test_context):
+        tf_tensor = test_utils.uniform_for_n_adds(test_context, 0)
+
+        # Encrypt the TensorFlow tensor.
+        shell_tensor = tf_shell.to_shell_plaintext(
+            tf_tensor, test_context.shell_context
+        )
+        tf_tensor_out = tf_shell.to_tensorflow(shell_tensor)
+        self.assertAllClose(tf_tensor_out, tf_tensor)
+
+        # Encrypt the shell plaintext.
+        enc_shell_tensor = tf_shell.to_encrypted(shell_tensor, test_context.key)
+        tf_tensor_dec_out = tf_shell.to_tensorflow(enc_shell_tensor, test_context.key)
+        self.assertAllClose(tf_tensor_dec_out, tf_tensor)
+
+        # Directly encrypt the tf tensor.
+        enc_direct_shell_tensor = tf_shell.to_encrypted(
+            tf_tensor, test_context.key, test_context.shell_context
+        )
+        tf_tensor_dec_direct_out = tf_shell.to_tensorflow(
+            enc_direct_shell_tensor, test_context.key
+        )
+        self.assertAllClose(tf_tensor_dec_direct_out, tf_tensor)
+
+    def test_encrypt_decrypt(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
+                self._test_encrypt_decrypt(test_context)
+
+    def _test_shape(self, test_context):
+        tf_tensor = tf.ones(
+            [test_context.shell_context.num_slots] + test_context.outer_shape,
+            dtype=tf.int32,
+        )
+        # Check the shape of a shell plaintext matches the cleartext.
+        shell_tensor = tf_shell.to_shell_plaintext(
+            tf_tensor, test_context.shell_context
+        )
+        self.assertAllClose(tf_tensor.shape, shell_tensor.shape)
+
+        # Check the shape of an encryption matches the cleartext.
+        enc_shell_tensor = tf_shell.to_encrypted(shell_tensor, test_context.key)
+        self.assertAllClose(tf_tensor.shape, enc_shell_tensor.shape)
+
+    def _test_shape(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
+                self._test_shape(test_context)
+
+    def _test_shape_padding_python(self, test_context):
+        context = test_context.shell_context
+        key = test_context.key
 
         one_d = [1, 2]
         two_d = [[1, 2], [3, 4]]
 
+        # Encode 1d tensor then check shape was padded and value is right.
         pt_1d = tf_shell.to_shell_plaintext(one_d, context)
-        assert pt_1d.shape == [context.num_slots], "Padding failed"
+        self.assertEqual(pt_1d.shape, [context.num_slots])
         self.assertAllClose(one_d[:2], tf_shell.to_tensorflow(pt_1d)[:2])
 
+        # Encode 2d tensor then check shape was padded and value is right.
         pt_2d = tf_shell.to_shell_plaintext(two_d, context)
-        assert pt_2d.shape == [context.num_slots, 2], "Padding failed"
+        self.assertEqual(pt_2d.shape, [context.num_slots, 2])
         self.assertAllClose(two_d[:2][:2], tf_shell.to_tensorflow(pt_2d)[:2][:2])
 
+        # Same tests as above but for encryption.
         ct_1d = tf_shell.to_encrypted(one_d, key, context)
-        assert pt_1d.shape == [context.num_slots], "Padding failed"
+        self.assertEqual(pt_1d.shape, [context.num_slots])
         self.assertAllClose(one_d[:2], tf_shell.to_tensorflow(ct_1d, key)[:2])
 
         ct_2d = tf_shell.to_encrypted(two_d, key, context)
-        assert pt_2d.shape == [context.num_slots, 2], "Padding failed"
+        self.assertEqual(pt_2d.shape, [context.num_slots, 2])
         self.assertAllClose(two_d[:2][:2], tf_shell.to_tensorflow(ct_2d, key)[:2][:2])
+
+    def test_shape_padding_python(self):
+        for test_context in self.test_contexts:
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
+                self._test_shape_padding_python(test_context)
 
 
 if __name__ == "__main__":
