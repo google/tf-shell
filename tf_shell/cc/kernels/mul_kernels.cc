@@ -222,7 +222,7 @@ class MulShellTfScalarOp : public OpKernel {
     for (int i = 0; i < flat_output.dimension(0); ++i) {
       // First encode the scalar b
       // TDOO(jchoncholas): encode all scalars at once beforehand.
-      T wrapped_b;
+      T wrapped_b{};
       EncodeScalar(op_ctx, flat_b(b_bcaster(i)), encoder, &wrapped_b);
 
       CtOrPolyVariant const* ct_or_pt_var =

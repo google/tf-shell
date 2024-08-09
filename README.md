@@ -71,7 +71,7 @@ the labels.
     Then install.
 
     ```bash
-    pip install tf_shell-...-manylinux.whl  # Run in target environment.
+    pip install --force-reinstall tf_shell-*.whl  # Run in target environment.
     ```
 
 Note the cpython api is not compatible across minor python versions (e.g. 3.10,

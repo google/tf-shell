@@ -94,7 +94,7 @@ struct ZeroCt {
                                 shell_ctx_var->error_params_.get());
     SymmetricCt zero_ct(std::move(zero_generic_ct));
     SymmetricCtVariant<T> zero_var(std::move(zero_ct));
-    return std::move(zero_var);
+    return zero_var;
   }
 };
 
