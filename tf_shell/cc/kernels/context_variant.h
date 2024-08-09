@@ -119,9 +119,9 @@ class ContextVariant {
     uint num_slots = 1 << log_n_;
     uint two_n = num_slots << 1;
     uint sub_power = 1;
-    subtitution_powers_.reserve(num_slots / 2);
+    substitution_powers_.reserve(num_slots / 2);
     for (uint shift = 0; shift < num_slots / 2; ++shift) {
-      subtitution_powers_.push_back(sub_power);
+      substitution_powers_.push_back(sub_power);
       sub_power *= base_power;
       sub_power %= two_n;
     }
@@ -149,7 +149,7 @@ class ContextVariant {
   T pt_modulus_;
   size_t noise_variance_;
   std::string seed_;
-  std::vector<uint> subtitution_powers_;
+  std::vector<uint> substitution_powers_;
 
   // Ideally these members wouldn't be smart pointers (plain pointers or even
   // just the objects), but many of them don't have default constructors and

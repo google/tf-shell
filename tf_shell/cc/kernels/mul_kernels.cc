@@ -504,7 +504,7 @@ class MatMulPtCtOp : public OpKernel {
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
 
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
-    auto const& sub_powers = shell_ctx_var->subtitution_powers_;
+    auto const& sub_powers = shell_ctx_var->substitution_powers_;
     OP_REQUIRES(op_ctx, shell_ctx != nullptr,
                 InvalidArgument("Shell context object is empty."));
     auto const& main_moduli = shell_ctx->MainPrimeModuli();

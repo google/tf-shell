@@ -144,8 +144,7 @@ class FastReduceSumByRotationOp : public OpKernel {
   void Compute(OpKernelContext* op_ctx) override {
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
-    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
-    auto const& sub_powers = shell_ctx_var->subtitution_powers_;
+    auto const& sub_powers = shell_ctx_var->substitution_powers_;
 
     // Recover the input tensor.
     Tensor const& value = op_ctx->input(1);
@@ -161,7 +160,6 @@ class FastReduceSumByRotationOp : public OpKernel {
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
     SymmetricCt const& ct = ct_var->ct;
     int num_slots = 1 << ct.LogN();
-    int two_n = num_slots << 1;
     int num_components = ct.NumModuli();
     absl::Span<Modulus const* const> moduli = ct.Moduli();
     std::vector<Modulus const*> moduli_vector;
@@ -195,7 +193,7 @@ class FastReduceSumByRotationOp : public OpKernel {
         OP_REQUIRES_VALUE(RnsPolynomial sum_component_zero, op_ctx,
                           ct.Component(0));  // deep copy to start the sum.
 
-        for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+        for (uint shift = 1; shift < num_slots / 2; shift <<= 1) {
           // Rotate by the shift.
           OP_REQUIRES_VALUE(
               RnsPolynomial sum_shifted, op_ctx,
@@ -258,7 +256,7 @@ class DecryptFastRotatedOp : public OpKernel {
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
     auto moduli = shell_ctx->MainPrimeModuli();
     Encoder const* encoder = shell_ctx_var->encoder_.get();
-    auto const& sub_powers = shell_ctx_var->subtitution_powers_;
+    auto const& sub_powers = shell_ctx_var->substitution_powers_;
 
     OP_REQUIRES_VALUE(FastRotationKeyVariant<From> const* key_var, op_ctx,
                       GetVariant<FastRotationKeyVariant<From>>(op_ctx, 1));
@@ -306,7 +304,7 @@ class DecryptFastRotatedOp : public OpKernel {
 
         // Compute a(X^5^i) * s(X^5^i) for i = 0 .. n/2 - 1 where a is the
         // second component of the ciphertext and s is the original secret key.
-        for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+        for (uint shift = 1; shift < num_slots / 2; shift <<= 1) {
           OP_REQUIRES_VALUE(RnsPolynomial ct_a_sub_i, op_ctx,
                             ct_offset_sum.Substitute(sub_powers[shift], moduli));
 
