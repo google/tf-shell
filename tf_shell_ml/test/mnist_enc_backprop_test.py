@@ -63,33 +63,8 @@ val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
 val_dataset = val_dataset.batch(batch_size)
 
 
-# Create the layers
-hidden_layer = tf_shell_ml.ShellDense(
-    64,
-    activation=tf_shell_ml.relu,
-    activation_deriv=tf_shell_ml.relu_deriv,
-    is_first_layer=True,
-)
-output_layer = tf_shell_ml.ShellDense(
-    10,
-    activation=tf.nn.softmax,
-    # Do not set the derivative of the activation function for the last layer
-    # in the model. The derivative of the categorical crossentropy loss function
-    # times the derivative of a softmax is just y_pred - y (which is much easier
-    # to compute than each of them individually). So instead just let the
-    # loss function derivative incorporate y_pred - y and let the derivative
-    # of this last layer's activation be a no-op.
-)
-
-# Call the layers once to create the weights.
-y1 = hidden_layer(tf.zeros((batch_size, 784)))
-y2 = output_layer(y1)
-
-loss_fn = tf_shell_ml.CategoricalCrossentropy()
-
-
 @tf.function
-def train_step(x, y):
+def train_step(x, y, hidden_layer, output_layer, loss_fn):
     # Forward pass.
     y_1 = hidden_layer(x)
     y_pred = output_layer(y_1)
@@ -111,17 +86,43 @@ def train_step(x, y):
 
 
 class TestMNISTBackprop(tf.test.TestCase):
-    def test_mnist_enc_backprop(self):
+    def _test_mnist_enc_backprop(self, use_fast_reduce_sum):
+        # Create the layers
+        hidden_layer = tf_shell_ml.ShellDense(
+            64,
+            activation=tf_shell_ml.relu,
+            activation_deriv=tf_shell_ml.relu_deriv,
+            is_first_layer=True,
+            use_fast_reduce_sum=use_fast_reduce_sum,
+        )
+        output_layer = tf_shell_ml.ShellDense(
+            10,
+            activation=tf.nn.softmax,
+            # Do not set the derivative of the activation function for the last layer
+            # in the model. The derivative of the categorical crossentropy loss function
+            # times the derivative of a softmax is just y_pred - y (which is much easier
+            # to compute than each of them individually). So instead just let the
+            # loss function derivative incorporate y_pred - y and let the derivative
+            # of this last layer's activation be a no-op.
+            use_fast_reduce_sum=use_fast_reduce_sum,
+        )
+
+        # Call the layers once to create the weights.
+        y1 = hidden_layer(tf.zeros((batch_size, 784)))
+        y2 = output_layer(y1)
+
+        loss_fn = tf_shell_ml.CategoricalCrossentropy()
+
         (x_batch, y_batch) = next(iter(train_dataset))
 
         # Plaintext backprop splitting the batch in half vertically.
         top_x_batch, bottom_x_batch = tf.split(x_batch, num_or_size_splits=2, axis=0)
         top_y_batch, bottom_y_batch = tf.split(y_batch, num_or_size_splits=2, axis=0)
         top_output_layer_grad, top_hidden_layer_grad = train_step(
-            top_x_batch, top_y_batch
+            top_x_batch, top_y_batch, hidden_layer, output_layer, loss_fn
         )
         bottom_output_layer_grad, bottom_hidden_layer_grad = train_step(
-            bottom_x_batch, bottom_y_batch
+            bottom_x_batch, bottom_y_batch, hidden_layer, output_layer, loss_fn
         )
 
         # Stack the top and bottom gradients back together along a new
@@ -145,11 +146,26 @@ class TestMNISTBackprop(tf.test.TestCase):
         enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
 
         # Backprop.
-        enc_output_layer_grad, enc_hidden_layer_grad = train_step(x_batch, enc_y_batch)
+        enc_output_layer_grad, enc_hidden_layer_grad = train_step(
+            x_batch, enc_y_batch, hidden_layer, output_layer, loss_fn
+        )
 
         # Decrypt the gradients.
-        repeated_output_layer_grad = tf_shell.to_tensorflow(enc_output_layer_grad, key)
-        repeated_hidden_layer_grad = tf_shell.to_tensorflow(enc_hidden_layer_grad, key)
+        if use_fast_reduce_sum:
+            fast_rotation_key = tf_shell.create_fast_rotation_key64(context, key)
+            repeated_output_layer_grad = tf_shell.to_tensorflow(
+                enc_output_layer_grad, fast_rotation_key
+            )
+            repeated_hidden_layer_grad = tf_shell.to_tensorflow(
+                enc_hidden_layer_grad, fast_rotation_key
+            )
+        else:
+            repeated_output_layer_grad = tf_shell.to_tensorflow(
+                enc_output_layer_grad, key
+            )
+            repeated_hidden_layer_grad = tf_shell.to_tensorflow(
+                enc_hidden_layer_grad, key
+            )
 
         print(f"\tOutput Layer Noise: {enc_output_layer_grad.noise_bits}")
         print(f"\tHidden Layer Noise: {enc_hidden_layer_grad.noise_bits}")
@@ -187,6 +203,13 @@ class TestMNISTBackprop(tf.test.TestCase):
             atol=1 / context.scaling_factor * context.num_slots,
             rtol=1 / context.scaling_factor * 3,
         )
+
+    def test_mnist_enc_backprop(self):
+        for use_fast_reduce_sum in [False, True]:
+            with self.subTest(
+                f"{self._testMethodName} with use_fast_reduce_sum={use_fast_reduce_sum}."
+            ):
+                self._test_mnist_enc_backprop(use_fast_reduce_sum)
 
 
 if __name__ == "__main__":

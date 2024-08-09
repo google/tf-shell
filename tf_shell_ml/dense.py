@@ -30,6 +30,7 @@ class ShellDense:
         skip_normalization=True,
         weight_dtype=tf.float32,
         is_first_layer=False,
+        use_fast_reduce_sum=False,
     ):
         self.units = int(units)
         self.activation = activation
@@ -41,6 +42,7 @@ class ShellDense:
         self.skip_normalization = skip_normalization
         self.weight_dtype = weight_dtype
         self.is_first_layer = is_first_layer
+        self.use_fast_reduce_sum = use_fast_reduce_sum
 
         self.built = False
         self.weights = []
@@ -96,14 +98,21 @@ class ShellDense:
             d_x = tf_shell.matmul(dy, kernel_t)
 
         # Perform the multiplication for dy/dw.
-        d_weights = tf_shell.matmul(tf.transpose(x), dy, rotation_key)
+        if self.use_fast_reduce_sum:
+            d_weights = tf_shell.matmul(tf.transpose(x), dy, fast=True)
+        else:
+            d_weights = tf_shell.matmul(tf.transpose(x), dy, rotation_key)
 
         if not self.skip_normalization:
             d_weights = d_weights / batch_size
         grad_weights.append(d_weights)
 
         if self.use_bias:
-            d_bias = tf_shell.reduce_sum(dy, axis=0, rotation_key=rotation_key)
+            if self.use_fast_reduce_sum:
+                d_bias = tf_shell.fast_reduce_sum(dy)
+            else:
+                d_bias = tf_shell.reduce_sum(dy, axis=0, rotation_key=rotation_key)
+
             if not self.skip_normalization:
                 d_bias = d_bias / batch_size
             grad_weights.append(d_bias)
