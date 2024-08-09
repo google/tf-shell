@@ -757,7 +757,7 @@ def fast_reduce_sum(x):
     )
 
 
-def matmul(x, y, rotation_key=None):
+def matmul(x, y, rotation_key=None, fast=False):
     """Matrix multiplication is specialized to whether the operands are
     plaintext or ciphertext.
 
@@ -805,11 +805,6 @@ def matmul(x, y, rotation_key=None):
         )
 
     elif isinstance(x, tf.Tensor) and isinstance(y, ShellTensor64):
-        if not isinstance(rotation_key, ShellRotationKey64):
-            raise ValueError(
-                f"Rotation key must be provided to matmul pt*ct. Instead saw {rotation_key}."
-            )
-
         if x.dtype != y._underlying_dtype:
             raise ValueError(
                 f"Underlying dtypes must match. Got {x.dtype} and {y._underlying_dtype}"
@@ -823,29 +818,53 @@ def matmul(x, y, rotation_key=None):
         # Encode the plaintext x to the same scaling factor as y.
         scaled_x = _encode_scaling(x, y._scaling_factor)
 
-        # Get the correct rotation key for the level of y.
-        raw_rotation_key = rotation_key._get_key_at_level(y._context.level)
-
         # Noise grows from doing one multiplication then a reduce_sum operation
         # over the outer (ciphertext) dimension. dimension. The noise from the
         # reduce_sum is a rough estimate that works for slots = 2**11.
         multiplication_noise = y._noise_bit_count + 1
-        rotation_noise = multiplication_noise + 60
-        reduce_sum_noise = rotation_noise + y._context.num_slots.bit_length()
+        if fast:
+            # No rotation key needed for fast mat mul.
+            reduce_sum_noise = multiplication_noise + y._context.num_slots.bit_length()
 
-        return ShellTensor64(
-            _raw_tensor=shell_ops.mat_mul_pt_ct64(
-                y._context._raw_context,
-                raw_rotation_key,
-                scaled_x,
-                y._raw_tensor,
-            ),
-            _context=y._context,
-            _underlying_dtype=y._underlying_dtype,
-            _scaling_factor=y._scaling_factor**2,
-            _is_enc=True,
-            _noise_bit_count=reduce_sum_noise,
-        )
+            return ShellTensor64(
+                _raw_tensor=shell_ops.fast_mat_mul_pt_ct64(
+                    y._context._raw_context,
+                    scaled_x,
+                    y._raw_tensor,
+                    # no rotation key
+                ),
+                _context=y._context,
+                _underlying_dtype=y._underlying_dtype,
+                _scaling_factor=y._scaling_factor**2,
+                _is_enc=True,
+                _noise_bit_count=reduce_sum_noise,
+                _is_fast_rotated=True,
+            )
+        else:
+            if not isinstance(rotation_key, ShellRotationKey64):
+                raise ValueError(
+                    f"Rotation key must be provided to matmul pt*ct. Instead saw {rotation_key}."
+                )
+
+            # Get the correct rotation key for the level of y.
+            raw_rotation_key = rotation_key._get_key_at_level(y._context.level)
+
+            rotation_noise = multiplication_noise + 60
+            reduce_sum_noise = rotation_noise + y._context.num_slots.bit_length()
+
+            return ShellTensor64(
+                _raw_tensor=shell_ops.mat_mul_pt_ct64(
+                    y._context._raw_context,
+                    scaled_x,
+                    y._raw_tensor,
+                    raw_rotation_key,
+                ),
+                _context=y._context,
+                _underlying_dtype=y._underlying_dtype,
+                _scaling_factor=y._scaling_factor**2,
+                _is_enc=True,
+                _noise_bit_count=reduce_sum_noise,
+            )
 
     elif isinstance(x, ShellTensor64) and isinstance(y, ShellTensor64):
         return NotImplementedError

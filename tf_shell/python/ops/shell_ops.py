@@ -49,6 +49,7 @@ mul_pt_tf_scalar64 = shell_ops.mul_pt_tf_scalar64
 mul_pt_pt64 = shell_ops.mul_pt_pt64
 mat_mul_ct_pt64 = shell_ops.mat_mul_ct_pt64
 mat_mul_pt_ct64 = shell_ops.mat_mul_pt_ct64
+fast_mat_mul_pt_ct64 = shell_ops.fast_mat_mul_pt_ct64
 
 # Rotate slots.
 rotation_key_gen64 = shell_ops.rotation_key_gen64

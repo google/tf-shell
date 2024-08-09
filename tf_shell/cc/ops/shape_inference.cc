@@ -91,8 +91,8 @@ Status ShellMatMulCtPtShape(InferenceContext* c) {
 Status ShellMatMulPtCtShape(InferenceContext* c) {
   ShapeHandle a_shape;  // a is the plaintext.
   ShapeHandle b_shape;  // b is the ciphertext with batch axis packing.
-  TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(2), 2, &a_shape));
-  TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(3), 1, &b_shape));
+  TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(1), 2, &a_shape));
+  TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(2), 1, &b_shape));
 
   // When the ciphertext b is rank 1, it is still considered a matrix
   // because the first axis is the packing dimension.

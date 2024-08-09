@@ -485,10 +485,11 @@ class MatMulCtPtOp : public OpKernel {
   }
 };
 
-template <typename PtT, typename T>
+template <typename PtT, typename T, bool use_fast_rotations>
 class MatMulPtCtOp : public OpKernel {
   using ModularInt = rlwe::MontgomeryInt<T>;
   using Context = rlwe::RnsContext<ModularInt>;
+  using Modulus = rlwe::PrimeModulus<ModularInt>;
   using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
   using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
@@ -503,21 +504,32 @@ class MatMulPtCtOp : public OpKernel {
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
 
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
-    // TODO if debug
+    auto const& sub_powers = shell_ctx_var->subtitution_powers_;
     OP_REQUIRES(op_ctx, shell_ctx != nullptr,
                 InvalidArgument("Shell context object is empty."));
+    auto const& main_moduli = shell_ctx->MainPrimeModuli();
+    std::vector<Modulus const*> main_moduli_vector;
+    main_moduli_vector.assign(main_moduli.begin(), main_moduli.end());
 
     Encoder const* encoder = shell_ctx_var->encoder_.get();
     // TODO if debug
     OP_REQUIRES(op_ctx, encoder != nullptr,
                 InvalidArgument("Shell encoder object is empty."));
 
-    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
-                      GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
-    std::vector<RotationKey> const& rot_keys = rotation_key_var->keys;
+    Tensor const& a = op_ctx->input(1);
+    Tensor const& b = op_ctx->input(2);
 
-    Tensor const& a = op_ctx->input(2);
-    Tensor const& b = op_ctx->input(3);
+    // Rotation keys are only required if fast rotations are enabled.
+    RotationKeyVariant<T> const* rotation_key_var = nullptr;
+    if constexpr (use_fast_rotations) {
+      (void)rotation_key_var;
+    } else {
+      OP_REQUIRES_VALUE(rotation_key_var, op_ctx,
+                        GetVariant<RotationKeyVariant<T>>(op_ctx, 3));
+    }
+    std::vector<RotationKey> empty_rot_keys{};
+    std::vector<RotationKey> const& rot_keys =
+        use_fast_rotations ? empty_rot_keys : rotation_key_var->keys;
 
     // b is a vector of Polynomials so first dimension is the number of
     // slots.
@@ -609,9 +621,8 @@ class MatMulPtCtOp : public OpKernel {
             }
           }
 
-          OP_REQUIRES_VALUE(
-              RnsPolynomial row_polynomial, op_ctx,
-              encoder->EncodeBgv(wrapped_row, shell_ctx->MainPrimeModuli()));
+          OP_REQUIRES_VALUE(RnsPolynomial row_polynomial, op_ctx,
+                            encoder->EncodeBgv(wrapped_row, main_moduli));
 
           // Multiply the row by each of the ciphertext vector,
           // point - wise.
@@ -631,24 +642,55 @@ class MatMulPtCtOp : public OpKernel {
                               ct_b * row_polynomial);
 
             // Reduce sum the result.
-            // Add the rotations to the sum.
             // Note the ciphertext rotations operate on each half of the
             // ciphertext separately. So the max rotatation is by half the
             // number of slots.
-            for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
-              OP_REQUIRES(
-                  op_ctx,
-                  shift - 1 < static_cast<int>(rot_keys.size()),  // Skip key 0.
-                  InvalidArgument("No key for shift of '", shift, "'"));
-              RotationKey const* k = &rot_keys[shift - 1];  // Skip key 0.
+            if constexpr (use_fast_rotations) {
+              OP_REQUIRES_VALUE(
+                  RnsPolynomial sum_component_zero, op_ctx,
+                  ct_result.Component(0));  // deep copy to start the sum.
+              for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+                // Rotate by the shift.
+                OP_REQUIRES_VALUE(RnsPolynomial sum_shifted, op_ctx,
+                                  sum_component_zero.Substitute(
+                                      sub_powers[shift], main_moduli));
 
-              // Rotate by the shift.
-              OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
-                                ct_result.Substitute(k->SubstitutionPower()));
-              OP_REQUIRES_VALUE(auto ct_rot, op_ctx, k->ApplyTo(ct_sub));
+                // Add to the sum.
+                OP_REQUIRES_OK(op_ctx, sum_component_zero.AddInPlace(
+                                           sum_shifted, main_moduli));
+              }
 
-              // Add to the sum.
-              OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(ct_rot));
+              // The second component of the ciphertext is unchanged.
+              OP_REQUIRES_VALUE(RnsPolynomial passthrough_component_one, op_ctx,
+                                ct_result.Component(1));
+
+              std::vector<RnsPolynomial> components{
+                  std::move(sum_component_zero),
+                  std::move(passthrough_component_one),
+              };
+
+              // Recreate the ciphertext with the new components.
+              ct_result = SymmetricCt{
+                  std::move(components), main_moduli_vector, ct_b.PowerOfS(),
+                  ct_b.Error() * ct_b.LogN(), ct_b.ErrorParams()};
+
+            } else {
+              for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+                OP_REQUIRES(
+                    op_ctx,
+                    shift - 1 <
+                        static_cast<int>(rot_keys.size()),  // Skip key 0.
+                    InvalidArgument("No key for shift of '", shift, "'"));
+                RotationKey const* k = &rot_keys[shift - 1];  // Skip key 0.
+
+                // Rotate by the shift.
+                OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
+                                  ct_result.Substitute(k->SubstitutionPower()));
+                OP_REQUIRES_VALUE(auto ct_rot, op_ctx, k->ApplyTo(ct_sub));
+
+                // Add to the sum.
+                OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(ct_rot));
+              }
             }
 
             // At this point we have one ciphertext per row of the plaintext
@@ -766,28 +808,57 @@ REGISTER_KERNEL_BUILDER(
 // Matrix multiply plaintext and ciphertext.
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint8>("Dtype"),
-    MatMulPtCtOp<uint8, uint64>);
+    MatMulPtCtOp<uint8, uint64, false>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int8>("Dtype"),
-    MatMulPtCtOp<int8, uint64>);
+    MatMulPtCtOp<int8, uint64, false>);
 
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint16>("Dtype"),
-    MatMulPtCtOp<uint16, uint64>);
+    MatMulPtCtOp<uint16, uint64, false>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int16>("Dtype"),
-    MatMulPtCtOp<int16, uint64>);
+    MatMulPtCtOp<int16, uint64, false>);
 
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint32>("Dtype"),
-    MatMulPtCtOp<uint32, uint64>);
+    MatMulPtCtOp<uint32, uint64, false>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int32>("Dtype"),
-    MatMulPtCtOp<int32, uint64>);
+    MatMulPtCtOp<int32, uint64, false>);
 
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint64>("Dtype"),
-    MatMulPtCtOp<uint64, uint64>);
+    MatMulPtCtOp<uint64, uint64, false>);
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
-    MatMulPtCtOp<int64, uint64>);
+    MatMulPtCtOp<int64, uint64, false>);
+
+// Matrix multiply plaintext and ciphertext with fast rotations.
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint8>("Dtype"),
+    MatMulPtCtOp<uint8, uint64, true>);
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int8>("Dtype"),
+    MatMulPtCtOp<int8, uint64, true>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint16>("Dtype"),
+    MatMulPtCtOp<uint16, uint64, true>);
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int16>("Dtype"),
+    MatMulPtCtOp<int16, uint64, true>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint32>("Dtype"),
+    MatMulPtCtOp<uint32, uint64, true>);
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int32>("Dtype"),
+    MatMulPtCtOp<int32, uint64, true>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<uint64>("Dtype"),
+    MatMulPtCtOp<uint64, uint64, true>);
+REGISTER_KERNEL_BUILDER(
+    Name("FastMatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
+    MatMulPtCtOp<int64, uint64, true>);

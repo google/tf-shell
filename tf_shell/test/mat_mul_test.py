@@ -78,7 +78,7 @@ class TestShellTensor(tf.test.TestCase):
             b = test_utils.uniform_for_n_muls(test_context, 1, shape=[5, 7])
         except Exception as e:
             print(
-                f"Note: Skipping test ct_tf_matmul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
@@ -97,7 +97,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_ct_tf_matmul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"ct_tf_matmul with context `{test_context}`."):
+            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
                 self._test_ct_tf_matmul(test_context)
 
     # tf-shell matmult has slightly different semantics than plaintext /
@@ -133,7 +133,7 @@ class TestShellTensor(tf.test.TestCase):
 
         return tf.concat([top, bottom], axis=0)
 
-    def _test_tf_ct_matmul(self, test_context):
+    def _test_tf_ct_matmul(self, test_context, use_fast_rotation):
         # Generating the following tensors should always succeed since this test
         # uses it's own special context.
         try:
@@ -151,28 +151,33 @@ class TestShellTensor(tf.test.TestCase):
             )
         except Exception as e:
             print(
-                f"Note: Skipping test tf_ct_matmul with context {test_context}. Not enough precision to support this test."
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
             )
             print(e)
             return
 
         eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
-
-        ec = tf_shell.matmul(a, eb, test_context.rotation_key)
-
         check_c = self.plaintext_matmul(a, b)
-        self.assertAllClose(
-            check_c,
-            tf_shell.to_tensorflow(ec, test_context.key),
-        )
+
+        if use_fast_rotation:
+            ec = tf_shell.matmul(a, eb, fast=True)
+            dec_c = tf_shell.to_tensorflow(ec, test_context.fast_rotation_key)
+        else:
+            ec = tf_shell.matmul(a, eb, test_context.rotation_key)
+            dec_c = tf_shell.to_tensorflow(ec, test_context.key)
+
+        self.assertAllClose(check_c, dec_c)
 
         # Check the arguments were not modified.
         self.assertAllClose(b, tf_shell.to_tensorflow(eb, test_context.key))
 
     def test_tf_ct_matmul(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"tf_ct_matmul with context `{test_context}`."):
-                self._test_tf_ct_matmul(test_context)
+            for use_fast_rotation in [False, True]:
+                with self.subTest(
+                    f"{self._testMethodName} with context `{test_context}` and use_fast_rotation={use_fast_rotation}."
+                ):
+                    self._test_tf_ct_matmul(test_context, use_fast_rotation)
 
 
 if __name__ == "__main__":

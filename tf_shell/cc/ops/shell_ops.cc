@@ -181,9 +181,18 @@ REGISTER_OP("MatMulCtPt64")
 REGISTER_OP("MatMulPtCt64")
     .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Input("context: variant")
-    .Input("rotation_key: variant")
     .Input("a: Dtype")
     .Input("b: variant")
+    .Input("rotation_key: variant")
+    .Output("c: variant")
+    .SetShapeFn(ShellMatMulPtCtShape);
+
+REGISTER_OP("FastMatMulPtCt64")
+    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Input("context: variant")
+    .Input("a: Dtype")
+    .Input("b: variant")
+    // no rotation key
     .Output("c: variant")
     .SetShapeFn(ShellMatMulPtCtShape);
 
