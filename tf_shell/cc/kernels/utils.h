@@ -138,7 +138,7 @@ class IndexConverterFunctor {
     if (underlying_shape_.dims() == 0) return 0;
 
     // First convert the flat indexing scheme to the output_shape.
-    auto const bc_ndims = bc_shape_.size();
+    int const bc_ndims = bc_shape_.size();
     std::vector<int> bc_full_index(bc_ndims, 0);
     for (int i = bc_ndims - 1; i >= 0; --i) {
       bc_full_index[i] = bc_flat_index % bc_shape_[i];
@@ -146,7 +146,7 @@ class IndexConverterFunctor {
     }
 
     // Undo the broadcasting.
-    for (size_t i = 0; i < bc_ndims; ++i) {
+    for (int i = 0; i < bc_ndims; ++i) {
       // If the underlying shape has fewer dimensions than the broadcasted
       // shape, then this and all remaining indicies are zero.
       if (i >= underlying_shape_.dims()) break;

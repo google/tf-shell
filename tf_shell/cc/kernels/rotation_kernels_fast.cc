@@ -107,6 +107,7 @@ class FastRotationKeyGenOp : public OpKernel {
 
     RnsPolynomial key_sub_i = secret_key->Key();
     keys.push_back(key_sub_i);
+
     for (uint i = 1; i < num_slots / 2; ++i) {
       OP_REQUIRES_VALUE(
           key_sub_i, op_ctx,
@@ -130,6 +131,7 @@ template <typename T>
 class FastReduceSumByRotationOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
+  using Context = rlwe::RnsContext<ModularInt>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
   using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
@@ -140,8 +142,13 @@ class FastReduceSumByRotationOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+    auto const& sub_powers = shell_ctx_var->subtitution_powers_;
+
     // Recover the input tensor.
-    Tensor const& value = op_ctx->input(0);
+    Tensor const& value = op_ctx->input(1);
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot fast_reduce_sum an empty ciphertext."));
     auto flat_value = value.flat<Variant>();
@@ -182,23 +189,21 @@ class FastReduceSumByRotationOp : public OpKernel {
                     InvalidArgument("Only Degree 1 ciphertexts supported."));
         SymmetricCt const& ct = ct_var->ct;
 
-        OP_REQUIRES_VALUE(RnsPolynomial component_zero_sub_i, op_ctx,
-                          ct.Component(0));
-        RnsPolynomial sum_component_zero =
-            component_zero_sub_i;  // deep copy to start the sum.
-
         // Add the rotations to the sum. Note the ciphertext rotations operate
         // on each half of the ciphertext separately. So the max rotation is by
         // half the number of slots.
-        for (int shift = 1; shift < num_slots / 2; ++shift) {
+        OP_REQUIRES_VALUE(RnsPolynomial sum_component_zero, op_ctx,
+                          ct.Component(0));  // deep copy to start the sum.
+
+        for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
           // Rotate by the shift.
           OP_REQUIRES_VALUE(
-              component_zero_sub_i, op_ctx,
-              component_zero_sub_i.Substitute(base_power, moduli));
+              RnsPolynomial sum_shifted, op_ctx,
+              sum_component_zero.Substitute(sub_powers[shift], moduli));
 
           // Add to the sum.
-          OP_REQUIRES_OK(op_ctx, sum_component_zero.AddInPlace(
-                                     component_zero_sub_i, moduli));
+          OP_REQUIRES_OK(op_ctx,
+                         sum_component_zero.AddInPlace(sum_shifted, moduli));
         }
 
         // The second component of the ciphertext is unchanged.
@@ -253,6 +258,7 @@ class DecryptFastRotatedOp : public OpKernel {
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
     auto moduli = shell_ctx->MainPrimeModuli();
     Encoder const* encoder = shell_ctx_var->encoder_.get();
+    auto const& sub_powers = shell_ctx_var->subtitution_powers_;
 
     OP_REQUIRES_VALUE(FastRotationKeyVariant<From> const* key_var, op_ctx,
                       GetVariant<FastRotationKeyVariant<From>>(op_ctx, 1));
@@ -294,22 +300,17 @@ class DecryptFastRotatedOp : public OpKernel {
                                     " did not unwrap successfully."));
         SymmetricCt const& ct = ct_var->ct;
 
-        OP_REQUIRES_VALUE(RnsPolynomial ct_a_sub_i, op_ctx, ct.Component(1));
+        OP_REQUIRES_VALUE(RnsPolynomial ct_a, op_ctx, ct.Component(1));
         OP_REQUIRES_VALUE(RnsPolynomial ct_offset_sum, op_ctx,
-                          RnsPolynomial::CreateZero(shell_ctx->LogN(), moduli));
+                          ct_a.Mul(keys[0], moduli));
 
         // Compute a(X^5^i) * s(X^5^i) for i = 0 .. n/2 - 1 where a is the
         // second component of the ciphertext and s is the original secret key.
-        for (int j = 0; j < keys.size(); ++j) {
-          if (j > 0) {
-            OP_REQUIRES_VALUE(ct_a_sub_i, op_ctx,
-                              ct_a_sub_i.Substitute(
-                                  base_power, shell_ctx->MainPrimeModuli()));
-          }
+        for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
+          OP_REQUIRES_VALUE(RnsPolynomial ct_a_sub_i, op_ctx,
+                            ct_offset_sum.Substitute(sub_powers[shift], moduli));
 
-          OP_REQUIRES_VALUE(auto product, op_ctx,
-                            ct_a_sub_i.Mul(keys[j], moduli));
-          OP_REQUIRES_OK(op_ctx, ct_offset_sum.AddInPlace(product, moduli));
+          OP_REQUIRES_OK(op_ctx, ct_offset_sum.AddInPlace(ct_a_sub_i, moduli));
         }
 
         // Compute b + ct_offset_sum to decrypt where b is the first component

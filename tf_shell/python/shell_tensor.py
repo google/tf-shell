@@ -745,7 +745,9 @@ def fast_reduce_sum(x):
     result_noise_bits = x._noise_bit_count * x._context.num_slots / 2
 
     return ShellTensor64(
-        _raw_tensor=shell_ops.fast_reduce_sum_by_rotation64(x._raw_tensor),
+        _raw_tensor=shell_ops.fast_reduce_sum_by_rotation64(
+            x._context._raw_context, x._raw_tensor
+        ),
         _context=x._context,
         _underlying_dtype=x._underlying_dtype,
         _scaling_factor=x._scaling_factor,

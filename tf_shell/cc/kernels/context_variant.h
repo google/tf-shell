@@ -114,6 +114,18 @@ class ContextVariant {
       TF_SHELL_ASSIGN_OR_RETURN(prng_, HkdfPrng::Create(seed));
     }
 
+    // Initialize the substitution powers used for rotation, namely
+    // the rotation base power (e.g. 5^i mod 2n).
+    uint num_slots = 1 << log_n_;
+    uint two_n = num_slots << 1;
+    uint sub_power = 1;
+    subtitution_powers_.reserve(num_slots / 2);
+    for (uint shift = 0; shift < num_slots / 2; ++shift) {
+      subtitution_powers_.push_back(sub_power);
+      sub_power *= base_power;
+      sub_power %= two_n;
+    }
+
     return absl::OkStatus();
   }
 
@@ -137,6 +149,7 @@ class ContextVariant {
   T pt_modulus_;
   size_t noise_variance_;
   std::string seed_;
+  std::vector<uint> subtitution_powers_;
 
   // Ideally these members wouldn't be smart pointers (plain pointers or even
   // just the objects), but many of them don't have default constructors and
