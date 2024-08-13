@@ -305,8 +305,9 @@ class DecryptFastRotatedOp : public OpKernel {
         // Compute a(X^5^i) * s(X^5^i) for i = 0 .. n/2 - 1 where a is the
         // second component of the ciphertext and s is the original secret key.
         for (uint shift = 1; shift < num_slots / 2; shift <<= 1) {
-          OP_REQUIRES_VALUE(RnsPolynomial ct_a_sub_i, op_ctx,
-                            ct_offset_sum.Substitute(sub_powers[shift], moduli));
+          OP_REQUIRES_VALUE(
+              RnsPolynomial ct_a_sub_i, op_ctx,
+              ct_offset_sum.Substitute(sub_powers[shift], moduli));
 
           OP_REQUIRES_OK(op_ctx, ct_offset_sum.AddInPlace(ct_a_sub_i, moduli));
         }

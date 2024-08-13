@@ -44,6 +44,7 @@ class TestShellTensor(tf.test.TestCase):
                     plaintext_modulus=4206593,
                     scaling_factor=1,
                     mul_depth_supported=1,
+                    generate_rotation_keys=True,
                 )
             )
 
@@ -60,6 +61,7 @@ class TestShellTensor(tf.test.TestCase):
                     plaintext_modulus=4206593,
                     scaling_factor=8,
                     mul_depth_supported=1,
+                    generate_rotation_keys=True,
                 )
             )
 
@@ -85,8 +87,16 @@ class TestShellTensor(tf.test.TestCase):
 
         ea = tf_shell.to_encrypted(a, test_context.key, test_context.shell_context)
 
-        ec = tf_shell.matmul(ea, b)
         c = tf.matmul(a, b)
+
+        @tf.function
+        def test_functor():
+            ec = tf_shell.matmul(ea, b)
+            self.assertAllEqual(ec.shape, c.shape)  # Tests shape inference
+            return ec
+
+        ec = test_functor()  # Run the core operation eagerly or lazily.
+
         self.assertAllClose(
             c,
             tf_shell.to_tensorflow(ec, test_context.key),
@@ -98,7 +108,12 @@ class TestShellTensor(tf.test.TestCase):
     def test_ct_tf_matmul(self):
         for test_context in self.test_contexts:
             with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
-                self._test_ct_tf_matmul(test_context)
+                for eager in [False, True]:
+                    with self.subTest(
+                        f"{self._testMethodName} with context `{test_context}`, eager={eager}."
+                    ):
+                        tf.config.run_functions_eagerly(eager)
+                        self._test_ct_tf_matmul(test_context)
 
     # tf-shell matmult has slightly different semantics than plaintext /
     # Tensorflow. Encrypted matmult affects top and bottom halves independently,
@@ -159,11 +174,20 @@ class TestShellTensor(tf.test.TestCase):
         eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
         check_c = self.plaintext_matmul(a, b)
 
+        @tf.function
+        def test_functor():
+            if use_fast_rotation:
+                ec = tf_shell.matmul(a, eb, fast=True)
+            else:
+                ec = tf_shell.matmul(a, eb, test_context.rotation_key)
+            self.assertAllEqual(ec.shape, check_c.shape)  # Tests shape inference
+            return ec
+
+        ec = test_functor()  # Run the core operation eagerly or lazily.
+
         if use_fast_rotation:
-            ec = tf_shell.matmul(a, eb, fast=True)
             dec_c = tf_shell.to_tensorflow(ec, test_context.fast_rotation_key)
         else:
-            ec = tf_shell.matmul(a, eb, test_context.rotation_key)
             dec_c = tf_shell.to_tensorflow(ec, test_context.key)
 
         self.assertAllClose(check_c, dec_c)
@@ -174,10 +198,12 @@ class TestShellTensor(tf.test.TestCase):
     def test_tf_ct_matmul(self):
         for test_context in self.test_contexts:
             for use_fast_rotation in [False, True]:
-                with self.subTest(
-                    f"{self._testMethodName} with context `{test_context}` and use_fast_rotation={use_fast_rotation}."
-                ):
-                    self._test_tf_ct_matmul(test_context, use_fast_rotation)
+                for eager in [False, True]:
+                    with self.subTest(
+                        f"{self._testMethodName} with context `{test_context}`, use_fast_rotation={use_fast_rotation}, eager={eager}."
+                    ):
+                        tf.config.run_functions_eagerly(eager)
+                        self._test_tf_ct_matmul(test_context, use_fast_rotation)
 
 
 if __name__ == "__main__":

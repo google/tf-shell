@@ -31,6 +31,7 @@ class TestContext:
         scaling_factor=1,
         mul_depth_supported=0,
         seed="test seed".ljust(64),
+        generate_rotation_keys=False,
     ):
         self.outer_shape = outer_shape
         self.plaintext_dtype = plaintext_dtype
@@ -48,23 +49,14 @@ class TestContext:
 
         self.key = tf_shell.create_key64(self.shell_context)
 
-    @property
-    def rotation_key(self):
-        # Rotation keys are slow to generate. Only generate them on demand and
-        # cache them.
-        if not hasattr(self, "_rotation_key"):
-            self._rotation_key = tf_shell.create_rotation_key64(
+        if generate_rotation_keys:
+            self.rotation_key = tf_shell.create_rotation_key64(
                 self.shell_context, self.key
             )
-        return self._rotation_key
 
-    @property
-    def fast_rotation_key(self):
-        if not hasattr(self, "_fast_rotation_key"):
-            self._rotation_key = tf_shell.create_fast_rotation_key64(
-                self.shell_context, self.key
-            )
-        return self._rotation_key
+        self.fast_rotation_key = tf_shell.create_fast_rotation_key64(
+            self.shell_context, self.key
+        )
 
     def __str__(self):
         return f"log_n {self.shell_context.log_n}, plaintext_modulus {self.shell_context.plaintext_modulus}, plaintext_dtype {self.plaintext_dtype}, scaling_factor {self.shell_context.scaling_factor}"

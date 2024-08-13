@@ -81,8 +81,15 @@ Status ShellMatMulCtPtShape(InferenceContext* c) {
       c, a_batch_shape, b_batch_shape, true, &output_batch_shape));
 
   ShapeHandle output_shape;
-  TF_RETURN_IF_ERROR(c->Concatenate(
-      output_batch_shape, c->Matrix(output_rows, output_cols), &output_shape));
+  if (a_batched) {
+    TF_RETURN_IF_ERROR(c->Concatenate(output_batch_shape,
+                                      c->Matrix(output_rows, output_cols),
+                                      &output_shape));
+  } else {
+    // If a is not batched, the first matrix dimension is the packing dimension.
+    TF_RETURN_IF_ERROR(c->Concatenate(output_batch_shape,
+                                      c->Vector(output_cols), &output_shape));
+  }
 
   c->set_output(0, output_shape);
   return OkStatus();
@@ -93,10 +100,6 @@ Status ShellMatMulPtCtShape(InferenceContext* c) {
   ShapeHandle b_shape;  // b is the ciphertext with batch axis packing.
   TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(1), 2, &a_shape));
   TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(2), 1, &b_shape));
-
-  // When the ciphertext b is rank 1, it is still considered a matrix
-  // because the first axis is the packing dimension.
-  bool b_batched = c->Rank(b_shape) > 1;
 
   // Determine output rows and columns.
   DimensionHandle output_rows = c->Dim(a_shape, -2);

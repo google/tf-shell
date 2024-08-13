@@ -49,8 +49,10 @@ class ShellContext64(tf.experimental.ExtensionType):
         self.log_n = log_n
         self.num_slots = 2**log_n
         self.two_n = 2 ** (log_n + 1)
+        if isinstance(main_moduli, list):
+            main_moduli = tf.convert_to_tensor(main_moduli)
         self.main_moduli = main_moduli
-        self.level = len(main_moduli)
+        self.level = main_moduli.shape[0]
         self.aux_moduli = aux_moduli
         self.plaintext_modulus = plaintext_modulus
         self.noise_variance = noise_variance
