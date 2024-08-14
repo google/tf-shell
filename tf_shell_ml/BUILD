@@ -8,6 +8,7 @@ py_library(
         "dense.py",
         "dropout.py",
         "embedding.py",
+        "globalaveragepool1d.py",
         "loss.py",
     ],
     visibility = ["//visibility:public"],

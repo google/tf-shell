@@ -21,3 +21,4 @@ from tf_shell_ml.dropout import ShellDropout
 from tf_shell_ml.embedding import ShellEmbedding
 from tf_shell_ml.loss import CategoricalCrossentropy
 from tf_shell_ml.loss import BinaryCrossentropy
+from tf_shell_ml.globalaveragepool1d import GlobalAveragePooling1D
