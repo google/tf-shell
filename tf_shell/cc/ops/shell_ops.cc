@@ -329,21 +329,25 @@ REGISTER_OP("ExpandDimsVariant")
       tsl::int32 axis;
       TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
 
-      // Check that axis is in the correct range.
-      if (axis < -rank || axis > rank) {
-        return InvalidArgument("axis must be in the range [-rank, rank], got ",
-                               axis);
+      tsl::int32 clamped_axis = axis;
+      if (clamped_axis < 0) {
+        clamped_axis += rank + 1;  // + 1 for packing dimension.
+      } else if (clamped_axis > 0) {
+        clamped_axis -= 1;  // -1 for packing dimension.
       }
 
-      if (axis < 0) {
-        axis += rank;
+      // Check that axis is in the correct range.
+      if (clamped_axis < 0 || clamped_axis > rank) {
+        return InvalidArgument("expand_dims axis must be in the range [-", rank,
+                               ", ", rank, "]. Got ", axis);
       }
 
       ShapeHandle prefix;
-      TF_RETURN_IF_ERROR(c->Subshape(c->input(0), 0, axis, &prefix));
+      TF_RETURN_IF_ERROR(c->Subshape(c->input(0), 0, clamped_axis, &prefix));
 
       ShapeHandle postfix;
-      TF_RETURN_IF_ERROR(c->Subshape(c->input(0), axis, rank - 1, &postfix));
+      TF_RETURN_IF_ERROR(
+          c->Subshape(c->input(0), clamped_axis, rank, &postfix));
 
       ShapeHandle output;
       ShapeHandle axis_dim = c->MakeShape({1});
