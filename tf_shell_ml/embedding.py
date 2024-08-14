@@ -95,7 +95,7 @@ class ShellEmbedding:
             values, indices, self.input_dim, rotation_key
         )
 
-        return summedvalues
+        return [summedvalues], tf.zeros(0)
 
     def unpack(self, plaintext_packed_dx):
         batch_size = plaintext_packed_dx.shape[0] // 2

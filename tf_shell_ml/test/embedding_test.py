@@ -79,8 +79,8 @@ class TestEmbedding(tf.test.TestCase):
             dy = tf.ones_like(y)
             enc_dy = tf_shell.to_encrypted(dy, key, context)
 
-            enc_dx = embedding_layer.backward(enc_dy, rotation_key)
-            packed_dx = tf_shell.to_tensorflow(enc_dx, key)
+            enc_dw, _ = embedding_layer.backward(enc_dy, rotation_key)
+            packed_dx = tf_shell.to_tensorflow(enc_dw[0], key)
             dx = embedding_layer.unpack(packed_dx)
 
             return dx

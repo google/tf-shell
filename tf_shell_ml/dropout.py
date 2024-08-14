@@ -69,4 +69,4 @@ class ShellDropout:
 
     def backward(self, dy):
         d_x = dy * self._layer_intermediate
-        return d_x
+        return [], d_x

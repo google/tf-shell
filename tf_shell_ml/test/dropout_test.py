@@ -89,11 +89,15 @@ class TestDropout(tf.test.TestCase):
         notrain_y = dropout_layer(x, training=True)
         dy = tf.ones_like(notrain_y)
 
-        dx = dropout_layer.backward(dy)
+        dw, dx = dropout_layer.backward(dy)
 
         enc_dy = tf_shell.to_encrypted(dy, key, context)
-        enc_dx = dropout_layer.backward(enc_dy)
+        enc_dw, enc_dx = dropout_layer.backward(enc_dy)
         dec_dx = tf_shell.to_tensorflow(enc_dx, key)
+
+        self.assertEmpty(dw)
+        self.assertEmpty(enc_dw)
+
         self.assertAllClose(dx, dec_dx, atol=1 / context.scaling_factor)
 
     def test_dropout(self):
