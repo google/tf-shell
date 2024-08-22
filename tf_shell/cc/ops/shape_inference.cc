@@ -125,7 +125,8 @@ Status ShellSegmentReductionWithNumSegmentsShape(InferenceContext* c) {
   ShapeHandle s_num_segments = c->input(3);
   TF_RETURN_IF_ERROR(c->WithRank(s_num_segments, 0, &s_num_segments));
 
-  ShapeHandle out;
+  ShapeHandle data_out;
+  ShapeHandle reduction_counters;
 
   if (c->RankKnown(s_segment_ids)) {
     // Leading dimensions of data must be compatible with dimensions of
@@ -141,18 +142,31 @@ Status ShellSegmentReductionWithNumSegmentsShape(InferenceContext* c) {
     DimensionHandle num_segments_dim;
     TF_RETURN_IF_ERROR(c->MakeDimForScalarInput(3, &num_segments_dim));
 
-    // Output is {2} + {ct dim} + {segment_id_rank} + s_data[segment_id_rank -
+    // Output is {2} + {segment_id_rank} + s_data[segment_id_rank -
     // 1:]. 2 is because the top and bottom of the ciphertexts are treated
-    // independently.
+    // independently. The packing dimension is not included as the output is
+    // a ciphertext and holds this dimension implicitly.
     ShapeHandle s_data_suffix;
     auto rank = c->Rank(s_segment_ids_suffix);
     TF_RETURN_IF_ERROR(c->Subshape(s_data, rank, &s_data_suffix));
+
     TF_RETURN_IF_ERROR(
-        c->Concatenate(c->Vector(num_segments_dim), s_data_suffix, &out));
-    TF_RETURN_IF_ERROR(c->Concatenate(c->Vector(c->MakeDim(2)), out, &out));
+        c->Concatenate(c->Vector(num_segments_dim), s_data_suffix, &data_out));
+    TF_RETURN_IF_ERROR(
+        c->Concatenate(c->Vector(c->MakeDim(2)), data_out, &data_out));
+
+    TF_RETURN_IF_ERROR(c->WithRankAtLeast(s_segment_ids, 1, &s_segment_ids));
+    DimensionHandle num_slots = c->Dim(s_segment_ids, 0);
+    TF_RETURN_IF_ERROR(c->Concatenate(c->Vector(num_slots),
+                                      c->Vector(num_segments_dim),
+                                      &reduction_counters));
+
   } else {
-    out = c->UnknownShape();
+    data_out = c->UnknownShape();
+    reduction_counters = c->UnknownShape();
   }
-  c->set_output(0, out);
+
+  c->set_output(0, data_out);
+  c->set_output(1, reduction_counters);
   return OkStatus();
 }

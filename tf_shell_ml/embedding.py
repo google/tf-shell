@@ -24,10 +24,12 @@ class ShellEmbedding:
         input_dim,
         output_dim,
         embeddings_initializer="uniform",
+        skip_embeddings_below_index=0,
     ):
         self.input_dim = int(input_dim)
         self.output_dim = int(output_dim)
         self.embeddings_initializer = initializers.get(embeddings_initializer)
+        self.skip_embeddings_below_index = skip_embeddings_below_index
 
         self.weights = []
         self.build()
@@ -91,8 +93,17 @@ class ShellEmbedding:
         indices = self._layer_input
         values = dy
 
-        summedvalues = tf_shell.segment_sum(
-            values, indices, self.input_dim, rotation_key
+        indices = tf.where(
+            indices < self.skip_embeddings_below_index,
+            tf.constant(-1, dtype=indices.dtype),
+            indices,
+        )
+
+        summedvalues, self._last_slot_count = tf_shell.segment_sum(
+            values,
+            indices,
+            self.input_dim,
+            rotation_key,
         )
 
         return [summedvalues], tf.zeros(0)

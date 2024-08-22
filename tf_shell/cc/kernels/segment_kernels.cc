@@ -120,20 +120,31 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
                   typename TTypes<Index, 2>::ConstTensor segment_ids,
                   typename TTypes<Variant, 2>::ConstTensor data,
                   typename TTypes<Variant, 2>::Tensor unreduced_output,
-                  typename TTypes<Variant, 3>::Tensor output) {
+                  typename TTypes<Variant, 3>::Tensor output,
+                  typename TTypes<Index, 2>::Tensor slot_counter) {
     // Initialize the output.
+    // auto initial_value = InitialValueF()(shell_ctx_var);
     for (int i = 0; i < output.dimension(0); ++i) {
       for (int ii = 0; ii < output.dimension(1); ++ii) {
         for (int iii = 0; iii < output.dimension(2); ++iii) {
-          output(i, ii, iii) = std::move(InitialValueF()(shell_ctx_var));
+          // output(i, ii, iii) = initial_value;
+          output(i, ii, iii) = InitialValueF()(shell_ctx_var);
         }
       }
     }
+
     if (data.size() == 0) {
       return;
     }
 
-    // This functor will reduce `N` rows input to `num_segments` rows output.
+    // Initialize slot counter.
+    for (int i = 0; i < slot_counter.dimension(0); ++i) {
+      for (int ii = 0; ii < slot_counter.dimension(1); ++ii) {
+        slot_counter(i, ii) = 0;
+      }
+    }
+
+    // Reduce `N` rows input to `num_segments` rows output.
     int64_t const N = segment_ids.dimension(1);
     int64_t const num_segments = unreduced_output.dimension(0);
     int64_t const inner_dim = data.dimension(1);
@@ -142,14 +153,11 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
     Encoder const* encoder = shell_ctx_var->encoder_.get();
     ReductionF reduction;
 
+    bool trivial_reduction = true;
+
     // `slot_counter` records which slots in the unreduced_output ciphertext
     // contain real data. This is used to rotate the occupied slots in
     // unreduced_output to the first (and mid) positions for the real output.
-    std::vector<std::vector<Index>> slot_counter(
-        num_segments, std::vector<Index>(num_slots, 0));
-
-    bool trivial_reduction = true;
-
     for (int64_t slot = 0; slot < num_slots; ++slot) {
       for (int64_t i = 0; i < N; ++i) {
         Index j = segment_ids(slot, i);
@@ -161,7 +169,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
             InvalidArgument("segment_ids[", slot, ",", i, "] = ", j,
                             " is out of range [0, ", num_segments, ")"));
         trivial_reduction = false;
-        ++slot_counter[j][slot];
+        ++slot_counter(slot, j);
       }
     }
 
@@ -170,10 +178,11 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
       return;
     }
 
-    // Initialize intermediate result storage tensor.
+    // Initialize intermediate storage tensor.
     for (int i = 0; i < unreduced_output.dimension(0); ++i) {
       for (int ii = 0; ii < unreduced_output.dimension(1); ++ii) {
-        unreduced_output(i, ii) = std::move(InitialValueF()(shell_ctx_var));
+        // unreduced_output(i, ii) = initial_value;
+        unreduced_output(i, ii) = InitialValueF()(shell_ctx_var);
       }
     }
 
@@ -195,6 +204,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
     auto reductionWorker = [&](int64_t begin, int64_t end) -> void {
       // Records which segments IDs have been reduced in a given ciphertext.
       std::unordered_set<int64_t> segment_ids_already_reduced;
+      segment_ids_already_reduced.reserve(num_slots);
 
       for (int64_t i = 0; i < N; ++i) {
         // If this is a new ciphertext, reset which segment IDs were reduced.
@@ -206,7 +216,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
           Index j = segment_ids(slot, i);
 
           // Only act if `j` is in work scope of this worker. Also make sure
-          // this segment was not convered by the mask in a previous ct.
+          // this segment was not convered by the mask in a previous reduction.
           if (j < begin || j >= end ||
               segment_ids_already_reduced.find(j) !=
                   segment_ids_already_reduced.end()) {
@@ -256,9 +266,13 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
       }
     };
     auto thread_pool = ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    int const cost = 10000;  // TODO better cost estimation based on functor
-                             // (could be Sum or Prod).
-    thread_pool->ParallelFor(num_segments, cost, reductionWorker);
+    // Use a fixed block size to avoid stragglers in the reduction.
+    int64_t const reduction_block_size = 4;
+    tsl::thread::ThreadPool::SchedulingParams reduction_scheduling_params(
+        tsl::thread::ThreadPool::SchedulingStrategy::kFixedBlockSize,
+        std::nullopt, reduction_block_size);
+    thread_pool->ParallelFor(num_segments, reduction_scheduling_params,
+                             reductionWorker);
 
     // Step 2: Reduce over the slotting dimension. This requires rotating any
     // non-empty slots in the output ciphertexts to the first slot using
@@ -280,7 +294,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
             // Skip the middle slot, it is already included in accum_bottom.
             if (slot == num_slots / 2) continue;
 
-            if (slot_counter[j][slot] > 0) {
+            if (slot_counter(slot, j) > 0) {
               // If this slot was used, rotate slot to first dimension.
               RotationKey const* key;
               int64_t key_slot = slot;
@@ -314,9 +328,12 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
       }
     };
 
-    // Reusing cost above may not be accurate, need to recompute.
-    int const cost_reduce = 10000;
-    thread_pool->ParallelFor(num_segments, cost_reduce,
+    // Use a fixed block size to avoid stragglers in the reduction.
+    int64_t const batchaxis_block_size = 2;
+    tsl::thread::ThreadPool::SchedulingParams batchaxis_scheduling_params(
+        tsl::thread::ThreadPool::SchedulingStrategy::kFixedBlockSize,
+        std::nullopt, batchaxis_block_size);
+    thread_pool->ParallelFor(num_segments, batchaxis_scheduling_params,
                              batchAxisReductionWorker);
   }
 };
@@ -391,6 +408,7 @@ class UnsortedSegmentReductionOp : public OpKernel {
   void Compute(OpKernelContext* context) override {
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, context,
                       GetVariant<ContextVariant<T>>(context, 0));
+    int64_t const num_slots = 1 << shell_ctx_var->log_n_;
     Tensor const& data = context->input(1);
     Tensor const& segment_ids = context->input(2);
     Tensor const& num_segments = context->input(3);
@@ -401,7 +419,6 @@ class UnsortedSegmentReductionOp : public OpKernel {
                                 this, context, shell_ctx_var, data, segment_ids,
                                 num_segments));
 
-    auto const segment_flat = segment_ids.flat_outer_dims<Index>();
     Index const output_rows = static_cast<Index>(
         num_segments.dtype() == DT_INT32 ? num_segments.scalar<int32>()()
                                          : num_segments.scalar<int64_t>()());
@@ -415,26 +432,45 @@ class UnsortedSegmentReductionOp : public OpKernel {
       // -1 for batch axis packing.
       OP_REQUIRES_OK(context, output_shape.AddDimWithStatus(data.dim_size(i)));
     }
-    Tensor temp;
-    OP_REQUIRES_OK(context,
-                   context->allocate_temp(DT_VARIANT, output_shape, &temp));
 
-    // The real output will have a prefix dimension of 2, corresponding to the
-    // result from the top and bottom half of the ciphertexts.
+    // `unreduced_data` is a temporary tensor to store the intermediate result
+    // before reducing over the packing dimension.
+    Tensor unreduced_data;
+    OP_REQUIRES_OK(context, context->allocate_temp(DT_VARIANT, output_shape,
+                                                   &unreduced_data));
+
+    // `slot_counter` records which slots in the unreduced_output ciphertext
+    // contain real data. This is used to rotate the occupied slots in
+    // unreduced_output to the first (and mid) positions for the real output.
+    // Since this is a plaintext output, prepend the packing dimension.
+    // TensorShape slot_counter_shape = output_shape;
+    // OP_REQUIRES_OK(context, slot_counter_shape.InsertDimWithStatus(0,
+    // num_slots));
+    TensorShape slot_counter_shape = {num_slots, output_rows};
+    Tensor* slot_counter = nullptr;
+    OP_REQUIRES_OK(context, context->allocate_output(1, slot_counter_shape,
+                                                     &slot_counter));
+
+    // The reduced output will have a prefix dimension of 2, corresponding to
+    // the result from the top and bottom half of the ciphertexts.
     OP_REQUIRES_OK(context, output_shape.InsertDimWithStatus(0, 2));
     Tensor* output = nullptr;
     OP_REQUIRES_OK(context, context->allocate_output(0, output_shape, &output));
 
-    auto temp_flat = temp.flat_outer_dims<Variant>();
-    auto output_flat = output->shaped<Variant, 3>(
-        {2, temp_flat.dimension(0), temp_flat.dimension(1)});
+    auto const segment_flat = segment_ids.flat_outer_dims<Index>();
+    auto unreduced_data_flat = unreduced_data.flat_outer_dims<Variant>();
+    auto output_flat =
+        output->shaped<Variant, 3>({2, unreduced_data_flat.dimension(0),
+                                    unreduced_data_flat.dimension(1)});
     auto data_flat =
         data.flat_inner_outer_dims<Variant, 2>(segment_ids.dims() - 1 - 1);
     // -1 because flat_inner_outer_dims arg is an includsive range,
     // -1 again for batch axis packing (dimension 0 of data is imaginary).
+    auto slot_counter_matrix = slot_counter->flat_outer_dims<Index>();
+
     reduction_functor_(context, shell_ctx_var, rotation_key_var->keys,
-                       segment_ids.shape(), segment_flat, data_flat, temp_flat,
-                       output_flat);
+                       segment_ids.shape(), segment_flat, data_flat,
+                       unreduced_data_flat, output_flat, slot_counter_matrix);
   }
 
  protected:

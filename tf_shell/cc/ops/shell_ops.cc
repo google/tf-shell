@@ -368,6 +368,7 @@ REGISTER_OP("UnsortedCtSegmentSum")
     .Input("num_segments: Tnumsegments")
     .Input("rotation_key: variant")
     .Output("output: variant")
+    .Output("reduction_counts: Tindices")
     .Attr("Tindices: {int32,int64}")
     .Attr("Tnumsegments: {int32,int64} = DT_INT32")
     .SetShapeFn(ShellSegmentReductionWithNumSegmentsShape);

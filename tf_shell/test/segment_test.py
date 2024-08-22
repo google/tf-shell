@@ -46,140 +46,198 @@ class TestShellTensor(tf.test.TestCase):
         cls.rotation_test_contexts = None
 
     # tf-shell segment functions differs from tensorflow in the following ways:
-    # First, the ciphertext dimension is included in the output, but only the
+    # First, the ciphertext dimension is included in the output, but only one
+    # dimension is valid. For the top half of the ciphertext, the first
+    # dimension is valid, and for the bottom half, the `num_slots // 2`th
     # dimension is valid.
     # Second, the reduction only happens across half of the batching dimension,
-    # due to how rotations in tf-shell work. In other words, it's like segment
-    # reduction happens on the top and bottom halves of the ciphertext
-    # independently.
-    def plaintext_segment_sum(self, x, segments, num_segments):
+    # due to how rotations in tf-shell work. Segment reduction happens on the
+    # top and bottom halves of the ciphertext independently.
+    def plaintext_segment_sum(self, x, segments, num_segments, start_segment=0):
         half_slots = x.shape[0] // 2
         padding = tf.zeros_like(x[:half_slots])
+
         x_top = tf.concat([x[:half_slots], padding], 0)
         x_bottom = tf.concat([padding, x[half_slots:]], 0)
+
         top_answer = tf.math.unsorted_segment_sum(x_top, segments, num_segments)
         bottom_answer = tf.math.unsorted_segment_sum(x_bottom, segments, num_segments)
-        # return tf.stack([top_answer, bottom_answer], axis=0)
+
+        if start_segment > 0:
+            top_answer = tf.concat(
+                [
+                    tf.zeros_like(top_answer[:start_segment]),
+                    top_answer[start_segment:],
+                ],
+                axis=0,
+            )
+            bottom_answer = tf.concat(
+                [
+                    tf.zeros_like(bottom_answer[:start_segment]),
+                    bottom_answer[start_segment:],
+                ],
+                axis=0,
+            )
+
         return top_answer, bottom_answer
+
+    def create_rand_data(self, test_context, repeats):
+        try:
+            shape_prod = math.prod(test_context.outer_shape)
+            num_adds = repeats / 2 * shape_prod
+            a = test_utils.uniform_for_n_adds(test_context, num_adds)
+            return a
+        except Exception as e:
+            print(
+                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return None
+
+    def create_uniform_segments(self, test_context, repeats, num_segments):
+        segments = tf.range(0, limit=num_segments, dtype=tf.int32)
+        segments = tf.random.shuffle(segments)
+        for l in range(len(test_context.outer_shape)):
+            segments = tf.expand_dims(segments, axis=-1)
+
+        segments = tf.tile(segments, [repeats] + test_context.outer_shape)
+        return segments
+
+    def create_nonuniform_segments(self, test_context, repeats, num_segments):
+        segments = self.create_uniform_segments(test_context, repeats, num_segments)
+
+        # Create a random mask to set some segments to -1.
+        mask = tf.random.uniform(segments.shape, maxval=2, dtype=segments.dtype)
+        masked_segments = tf.where(mask > 0, segments, -1)
+        return masked_segments
 
     def get_inferred_shape(self, ea, segments, num_segments, rot_key):
         @tf.function
         def shape_inf_func(ea, segments, num_segments, rot_key):
-            ess = tf_shell.segment_sum(ea, segments, num_segments, rot_key)
-            return ess.shape
+            ess, counts = tf_shell.segment_sum(ea, segments, num_segments, rot_key)
+            return ess.shape, counts.shape
 
         return shape_inf_func(ea, segments, num_segments, rot_key)
 
-    def _test_segment_sum_same_shape(self, test_context):
+    def _test_segment_sum(self, test_context, segment_creator_functor):
         repeats = 8
         num_segments = test_context.shell_context.num_slots // repeats
-        try:
-            # This test performs `repeats`/2 additions for each dim.
-            shape_prod = math.prod(test_context.outer_shape)
-            num_adds = repeats / 2 * shape_prod
-            a = test_utils.uniform_for_n_adds(test_context, num_adds)
-        except Exception as e:
-            print(
-                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
-            )
-            print(e)
+
+        a = self.create_rand_data(test_context, repeats)
+        if a is None:
             return
 
         sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
         ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
 
-        segments = tf.range(num_segments, dtype=tf.int32)
-        segments = tf.random.shuffle(segments)
-        for l in range(len(test_context.outer_shape)):
-            segments = tf.expand_dims(segments, axis=-1)
-        segments = tf.tile(segments, [repeats] + test_context.outer_shape)
+        segments = segment_creator_functor(test_context, repeats, num_segments)
 
-        ess = tf_shell.segment_sum(
+        ess, counts = tf_shell.segment_sum(
             ea, segments, num_segments, test_context.rotation_key
         )
 
         # Check shape inference function (used in non-eager mode) matches the
         # real output.
-        inf_shape = self.get_inferred_shape(
+        data_inf_shape, count_inf_shape = self.get_inferred_shape(
             ea, segments, num_segments, test_context.rotation_key
         )
-        self.assertAllClose(ess.shape, inf_shape)
+        self.assertAllClose(ess.shape, data_inf_shape)
+        self.assertAllClose(counts.shape, count_inf_shape)
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
         pt_ss_top, pt_ss_bottom = self.plaintext_segment_sum(a, segments, num_segments)
 
+        # Ensure the reduced data is correct.
         self.assertAllClose(pt_ss_top, ss[0][0])
         self.assertAllClose(
             pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1]
         )
 
+        # Ensure the counts are correct.
+        def bincount(x):
+            return tf.math.bincount(x, minlength=num_segments, maxlength=num_segments)
+
+        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
+        pt_counts = tf.map_fn(bincount, segments_nonnegative)
+        self.assertAllEqual(pt_counts, counts)
+
         # Ensure initial arguments are not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(sa))
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
-    def test_segment_sum_same_shape(self):
+    def test_segment_sum(self):
         for test_context in self.test_contexts:
-            with self.subTest(f"{self._testMethodName} with context `{test_context}`."):
-                self._test_segment_sum_same_shape(test_context)
+            for segment_creator in [
+                self.create_uniform_segments,
+                self.create_nonuniform_segments,
+            ]:
+                with self.subTest(
+                    f"{self._testMethodName} with context `{test_context}` and segment creator `{segment_creator}`."
+                ):
+                    self._test_segment_sum(test_context, segment_creator)
 
-    def _test_segment_sum_broadcast(self, test_context):
+    def _test_segment_sum_fewer_dims(self, test_context, segment_creator_functor):
         repeats = 8
         num_segments = test_context.shell_context.num_slots // repeats
-        try:
-            # This test performs `repeats`/2 additions for each dim.
-            shape_prod = math.prod(test_context.outer_shape)
-            num_adds = repeats / 2 * shape_prod
-            a = test_utils.uniform_for_n_adds(test_context, num_adds)
-        except Exception as e:
-            print(
-                f"Note: Skipping test {self._testMethodName} with test context `{test_context}`. Not enough precision to support this test."
-            )
-            print(e)
+
+        a = self.create_rand_data(test_context, repeats)
+        if a is None:
             return
 
         sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
         ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
 
-        segments = tf.range(num_segments, dtype=tf.int32)
-        segments = tf.tile(segments, [repeats])
-        # Below makes segments dims match ea, except for the last dim which is
-        # broadcast in the segment sum op.
-        for i in range(len(test_context.outer_shape) - 1):
-            segments = tf.expand_dims(segments, axis=-1)
-        segments = tf.tile(segments, [1] + test_context.outer_shape[:-1])
+        segments = segment_creator_functor(test_context, repeats, num_segments)
 
-        ess = tf_shell.segment_sum(
+        # Remove the last d-1 dimensions of segments to test fewer_dimsing.
+        ndims = len(segments.shape)
+        for _ in range(ndims - 2):
+            segments = segments[..., 0]
+
+        ess, counts = tf_shell.segment_sum(
             ea, segments, num_segments, test_context.rotation_key
         )
 
         # Check shape inference function (used in non-eager mode) matches the
         # real output.
-        inf_shape = self.get_inferred_shape(
+        data_inf_shape, count_inf_shape = self.get_inferred_shape(
             ea, segments, num_segments, test_context.rotation_key
         )
-        self.assertAllClose(ess.shape, inf_shape)
+        self.assertAllClose(ess.shape, data_inf_shape)
+        self.assertAllClose(counts.shape, count_inf_shape)
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
         pt_ss_top, pt_ss_bottom = self.plaintext_segment_sum(a, segments, num_segments)
 
+        # Ensure the data is correctly reduced.
         self.assertAllClose(pt_ss_top, ss[0][0])
         self.assertAllClose(
             pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1]
         )
 
+        # Ensure the counts are correct.
+        def bincount(x):
+            return tf.math.bincount(x, minlength=num_segments, maxlength=num_segments)
+
+        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
+        pt_counts = tf.map_fn(bincount, segments_nonnegative)
+        self.assertAllEqual(pt_counts, counts)
+
         # Ensure initial arguments are not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(sa))
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
 
-    def test_segment_sum_broadcast(self):
+    def test_segment_sum_fewer_dims(self):
         for test_context in self.test_contexts:
             if len(test_context.outer_shape) > 0:
-                with self.subTest(
-                    f"{self._testMethodName} with context `{test_context}`."
-                ):
-                    self._test_segment_sum_broadcast(test_context)
+                for segment_creator in [
+                    self.create_uniform_segments,
+                    self.create_nonuniform_segments,
+                ]:
+                    with self.subTest(f"{self._testMethodName} with context `{test_context}` and segment creator `{segment_creator}`."):
+                        self._test_segment_sum_fewer_dims(test_context, segment_creator)
             else:
                 print(
                     f"Note: Skipping test {self._testMethodName} because outer shape {test_context.outer_shape} is too small."
