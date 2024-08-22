@@ -86,5 +86,13 @@
     },
     "editor.tabSize": 2,
     "bazel.enableCodeLens": true,
-    "bazel.executable": "bazelisk"
+    "bazel.executable": "bazelisk",
+    "files.watcherExclude": {
+        ".git/objects/**": true,
+        ".git/subtree-cache/**": true,
+        "bazel-bin/**": true,
+        "bazel-out/**": true,
+        "bazel-tf-shell/**": true,
+        "third_party/**": true,
+    },
 }
