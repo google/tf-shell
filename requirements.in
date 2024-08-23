@@ -1,2 +1,9 @@
 tensorflow-cpu==2.17.0  # See also: top level BUILD, wheel target.
+# Note: TensorFlow uses distutils which has recently been provided by setuputils
+# but setuputils is no longer included with python 3.12.
+#   https://github.com/python/cpython/issues/95299
+#   https://github.com/pypa/get-pip/pull/218
+# There is an open PR in TensorFlow to remove the dependency on distutils:
+#   https://github.com/tensorflow/tensorflow/pull/74090
+# When the TensorFlow PR is merged, builds for python 3.12 can be re-enabled.
 black==24.8.0
