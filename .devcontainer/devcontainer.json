@@ -3,8 +3,8 @@
 	"build": {
 		"dockerfile": "Dockerfile",
 		"args": {
-			"BAZELISK_VERSION": "v1.19.0", // see .github/workflows/wheel.yaml
-			"BAZELISK_DOWNLOAD_SHA": "d28b588ac0916abd6bf02defb5433f6eddf7cba35ffa808eabb65a44aab226f7"
+			"BAZELISK_VERSION": "v1.20.0",
+			"BAZELISK_DOWNLOAD_SHA": "d9af1fa808c0529753c3befda75123236a711d971d3485a390507122148773a3"
 		}
 	},
 
