@@ -11,21 +11,6 @@ http_archive(
 )
 
 http_archive(
-    name = "com_github_tink_crypto_tink_cc",
-    sha256 = "d0fefc61e3bde758c8773f1348e6a64fc4fd6ecafe62c4adc0df8957ce800757",
-    strip_prefix = "tink-cc-2.1.2",
-    urls = ["https://github.com/tink-crypto/tink-cc/archive/refs/tags/v2.1.2.zip"],
-)
-
-load("@com_github_tink_crypto_tink_cc//:tink_cc_deps.bzl", "tink_cc_deps")
-
-tink_cc_deps()
-
-load("@com_github_tink_crypto_tink_cc//:tink_cc_deps_init.bzl", "tink_cc_deps_init")
-
-tink_cc_deps_init()
-
-http_archive(
     name = "rules_proto",
     sha256 = "dc3fb206a2cb3441b485eb1e423165b231235a1ea9b031b4433cf7bc1fa460dd",
     strip_prefix = "rules_proto-5.3.0-21.7",
