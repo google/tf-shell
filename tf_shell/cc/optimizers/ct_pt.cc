@@ -77,10 +77,11 @@ void PrintReorderArith(RemapperContext& ctx, ReorderArith const& reorder) {
             << outer_pt_node->name() << " ) " << std::endl;
 }
 
-// Returns true if the node_index points to the outermost add of the pattern
+// Returns true if the node_index points to the outermost op of the pattern
 // outer_op(inner_op(ct, pt), pt) and fills the ReorderArith struct accordingly.
 // If the outer_op is add or sub, the inner_op must be add or sub.
 // If instead the outer_op is mul, the inner_op must be mul.
+// If the inner op is used elsewhere (has fanout>1), the pattern is not matched.
 bool FindAddOrSub(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
   // Check given node is op(ct, pt).
   auto const* outer_node_view = ctx.graph_view.GetNode(node_index);
@@ -96,9 +97,16 @@ bool FindAddOrSub(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
   auto const& outer_fanin_0 = outer_node_view->GetRegularFanin(0);
   auto const* context_node_view = outer_fanin_0.node_view();
 
+  // The first input of the outer node is the inner op.
   auto const& outer_fanin_1 = outer_node_view->GetRegularFanin(1);
   auto const* inner_node_view = outer_fanin_1.node_view();
   auto const* inner_node_def = inner_node_view->node();
+
+  // First check the inner node is not used elsewhere in the graph, in which
+  // case it must be computed and cannot be optimized away.
+  if (inner_node_view->NumRegularFanouts() != 1) {
+    return false;
+  }
 
   auto const& outer_fanin_2 = outer_node_view->GetRegularFanin(2);
   auto const* outer_pt_node_view = outer_fanin_2.node_view();
@@ -229,8 +237,7 @@ Status CtPtOptimizer::Optimize(Cluster* cluster, GrapplerItem const& item,
   RemapperContext ctx(&mutable_item, &status);
   TF_RETURN_IF_ERROR(status);
 
-  // Topological sort and processing the nodes in reverse requires only
-  // one pass on all the nodes.
+  // Topological sort and process the nodes in reverse.
   TF_RETURN_IF_ERROR(
       ctx.graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
 
