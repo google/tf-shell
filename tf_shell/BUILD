@@ -49,10 +49,12 @@ py_library(
 )
 
 cc_binary(
-    name = "python/optimizers/_ct_pt_optimizer.so",
+    name = "python/optimizers/_optimizers.so",
     srcs = [
         "cc/optimizers/ct_pt.cc",
         "cc/optimizers/ct_pt.h",
+        "cc/optimizers/pt_pt.cc",
+        "cc/optimizers/pt_pt.h",
     ],
     copts = [
         "-pthread",
@@ -71,7 +73,7 @@ py_library(
         "python/optimizers/shell_optimizers.py",
     ],
     data = [
-        ":python/optimizers/_ct_pt_optimizer.so",
+        ":python/optimizers/_optimizers.so",
     ],
     srcs_version = "PY3",
 )

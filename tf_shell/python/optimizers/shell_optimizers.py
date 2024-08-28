@@ -21,7 +21,7 @@ from tensorflow.python.framework import load_library
 from tensorflow.python.platform import resource_loader
 
 shell_ops = load_library.load_op_library(
-    resource_loader.get_path_to_datafile("_ct_pt_optimizer.so")
+    resource_loader.get_path_to_datafile("_optimizers.so")
 )
 
 # Based on https://github.com/openvinotoolkit/openvino_tensorflow/blob/d9dcb9d4c5932d0a8e9a3633d4134ae5841af6c1/python/openvino_tensorflow/__init__.in.py
@@ -43,7 +43,8 @@ rewriter_config = rewriter_config_pb2.RewriterConfig()
 rewriter_config.meta_optimizer_iterations = rewriter_config_pb2.RewriterConfig.ONE
 shell_optimizer = rewriter_config.custom_optimizers.add()
 shell_optimizer.name = "CtPtOptimizer"
-
+shell_optimizer = rewriter_config.custom_optimizers.add()
+shell_optimizer.name = "PtPtOptimizer"
 
 def optimize_shell_graph(func):
     # Converting var2consts for larger models might take a long time
