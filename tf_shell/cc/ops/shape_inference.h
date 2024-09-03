@@ -7,11 +7,27 @@ using tensorflow::shape_inference::ShapeHandle;
 
 Status ImportAndRemoveBatchingDimShape(InferenceContext* c);
 
+template <unsigned int NumOuts>
+Status MultiScalarOut(InferenceContext* c) {
+  for (unsigned int i = 0; i < NumOuts; i++) {
+    c->set_output(i, c->Scalar());
+  }
+  return OkStatus();
+}
+
 template <unsigned int ArgNum>
 Status ExportAndAddBatchingDimShape(InferenceContext* c) {
   tsl::int32 batching_dim;
   TF_RETURN_IF_ERROR(c->GetAttr("batching_dim", &batching_dim));
-  ShapeHandle batching_dim_shape = c->MakeShape({batching_dim});
+
+  // If the batching dimension is unknown, set first (packing dimension) of the
+  // output shape to unknown.
+  ShapeHandle batching_dim_shape;
+  if (batching_dim == -1) {
+    batching_dim_shape = c->UnknownShapeOfRank(1);
+  } else {
+    batching_dim_shape = c->MakeShape({batching_dim});
+  }
 
   ShapeHandle output;
   TF_RETURN_IF_ERROR(

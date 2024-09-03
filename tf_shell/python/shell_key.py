@@ -13,7 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import tf_shell.python.ops.shell_ops as shell_ops
+import tf_shell.python.shell_ops as shell_ops
 from tf_shell.python.shell_context import ShellContext64
 from tf_shell.python.shell_context import mod_reduce_context64
 import tensorflow as tf

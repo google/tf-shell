@@ -21,7 +21,7 @@ from tensorflow.python.framework import load_library
 from tensorflow.python.platform import resource_loader
 
 shell_ops = load_library.load_op_library(
-    resource_loader.get_path_to_datafile("_optimizers.so")
+    resource_loader.get_path_to_datafile("_shell_ops.so")
 )
 
 # Based on https://github.com/openvinotoolkit/openvino_tensorflow/blob/d9dcb9d4c5932d0a8e9a3633d4134ae5841af6c1/python/openvino_tensorflow/__init__.in.py
@@ -38,15 +38,19 @@ from tensorflow.python.eager import context
 from tensorflow.python.eager import wrap_function
 from tensorflow.core.function.polymorphism import function_type as function_type_lib
 
+all_shell_optimizers = [
+    "CtPtOptimizer",
+    "PtPtOptimizer",
+    "ModuliAutotuneOptimizer",
+]
 
-rewriter_config = rewriter_config_pb2.RewriterConfig()
-rewriter_config.meta_optimizer_iterations = rewriter_config_pb2.RewriterConfig.ONE
-shell_optimizer = rewriter_config.custom_optimizers.add()
-shell_optimizer.name = "CtPtOptimizer"
-shell_optimizer = rewriter_config.custom_optimizers.add()
-shell_optimizer.name = "PtPtOptimizer"
+def optimize_shell_graph(func, optimizers=all_shell_optimizers):
+    rewriter_config = rewriter_config_pb2.RewriterConfig()
+    rewriter_config.meta_optimizer_iterations = rewriter_config_pb2.RewriterConfig.ONE
+    for optimizer in optimizers:
+        custom_optimizer = rewriter_config.custom_optimizers.add()
+        custom_optimizer.name = optimizer
 
-def optimize_shell_graph(func):
     # Converting var2consts for larger models might take a long time
     frozen_func = convert_to_constants.convert_variables_to_constants_v2(
         func, lower_control_flow=False, aggressive_inlining=True
@@ -134,15 +138,7 @@ def optimize_shell_graph(func):
 
 # Here is a method to enable custom optimizers described by
 # https://github.com/tensorflow/tensorflow/issues/55451#issuecomment-1147065792
-def enable_tf_shell_optimizer(optimizers):
-    from tensorflow.core.protobuf import config_pb2
-    from tensorflow.python.framework import ops
-    from tensorflow.python.grappler import tf_optimizer
-    from tensorflow.python.framework import meta_graph
-    from tensorflow.core.protobuf import rewriter_config_pb2
-    from tensorflow.core.framework import graph_pb2
-    from tensorflow.python.eager import context
-
+def enable_tf_shell_optimizer(optimizers=all_shell_optimizers):
     rewriter_config = rewriter_config_pb2.RewriterConfig()
     rewriter_config.meta_optimizer_iterations = rewriter_config_pb2.RewriterConfig.ONE
     for optimizer in optimizers:

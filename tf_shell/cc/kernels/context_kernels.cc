@@ -19,6 +19,7 @@
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/variant.h"
+#include "tensorflow/core/framework/variant_op_registry.h"
 #include "utils.h"
 
 using tensorflow::DEVICE_CPU;
@@ -41,7 +42,7 @@ class ContextImportOp : public OpKernel {
 
   void Compute(OpKernelContext* op_ctx) override {
     // Unpack inputs.
-    OP_REQUIRES_VALUE(size_t log_n, op_ctx, GetScalar<size_t>(op_ctx, 0));
+    OP_REQUIRES_VALUE(uint64_t log_n, op_ctx, GetScalar<uint64_t>(op_ctx, 0));
     OP_REQUIRES_VALUE(std::vector<T> qs, op_ctx, GetVector<T>(op_ctx, 1));
     OP_REQUIRES_VALUE(std::vector<T> ps, op_ctx, GetVector<T>(op_ctx, 2));
     OP_REQUIRES_VALUE(T pt_modulus, op_ctx, GetScalar<T>(op_ctx, 3));
@@ -53,6 +54,8 @@ class ContextImportOp : public OpKernel {
     // Allocate the output.
     Tensor* out0;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, TensorShape{}, &out0));
+    Tensor* out1;
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(1, TensorShape{}, &out1));
 
     // Initialize the context variant and store it in the output.
     ContextVariant<T> ctx_variant{};
@@ -60,8 +63,35 @@ class ContextImportOp : public OpKernel {
                                                   noise_variance, seed));
 
     out0->scalar<Variant>()() = std::move(ctx_variant);
+    out1->scalar<uint64_t>()() = log_n;
+  }
+};
+
+template <typename T>
+class AutoContextOp : public OpKernel {
+ public:
+  explicit AutoContextOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
+
+  void Compute(OpKernelContext* op_ctx) override {
+    // This is a placeholder for the AutoContextOp implementation used to
+    // automatically choose encryption parameters for a given computation.
+    // This op should be replaced with a ContextImportOp at graph optimization
+    // time and should never be called.
+    op_ctx->SetStatus(
+        tensorflow::errors::Internal("AutoContextOp should never be called. The "
+                                     "graph should be optimized to replace this "
+                                     "op with a ContextImportOp. If you see this, "
+                                     "there was likely an error in generating "
+                                     "ciphertext parameters for this computation."));
   }
 };
 
 REGISTER_KERNEL_BUILDER(Name("ContextImport64").Device(DEVICE_CPU),
                         ContextImportOp<uint64>);
+
+REGISTER_KERNEL_BUILDER(Name("AutoShellContext64").Device(DEVICE_CPU),
+                        AutoContextOp<uint64>);
+
+typedef ContextVariant<uint64> ContextVariantUint64;
+REGISTER_UNARY_VARIANT_DECODE_FUNCTION(ContextVariantUint64,
+                                       ContextVariantUint64::kTypeName);

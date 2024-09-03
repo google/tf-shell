@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tf_shell
-import tf_shell.python.optimizers.shell_optimizers as shell_optimizers
+import tf_shell.python.shell_optimizers as shell_optimizers
 import test_utils
 
 

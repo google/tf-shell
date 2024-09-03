@@ -24,6 +24,8 @@ using tensorflow::shape_inference::InferenceContext;
 using tensorflow::shape_inference::ScalarShape;
 using tensorflow::shape_inference::ShapeHandle;
 using tensorflow::shape_inference::UnchangedShape;
+using tensorflow::TensorProto;
+using tensorflow::TensorShape;
 
 // Tensorflow does not have size_t but Shell Context parameters require it.
 // Code below must assume size_t is a unit64 because of this.
@@ -37,23 +39,34 @@ REGISTER_OP("ContextImport64")
     .Input("noise_variance: uint64")
     .Input("seed: string")
     .Output("shell_context: variant")
-    .SetShapeFn(ScalarShape);
+    .Output("new_log_n: uint64")
+    .SetShapeFn(MultiScalarOut<2>);
+
+REGISTER_OP("AutoShellContext64")
+    .Input("log2_cleartext_sz: uint64")
+    .Input("scaling_factor: uint64")
+    .Input("log2_noise_offset: uint64")
+    .Input("noise_variance: uint64")
+    .Output("shell_context: variant")
+    .Output("new_log_n: uint64")
+    .SetShapeFn(MultiScalarOut<2>);
 
 REGISTER_OP("PolynomialImport64")
     .Attr(
         "Dtype: {uint8, int8, int16, uint16, int32, uint32, int64, uint64, "
         "float, double}")
     .Input("shell_context: variant")
-    .Input("in: Dtype")
-    .Output("val: variant")
+    .Input("val: Dtype")
+    .Output("out: variant")
     .SetShapeFn(ImportAndRemoveBatchingDimShape);
 
 REGISTER_OP("PolynomialExport64")
     .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
     .Attr("batching_dim: int")
     .Input("shell_context: variant")
-    .Input("in: variant")
-    .Output("val: dtype")
+    .Input("val: variant")
+    .Input("runtime_batching_dim: int64")
+    .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<1>);
 
 REGISTER_OP("KeyGen64")
@@ -74,6 +87,7 @@ REGISTER_OP("Decrypt64")
     .Input("context: variant")
     .Input("key: variant")
     .Input("val: variant")
+    .Input("runtime_batching_dim: int64")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 
@@ -211,10 +225,10 @@ REGISTER_OP("Roll64")
     .SetShapeFn(UnchangedArgShape<1>);
 
 REGISTER_OP("ReduceSumByRotation64")
-    .Input("value: variant")
     .Input("rotation_key: variant")
+    .Input("value: variant")
     .Output("repeated_reduce_sum: variant")
-    .SetShapeFn(UnchangedShape);
+    .SetShapeFn(UnchangedArgShape<1>);
 
 REGISTER_OP("FastRotationKeyGen64")
     .Input("context: variant")
@@ -234,6 +248,7 @@ REGISTER_OP("DecryptFastRotated64")
     .Input("context: variant")
     .Input("fast_rotation_key: variant")
     .Input("val: variant")
+    .Input("runtime_batching_dim: int64")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 

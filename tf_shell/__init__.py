@@ -32,6 +32,7 @@ from tf_shell.python.shell_tensor import segment_sum
 from tf_shell.python.shell_context import ShellContext64
 from tf_shell.python.shell_context import create_context64
 from tf_shell.python.shell_context import mod_reduce_context64
+from tf_shell.python.shell_context import create_autocontext64
 
 from tf_shell.python.shell_key import ShellKey64
 from tf_shell.python.shell_key import create_key64

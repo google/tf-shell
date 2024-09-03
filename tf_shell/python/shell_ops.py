@@ -24,6 +24,7 @@ shell_ops = load_library.load_op_library(
     resource_loader.get_path_to_datafile("_shell_ops.so")
 )
 context_import64 = shell_ops.context_import64
+auto_shell_context64 = shell_ops.auto_shell_context64
 polynomial_import64 = shell_ops.polynomial_import64
 polynomial_export64 = shell_ops.polynomial_export64
 key_gen64 = shell_ops.key_gen64

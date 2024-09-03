@@ -1,4 +1,5 @@
 #include "pt_pt.h"
+#include "utils.h"
 
 #include "tensorflow/core/grappler/clusters/cluster.h"
 #include "tensorflow/core/grappler/costs/graph_properties.h"
@@ -15,31 +16,6 @@ namespace grappler {
 namespace {
 
 constexpr bool const debug = false;
-
-struct RemapperContext {
-  explicit RemapperContext(GrapplerItem* item, Status* status)
-      : nodes_to_preserve(item->NodesToPreserve()),
-        graph_view(&item->graph, status),
-        graph_properties(*item) {}
-
-  std::unordered_set<string> nodes_to_preserve;
-  utils::MutableGraphView graph_view;
-  GraphProperties graph_properties;
-};
-
-constexpr char kAddPtPt[] = "AddPtPt64";
-constexpr char kSubPtPt[] = "SubPtPt64";
-constexpr char kMulPtPt[] = "MulPtPt64";
-constexpr char kNegPt[] = "NegPt64";
-constexpr char kEncode[] = "PolynomialImport64";
-constexpr char kDecode[] = "PolynomialExport64";
-
-bool IsAddPtPt(NodeDef const& node) { return node.op() == kAddPtPt; }
-bool IsSubPtPt(NodeDef const& node) { return node.op() == kSubPtPt; }
-bool IsMulPtPt(NodeDef const& node) { return node.op() == kMulPtPt; }
-bool IsNegPt(NodeDef const& node) { return node.op() == kNegPt; }
-bool IsEncode(NodeDef const& node) { return node.op() == kEncode; }
-bool IsDecode(NodeDef const& node) { return node.op() == kDecode; }
 
 bool IsReplaceableOp(NodeDef const& node) {
   return IsAddPtPt(node) || IsSubPtPt(node) || IsMulPtPt(node) || IsNegPt(node);

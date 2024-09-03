@@ -97,7 +97,7 @@ class EncryptOp : public OpKernel {
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
-    Key const* secret_key = &secret_key_var->key;
+    std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     Tensor const& input = op_ctx->input(2);
 
@@ -158,9 +158,9 @@ class DecryptOp : public OpKernel {
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
     Encoder const* encoder = shell_ctx_var->encoder_.get();
 
-    OP_REQUIRES_VALUE(SymmetricKeyVariant<From> const* key_var, op_ctx,
+    OP_REQUIRES_VALUE(SymmetricKeyVariant<From> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<From>>(op_ctx, 1));
-    Key const* secret_key = &key_var->key;
+    std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     Tensor const& input = op_ctx->input(2);
     auto flat_input = input.flat<Variant>();
@@ -259,3 +259,7 @@ REGISTER_KERNEL_BUILDER(
 REGISTER_KERNEL_BUILDER(
     Name("Decrypt64").Device(DEVICE_CPU).TypeConstraint<int64>("dtype"),
     DecryptOp<uint64, int64>);
+
+typedef SymmetricKeyVariant<uint64> KeyVariantUint64;
+REGISTER_UNARY_VARIANT_DECODE_FUNCTION(KeyVariantUint64,
+                                       KeyVariantUint64::kTypeName);

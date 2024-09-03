@@ -164,21 +164,21 @@ class TestShellTensor(tf.test.TestCase):
 
         # Encode 1d tensor then check shape was padded and value is right.
         pt_1d = tf_shell.to_shell_plaintext(one_d, context)
-        self.assertEqual(pt_1d.shape, [context.num_slots])
+        self.assertEqual(pt_1d.shape, context.num_slots)
         self.assertAllClose(one_d[:2], tf_shell.to_tensorflow(pt_1d)[:2])
 
         # Encode 2d tensor then check shape was padded and value is right.
         pt_2d = tf_shell.to_shell_plaintext(two_d, context)
-        self.assertEqual(pt_2d.shape, [context.num_slots, 2])
+        self.assertAllEqual(pt_2d.shape, tf.stack([context.num_slots, 2], axis=0))
         self.assertAllClose(two_d[:2][:2], tf_shell.to_tensorflow(pt_2d)[:2][:2])
 
         # Same tests as above but for encryption.
         ct_1d = tf_shell.to_encrypted(one_d, key, context)
-        self.assertEqual(pt_1d.shape, [context.num_slots])
+        self.assertEqual(pt_1d.shape, context.num_slots)
         self.assertAllClose(one_d[:2], tf_shell.to_tensorflow(ct_1d, key)[:2])
 
         ct_2d = tf_shell.to_encrypted(two_d, key, context)
-        self.assertEqual(pt_2d.shape, [context.num_slots, 2])
+        self.assertAllEqual(pt_2d.shape, tf.stack([context.num_slots, 2], axis=0))
         self.assertAllClose(two_d[:2][:2], tf_shell.to_tensorflow(ct_2d, key)[:2][:2])
 
     def test_shape_padding_python(self):

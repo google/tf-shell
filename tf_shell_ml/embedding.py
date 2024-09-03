@@ -109,5 +109,5 @@ class ShellEmbedding:
         return [summedvalues], tf.zeros(0)
 
     def unpack(self, plaintext_packed_dx):
-        batch_size = plaintext_packed_dx.shape[0] // 2
+        batch_size = tf.shape(plaintext_packed_dx)[0] // 2
         return plaintext_packed_dx[0, 0] + plaintext_packed_dx[batch_size, 1]

@@ -1,4 +1,5 @@
 #include "ct_pt.h"
+#include "utils.h"
 
 #include "tensorflow/core/grappler/clusters/cluster.h"
 #include "tensorflow/core/grappler/costs/graph_properties.h"
@@ -15,29 +16,6 @@ namespace grappler {
 namespace {
 
 constexpr bool const debug = false;
-
-struct RemapperContext {
-  explicit RemapperContext(GrapplerItem* item, Status* status)
-      : nodes_to_preserve(item->NodesToPreserve()),
-        graph_view(&item->graph, status),
-        graph_properties(*item) {}
-
-  std::unordered_set<string> nodes_to_preserve;
-  utils::MutableGraphView graph_view;
-  GraphProperties graph_properties;
-};
-
-constexpr char kAddCtPt[] = "AddCtPt64";
-constexpr char kSubCtPt[] = "SubCtPt64";
-constexpr char kMulCtPt[] = "MulCtPt64";
-
-constexpr char kAddPtPt[] = "AddPtPt64";
-constexpr char kSubPtPt[] = "SubPtPt64";
-constexpr char kMulPtPt[] = "MulPtPt64";
-
-bool IsAddCtPt(NodeDef const& node) { return node.op() == kAddCtPt; }
-bool IsSubCtPt(NodeDef const& node) { return node.op() == kSubCtPt; }
-bool IsMulCtPt(NodeDef const& node) { return node.op() == kMulCtPt; }
 
 char const* GetOpFromCtPt(NodeDef const& node, bool is_ct_pt) {
   if (IsAddCtPt(node)) {

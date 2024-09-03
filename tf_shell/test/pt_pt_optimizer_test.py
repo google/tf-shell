@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tf_shell
-import tf_shell.python.optimizers.shell_optimizers as shell_optimizers
+import tf_shell.python.shell_optimizers as shell_optimizers
 import test_utils
 
 
@@ -98,7 +98,7 @@ def pt_enc_dec(a, b, num_opts, shell_context, key):
     # The encode decode pairs should be optimized away.
     result = a
     for _ in range(num_opts):
-        pt_a = tf_shell.to_shell_plaintext(a, shell_context)
+        pt_a = tf_shell.to_shell_plaintext(result, shell_context)
         aa = tf_shell.to_tensorflow(pt_a)
         result += aa
 
@@ -129,7 +129,7 @@ def count_ops(graph, op_name):
     return num_ct_pt_ops
 
 
-class TestCtPtOptimizer(tf.test.TestCase):
+class TestPtPtOptimizer(tf.test.TestCase):
     test_contexts = None
 
     @classmethod
@@ -231,7 +231,7 @@ class TestCtPtOptimizer(tf.test.TestCase):
                 self._test_func(test_context, pt_enc_dec_complex, 4, 0, "PolynomialExport64")
 
 
-class TestCtPtAutoEnableOptimizer(tf.test.TestCase):
+class TestPtPtAutoEnableOptimizer(tf.test.TestCase):
     test_contexts = None
 
     @classmethod

@@ -50,7 +50,7 @@ key = tf_shell.create_key64(context)
 rotation_key = tf_shell.create_rotation_key64(context, key)
 
 # Prepare the dataset.
-batch_size = context.num_slots
+batch_size = context.num_slots.numpy()
 (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
 x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
 x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
@@ -167,14 +167,11 @@ class TestMNISTBackprop(tf.test.TestCase):
                 enc_hidden_layer_grad, key
             )
 
-        print(f"\tOutput Layer Noise: {enc_output_layer_grad.noise_bits}")
-        print(f"\tHidden Layer Noise: {enc_hidden_layer_grad.noise_bits}")
-
         shell_output_layer_grad = tf.concat(
             [
                 tf.expand_dims(repeated_output_layer_grad[0, ...], 0),
                 tf.expand_dims(
-                    repeated_output_layer_grad[context.num_slots // 2, ...], 0
+                    repeated_output_layer_grad[batch_size // 2, ...], 0
                 ),
             ],
             axis=0,
@@ -183,7 +180,7 @@ class TestMNISTBackprop(tf.test.TestCase):
             [
                 tf.expand_dims(repeated_hidden_layer_grad[0, ...], 0),
                 tf.expand_dims(
-                    repeated_hidden_layer_grad[context.num_slots // 2, ...], 0
+                    repeated_hidden_layer_grad[batch_size // 2, ...], 0
                 ),
             ],
             axis=0,
@@ -193,14 +190,14 @@ class TestMNISTBackprop(tf.test.TestCase):
         self.assertAllClose(
             output_layer_grad,
             shell_output_layer_grad,
-            atol=1 / context.scaling_factor * context.num_slots,
+            atol=1 / context.scaling_factor * batch_size,
             rtol=1 / context.scaling_factor * 2,
         )
 
         self.assertAllClose(
             hidden_layer_grad,
             shell_hidden_layer_grad,
-            atol=1 / context.scaling_factor * context.num_slots,
+            atol=1 / context.scaling_factor * batch_size,
             rtol=1 / context.scaling_factor * 3,
         )
 

@@ -76,7 +76,7 @@ class TestShellTensorRotation(tf.test.TestCase):
         # large scaling factor would be what reduced the maximal representable
         # value.
         _, max_val = test_utils.get_bounds_for_n_adds(test_context, 0)
-        if max_val < test_context.shell_context.num_slots:
+        if tf.cast(max_val, tf.int64) < test_context.shell_context.num_slots:
             print(
                 f"Note: Skipping test roll with context {test_context}. Not enough precision to support this test. Context supports max val of {max_val} but need {test_context.shell_context.num_slots}."
             )
@@ -131,7 +131,7 @@ class TestShellTensorRotation(tf.test.TestCase):
         # large scaling factor would be what reduced the maximal representable
         # value.
         _, max_val = test_utils.get_bounds_for_n_adds(test_context, 0)
-        if max_val < test_context.shell_context.num_slots:
+        if tf.cast(max_val, tf.int64) < test_context.shell_context.num_slots:
             print(
                 f"Note: Skipping test roll with context {test_context}. Not enough precision to support this test. Context supports max val of {max_val} but need {test_context.shell_context.num_slots}."
             )

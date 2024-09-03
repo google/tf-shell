@@ -66,7 +66,7 @@ class RotationKeyGenOp : public OpKernel {
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
 
-    Key const* secret_key = &secret_key_var->key;
+    std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     // Allocate the output tensor which is a scalar containing the rotation key.
     Tensor* out;
@@ -268,7 +268,7 @@ class ReduceSumByRotationOp : public OpKernel {
 
   void Compute(OpKernelContext* op_ctx) override {
     // Recover the input tensor.
-    Tensor const& value = op_ctx->input(0);
+    Tensor const& value = op_ctx->input(1);
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
 
@@ -286,7 +286,7 @@ class ReduceSumByRotationOp : public OpKernel {
 
     // Recover the input rotation keys.
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
-                      GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
+                      GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
 
     std::vector<RotationKey> const& keys = rotation_key_var->keys;
 

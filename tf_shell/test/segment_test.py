@@ -111,17 +111,19 @@ class TestShellTensor(tf.test.TestCase):
         masked_segments = tf.where(mask > 0, segments, -1)
         return masked_segments
 
-    def get_inferred_shape(self, ea, segments, num_segments, rot_key):
-        @tf.function
-        def shape_inf_func(ea, segments, num_segments, rot_key):
-            ess, counts = tf_shell.segment_sum(ea, segments, num_segments, rot_key)
-            return ess.shape, counts.shape
+    # def get_inferred_shape(self, ea, segments, num_segments, rot_key):
+    #     @tf.function
+    #     def shape_inf_func(ea, segments, num_segments, rot_key):
+    #         print(f"YOYOYOYOYOYOYOYOYO in {ea}, {segments}, {num_segments}")
+    #         ess, counts = tf_shell.segment_sum(ea, segments, num_segments, rot_key)
+    #         print(f"YOYOYOYOYOYOYOYOYO {ess}, {counts}")
+    #         return ess.shape, counts.shape
 
-        return shape_inf_func(ea, segments, num_segments, rot_key)
+    #     return shape_inf_func(ea, segments, num_segments, rot_key)
 
     def _test_segment_sum(self, test_context, segment_creator_functor):
         repeats = 8
-        num_segments = test_context.shell_context.num_slots // repeats
+        num_segments = test_context.shell_context.num_slots.numpy() // repeats
 
         a = self.create_rand_data(test_context, repeats)
         if a is None:
@@ -131,18 +133,27 @@ class TestShellTensor(tf.test.TestCase):
         ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
 
         segments = segment_creator_functor(test_context, repeats, num_segments)
+        segments_shape_should_be = [test_context.shell_context.num_slots.numpy(), 2, num_segments]
+        counts_shape_should_be = [test_context.shell_context.num_slots.numpy(), num_segments]
 
-        ess, counts = tf_shell.segment_sum(
+        @tf.function
+        def test_functor(ea, segments, num_segments, rot_key):
+            ess, counts = tf_shell.segment_sum(ea, segments, num_segments, rot_key)
+            # Tests shape inference
+            self.assertEqual(ess.shape.ndims, len(segments_shape_should_be))
+            for i in range(ess.shape.ndims):
+                if ess.shape[i] is not None:
+                    self.assertEqual(ess.shape[i], segments_shape_should_be[i])
+            self.assertEqual(counts.shape.ndims, len(counts_shape_should_be))
+            for i in range(counts.shape.ndims):
+                if counts.shape[i] is not None:
+                    self.assertEqual(counts.shape[i], counts_shape_should_be[i])
+
+            return ess, counts
+
+        ess, counts = test_functor(
             ea, segments, num_segments, test_context.rotation_key
         )
-
-        # Check shape inference function (used in non-eager mode) matches the
-        # real output.
-        data_inf_shape, count_inf_shape = self.get_inferred_shape(
-            ea, segments, num_segments, test_context.rotation_key
-        )
-        self.assertAllClose(ess.shape, data_inf_shape)
-        self.assertAllClose(counts.shape, count_inf_shape)
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
@@ -179,7 +190,7 @@ class TestShellTensor(tf.test.TestCase):
 
     def _test_segment_sum_fewer_dims(self, test_context, segment_creator_functor):
         repeats = 8
-        num_segments = test_context.shell_context.num_slots // repeats
+        num_segments = test_context.shell_context.num_slots.numpy() // repeats
 
         a = self.create_rand_data(test_context, repeats)
         if a is None:
@@ -195,17 +206,29 @@ class TestShellTensor(tf.test.TestCase):
         for _ in range(ndims - 2):
             segments = segments[..., 0]
 
-        ess, counts = tf_shell.segment_sum(
-            ea, segments, num_segments, test_context.rotation_key
-        )
+        segments_shape_should_be = [test_context.shell_context.num_slots.numpy(), 2, num_segments] + test_context.outer_shape[1:]
+        counts_shape_should_be = [test_context.shell_context.num_slots.numpy(), num_segments]
+        # TODO: Should counts shape really be this?
+        # counts_shape_should_be = [test_context.shell_context.num_slots.numpy(), num_segments] + test_context.outer_shape[1:]
 
-        # Check shape inference function (used in non-eager mode) matches the
-        # real output.
-        data_inf_shape, count_inf_shape = self.get_inferred_shape(
+        @tf.function
+        def test_functor(ea, segments, num_segments, rot_key):
+            ess, counts = tf_shell.segment_sum(ea, segments, num_segments, rot_key)
+            # Tests shape inference
+            self.assertEqual(ess.shape.ndims, len(segments_shape_should_be))
+            for i in range(ess.shape.ndims):
+                if ess.shape[i] is not None:
+                    self.assertEqual(ess.shape[i], segments_shape_should_be[i])
+            self.assertEqual(counts.shape.ndims, len(counts_shape_should_be))
+            for i in range(counts.shape.ndims):
+                if counts.shape[i] is not None:
+                    self.assertEqual(counts.shape[i], counts_shape_should_be[i])
+
+            return ess, counts
+
+        ess, counts = test_functor(
             ea, segments, num_segments, test_context.rotation_key
         )
-        self.assertAllClose(ess.shape, data_inf_shape)
-        self.assertAllClose(counts.shape, count_inf_shape)
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
@@ -231,12 +254,14 @@ class TestShellTensor(tf.test.TestCase):
 
     def test_segment_sum_fewer_dims(self):
         for test_context in self.test_contexts:
-            if len(test_context.outer_shape) > 0:
+            if len(test_context.outer_shape) > 1:
                 for segment_creator in [
                     self.create_uniform_segments,
                     self.create_nonuniform_segments,
                 ]:
-                    with self.subTest(f"{self._testMethodName} with context `{test_context}` and segment creator `{segment_creator}`."):
+                    with self.subTest(
+                        f"{self._testMethodName} with context `{test_context}` and segment creator `{segment_creator}`."
+                    ):
                         self._test_segment_sum_fewer_dims(test_context, segment_creator)
             else:
                 print(

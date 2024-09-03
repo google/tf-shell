@@ -13,16 +13,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import tf_shell.python.ops.shell_ops as shell_ops
+import tf_shell.python.shell_ops as shell_ops
 import tensorflow as tf
 import typing
 
 
 class ShellContext64(tf.experimental.ExtensionType):
     _raw_context: tf.Tensor
-    log_n: int
-    num_slots: int
-    two_n: int
+    is_autocontext: bool
+    log_n: tf.Tensor
+    num_slots: tf.Tensor
+    two_n: tf.Tensor
     main_moduli: tf.Tensor
     level: int
     aux_moduli: tf.Tensor
@@ -36,6 +37,7 @@ class ShellContext64(tf.experimental.ExtensionType):
     def __init__(
         self,
         _raw_context,
+        is_autocontext,
         log_n,
         main_moduli,
         aux_moduli,
@@ -46,9 +48,10 @@ class ShellContext64(tf.experimental.ExtensionType):
         seed,
     ):
         self._raw_context = _raw_context
+        self.is_autocontext = is_autocontext
         self.log_n = log_n
-        self.num_slots = 2**log_n
-        self.two_n = 2 ** (log_n + 1)
+        self.num_slots = 2 ** tf.cast(log_n, dtype=tf.int64)
+        self.two_n = self.num_slots * 2
         if isinstance(main_moduli, list):
             main_moduli = tf.convert_to_tensor(main_moduli)
         self.main_moduli = main_moduli
@@ -75,6 +78,7 @@ def mod_reduce_context64(context):
 
     mod_reduced = ShellContext64(
         _raw_context=smaller_context,
+        is_autocontext=context.is_autocontext,
         log_n=context.log_n,
         main_moduli=context.main_moduli[:-1],
         aux_moduli=context.aux_moduli,
@@ -100,9 +104,10 @@ def create_context64(
 ):
     if len(seed) > 64:
         raise ValueError("Seed must be at most 64 characters long.")
-    seed = seed.ljust(64)
+    elif len(seed) < 64 and seed != "":
+        seed = seed.ljust(64)
 
-    shell_context = shell_ops.context_import64(
+    shell_context, _ = shell_ops.context_import64(
         log_n=log_n,
         main_moduli=main_moduli,
         aux_moduli=aux_moduli,
@@ -113,6 +118,7 @@ def create_context64(
 
     return ShellContext64(
         _raw_context=shell_context,
+        is_autocontext=False,
         log_n=log_n,
         main_moduli=main_moduli,
         aux_moduli=aux_moduli,
@@ -120,5 +126,37 @@ def create_context64(
         noise_variance=noise_variance,
         scaling_factor=scaling_factor,
         mul_depth_supported=mul_depth_supported,
+        seed=seed,
+    )
+
+
+def create_autocontext64(
+    log2_cleartext_sz,
+    scaling_factor,
+    noise_offset_log2,
+    noise_variance,
+    seed="",
+):
+    if len(seed) > 64:
+        raise ValueError("Seed must be at most 64 characters long.")
+    seed = seed.ljust(64)
+
+    shell_context, new_log_n = shell_ops.auto_shell_context64(
+        log2_cleartext_sz=log2_cleartext_sz,
+        scaling_factor=scaling_factor,
+        log2_noise_offset=noise_offset_log2,
+        noise_variance=noise_variance,
+    )
+
+    return ShellContext64(
+        _raw_context=shell_context,
+        is_autocontext=True,
+        log_n=new_log_n,
+        main_moduli=[],
+        aux_moduli=[],
+        plaintext_modulus=0,
+        noise_variance=noise_variance,
+        scaling_factor=scaling_factor,
+        mul_depth_supported=0,
         seed=seed,
     )

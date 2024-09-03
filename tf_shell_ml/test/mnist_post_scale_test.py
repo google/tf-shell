@@ -38,7 +38,7 @@ rotation_key = tf_shell.create_rotation_key64(context, key)
 # batch size that can be used with the current implementation of tf-shell
 # due to the galois-based ciphertext rotations used in the reduce_sum operations
 # which only support rotations of up to half the number of slots.
-batch_size = context.num_slots
+batch_size = context.num_slots.numpy()
 
 # Prepare the dataset.
 (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
@@ -178,7 +178,7 @@ class TestPlaintextPostScale(tf.test.TestCase):
         self.assertAllClose(
             ps_grads,
             shell_ps_grads,
-            atol=1 / context.scaling_factor * context.num_slots,
+            atol=1 / context.scaling_factor * batch_size,
         )
 
     def test_mnist_post_scale(self):

@@ -89,7 +89,7 @@ class FastRotationKeyGenOp : public OpKernel {
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
 
-    Key const* secret_key = &secret_key_var->key;
+    std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     // Allocate the output tensor which is a scalar containing the fast rotation
     // key.

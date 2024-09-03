@@ -162,3 +162,16 @@ py_test(
         requirement("tensorflow-cpu"),
     ],
 )
+
+py_test(
+    name = "auto_param_optimizer_test",
+    size = "medium",
+    srcs = [
+        "auto_param_optimizer_test.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)

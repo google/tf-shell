@@ -80,7 +80,7 @@ class ModulusReduceKeyOp : public OpKernel {
     // Unpack the input arguments.
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 0));
-    Key secret_key = secret_key_var->key;  // Deep copy.
+    Key secret_key = *secret_key_var->key;  // Deep copy.
 
     // Allocate a scalar output tensor to store the reduced key.
     Tensor* out;

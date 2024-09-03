@@ -10,9 +10,20 @@ filegroup(
     ]),
 )
 
+filegroup(
+    name = "shell_optimizer_src",
+    srcs = glob([
+        "cc/optimizers/*.cc",
+        "cc/optimizers/*.h",
+    ]),
+)
+
 cc_binary(
-    name = "python/ops/_shell_ops.so",
-    srcs = [":shell_ops_src"],
+    name = "python/_shell_ops.so",
+    srcs = [
+        ":shell_ops_src",
+        ":shell_optimizer_src",
+    ],
     copts = [
         "-pthread",
         "-fPIC",
@@ -20,6 +31,8 @@ cc_binary(
     linkshared = 1,
     deps = [
         "//third_party/tensorflow:hermetic_tf",
+        "@com_google_protobuf//:protobuf",
+        "@shell_encryption//shell_encryption:transcription",
         "@shell_encryption//shell_encryption:context",
         "@shell_encryption//shell_encryption:montgomery",
         "@shell_encryption//shell_encryption:polynomial",
@@ -40,40 +53,11 @@ cc_binary(
 py_library(
     name = "shell_ops_py",
     srcs = [
-        "python/ops/shell_ops.py",
+        "python/shell_ops.py",
+        "python/shell_optimizers.py",
     ],
     data = [
-        ":python/ops/_shell_ops.so",
-    ],
-    srcs_version = "PY3",
-)
-
-cc_binary(
-    name = "python/optimizers/_optimizers.so",
-    srcs = [
-        "cc/optimizers/ct_pt.cc",
-        "cc/optimizers/ct_pt.h",
-        "cc/optimizers/pt_pt.cc",
-        "cc/optimizers/pt_pt.h",
-    ],
-    copts = [
-        "-pthread",
-        "-fPIC",
-    ],
-    linkshared = 1,
-    deps = [
-        "//third_party/tensorflow:hermetic_tf",
-        "@com_google_protobuf//:protobuf",
-    ],
-)
-
-py_library(
-    name = "shell_optimizers_py",
-    srcs = [
-        "python/optimizers/shell_optimizers.py",
-    ],
-    data = [
-        ":python/optimizers/_optimizers.so",
+        ":python/_shell_ops.so",
     ],
     srcs_version = "PY3",
 )
@@ -83,8 +67,6 @@ py_library(
     srcs = [
         "__init__.py",
         "python/__init__.py",
-        "python/ops/__init__.py",
-        "python/optimizers/__init__.py",
         "python/shell_context.py",
         "python/shell_key.py",
         "python/shell_tensor.py",
@@ -93,7 +75,6 @@ py_library(
     visibility = ["//visibility:public"],
     deps = [
         ":shell_ops_py",
-        ":shell_optimizers_py",
     ],
 )
 

@@ -92,7 +92,11 @@ class TestShellTensor(tf.test.TestCase):
         @tf.function
         def test_functor():
             ec = tf_shell.matmul(ea, b)
-            self.assertAllEqual(ec.shape, c.shape)  # Tests shape inference
+            # Tests shape inference
+            self.assertEqual(ec.shape.ndims, c.shape.ndims)
+            for i in range(ec.shape.ndims):
+                if ec.shape[i] is not None:
+                    self.assertEqual(ec.shape[i], c.shape[i])
             return ec
 
         ec = test_functor()  # Run the core operation eagerly or lazily.
@@ -180,7 +184,11 @@ class TestShellTensor(tf.test.TestCase):
                 ec = tf_shell.matmul(a, eb, fast=True)
             else:
                 ec = tf_shell.matmul(a, eb, test_context.rotation_key)
-            self.assertAllEqual(ec.shape, check_c.shape)  # Tests shape inference
+            # Tests shape inference
+            self.assertEqual(ec.shape.ndims, check_c.shape.ndims)
+            for i in range(ec.shape.ndims):
+                if ec.shape[i] is not None:
+                    self.assertEqual(ec.shape[i], check_c.shape[i])
             return ec
 
         ec = test_functor()  # Run the core operation eagerly or lazily.

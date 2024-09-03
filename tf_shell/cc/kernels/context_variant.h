@@ -32,7 +32,10 @@
 #include "tensorflow/core/framework/variant_op_registry.h"
 #include "utils.h"
 
+using tensorflow::tstring;
 using tensorflow::VariantTensorData;
+using tensorflow::DT_UINT64;
+using tensorflow::Status;
 
 // This class wraps SHELL encryption library objects to store state required for
 // performing homomorphic operations on encrypted data.
@@ -133,11 +136,73 @@ class ContextVariant {
 
   std::string TypeName() const { return kTypeName; }
 
-  // TODO(jchoncholas): implement for networking
-  void Encode(VariantTensorData* data) const {};
+  void Encode(VariantTensorData* data) const {
+    if constexpr (std::is_same<T, uint64_t>::value) {
+      Tensor log_n_tensor = Tensor(log_n_);
+      Tensor qs_tensor = Tensor(DT_UINT64, TensorShape({int64_t(qs_.size())}));
+      for (size_t i = 0; i < qs_.size(); ++i) {
+        qs_tensor.flat<uint64_t>()(i) = qs_[i];
+      }
+      Tensor ps_tensor = Tensor(DT_UINT64, TensorShape({int64_t(ps_.size())}));
+      for (size_t i = 0; i < ps_.size(); ++i) {
+        ps_tensor.flat<uint64_t>()(i) = ps_[i];
+      }
+      Tensor pt_modulus_tensor = Tensor(pt_modulus_);
+      Tensor noise_variance_tensor = Tensor(noise_variance_);
+      Tensor seed_tensor = Tensor(seed_);
+      Tensor substitution_powers_tensor =
+          Tensor(DT_UINT64, TensorShape({int64_t(substitution_powers_.size())}));
+      for (size_t i = 0; i < substitution_powers_.size(); ++i) {
+        substitution_powers_tensor.flat<uint64_t>()(i) = substitution_powers_[i];
+      }
 
-  // TODO(jchoncholas): implement for networking
-  bool Decode(VariantTensorData const& data) { return true; };
+      data->tensors_.reserve(7);
+      data->tensors_.push_back(log_n_tensor);
+      data->tensors_.push_back(qs_tensor);
+      data->tensors_.push_back(ps_tensor);
+      data->tensors_.push_back(pt_modulus_tensor);
+      data->tensors_.push_back(noise_variance_tensor);
+      data->tensors_.push_back(seed_tensor);
+      data->tensors_.push_back(substitution_powers_tensor);
+    }
+  };
+
+  bool Decode(VariantTensorData const& data) {
+    if (data.tensors_.size() != 7) {
+      return false;
+    }
+
+    size_t log_n = data.tensors_[0].scalar<size_t>()(0);
+
+    std::vector<T> qs;
+    qs.reserve(data.tensors_[1].NumElements());
+    for (int64_t i = 0; i < data.tensors_[1].NumElements(); ++i) {
+      qs.push_back(data.tensors_[1].vec<uint64_t>()(i));
+    }
+
+    std::vector<T> ps;
+    ps.reserve(data.tensors_[2].NumElements());
+    for (int64_t i = 0; i < data.tensors_[2].NumElements(); ++i) {
+      ps.push_back(data.tensors_[2].vec<uint64_t>()(i));
+    }
+
+    T pt_modulus = data.tensors_[3].scalar<T>()(0);
+
+    size_t noise_variance = data.tensors_[4].scalar<size_t>()(0);
+
+    tstring seed = data.tensors_[5].scalar<tstring>()(0);
+    std::string std_seed(seed.c_str());
+
+    std::vector<uint> substitution_powers;
+    substitution_powers.reserve(data.tensors_[6].NumElements());
+    for (int64_t i = 0; i < data.tensors_[6].NumElements(); ++i) {
+      substitution_powers.push_back(data.tensors_[6].vec<uint64_t>()(i));
+    }
+
+    Status s =
+        Initialize(log_n, qs, ps, pt_modulus, noise_variance, std_seed);
+    return s.ok();
+  };
 
   std::string DebugString() const { return "ShellContextVariant"; }
 
