@@ -127,7 +127,7 @@ py_wheel(
     }),
     python_requires = ">=3.9",
     python_tag = "INTERPRETER",
-    requires = ["tensorflow-cpu==2.17.0"],  # See also: requirements.in.
+    requires = ["tensorflow-cpu==2.15.0"],  # See also: requirements.in.
     # The summary is tailored for each python version because PyPI prevents
     # wheel uploads for different versions which have the same contents.
     # Changing the summary is sufficient to allow re-uploads.
