@@ -134,7 +134,7 @@ def create_autocontext64(
     log2_cleartext_sz,
     scaling_factor,
     noise_offset_log2,
-    noise_variance,
+    noise_variance=8,
     seed="",
 ):
     if len(seed) > 64:
