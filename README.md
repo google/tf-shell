@@ -46,19 +46,19 @@ the labels.
 
 ### Build From Source
 
-1. Install Bazelisk and python3 or use the devcontainer.
+1. Install bazel and python3 or use the devcontainer.
 
 2. Run the tests.
 
     ```bash
-    bazelisk test ...
+    bazel test ...
     ```
 
 3. Build the code.
 
     ```bash
-    bazelisk build //:wheel
-    bazelisk run //:wheel_rename
+    bazel build //:wheel
+    bazel run //:wheel_rename
     ```
 
 4. (Optional) Install the wheel, e.g. to try out the `./examples/`.
@@ -80,9 +80,9 @@ Note the cpython api is not compatible across minor python versions (e.g. 3.10,
 ### Code Formatters and Counters
 
 ```bash
-bazelisk run //:bazel_formatter
-bazelisk run //:python_formatter
-bazelisk run //:clang_formatter
+bazel run //:bazel_formatter
+bazel run //:python_formatter
+bazel run //:clang_formatter
 ```
 
 ```bash
@@ -98,10 +98,10 @@ for each python version.
 for ver in 3_9 3_10 3_11 3_12; do
   rm requirements_${ver}.txt
   touch requirements_${ver}.txt
-  bazelisk run //:requirements_${ver}.update
+  bazel run //:requirements_${ver}.update
 done
 
-bazelisk clean --expunge
+bazel clean --expunge
 ```
 
 If updating the tensorflow dependency, other dependencies may also need to
