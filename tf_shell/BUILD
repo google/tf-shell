@@ -31,7 +31,6 @@ cc_binary(
     linkshared = 1,
     deps = [
         "//third_party/tensorflow:hermetic_tf",
-        "@com_google_protobuf//:protobuf",
         "@shell_encryption//shell_encryption:context",
         "@shell_encryption//shell_encryption:montgomery",
         "@shell_encryption//shell_encryption:polynomial",
