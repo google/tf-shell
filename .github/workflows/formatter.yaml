@@ -1,0 +1,32 @@
+name: Check formatting
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  formatter:
+    name: Check formatting of Python, C++, and Bazel files.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheel
+        shell: bash
+        run: |
+          bazelisk run //:bazel_formatter
+          bazelisk run //:python_formatter
+          bazelisk run //:clang_formatter
+
+      - name: Check if there is any change
+        id: changes
+        run: echo "changed=$(git status --porcelain | wc -l)" >> $GITHUB_OUTPUT
+
+      - name: Error if code has not been formatted
+        if: steps.changes.outputs.changed != 0
+        run: |
+          echo "Code has not been formatted. Please run the formatters as described by the README."
+          return 1
