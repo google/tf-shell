@@ -19,7 +19,6 @@ using tensorflow::grappler::utils::MutableGraphView;
 using TopMutableGraphView = tensorflow::grappler::MutableGraphView;
 
 struct RemapperContext {
-
   explicit RemapperContext(GrapplerItem* item, Status* status)
       : nodes_to_preserve(item->NodesToPreserve()),
         graph_view(&item->graph, status),
@@ -68,8 +67,8 @@ constexpr char kReduceSum[] = "ReduceSum64";
 constexpr char kUnsortedCtSegmentSum[] = "UnsortedCtSegmentSum";
 
 constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
-constexpr char kBroadcastToShape[] = "BroadcastToShape"; // TODO check name
-constexpr char kReshape[] = "Reshape"; // TODO check name
+constexpr char kBroadcastToShape[] = "BroadcastToShape";  // TODO check name
+constexpr char kReshape[] = "Reshape";                    // TODO check name
 
 constexpr char kConstOpName[] = "Const";
 

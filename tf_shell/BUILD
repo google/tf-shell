@@ -32,10 +32,10 @@ cc_binary(
     deps = [
         "//third_party/tensorflow:hermetic_tf",
         "@com_google_protobuf//:protobuf",
-        "@shell_encryption//shell_encryption:transcription",
         "@shell_encryption//shell_encryption:context",
         "@shell_encryption//shell_encryption:montgomery",
         "@shell_encryption//shell_encryption:polynomial",
+        "@shell_encryption//shell_encryption:transcription",
         "@shell_encryption//shell_encryption/prng:hkdf_prng",
         "@shell_encryption//shell_encryption/rns:finite_field_encoder",
         "@shell_encryption//shell_encryption/rns:rns_ciphertext",

@@ -62,7 +62,7 @@ class SymmetricKeyVariant {
     // Instead of storing the vector<PrimeModulus>, store just the moduli. Skip
     // the NTT parameters and ModularInt parameters as they can be recomputed.
     data->tensors_.push_back(Tensor(key->Moduli().size()));
-    
+
     // Extract the moduli.
     std::vector<Int> moduli;
     moduli.reserve(key->Moduli().size());

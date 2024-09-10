@@ -64,7 +64,9 @@ class Conv2D:
 
         self._layer_input = inputs
 
-        outputs = tf.nn.conv2d(inputs, self.kernel, strides=self.strides, padding="SAME")
+        outputs = tf.nn.conv2d(
+            inputs, self.kernel, strides=self.strides, padding="SAME"
+        )
 
         self._layer_intermediate = outputs
 

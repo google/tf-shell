@@ -133,8 +133,15 @@ class TestShellTensor(tf.test.TestCase):
         ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
 
         segments = segment_creator_functor(test_context, repeats, num_segments)
-        segments_shape_should_be = [test_context.shell_context.num_slots.numpy(), 2, num_segments]
-        counts_shape_should_be = [test_context.shell_context.num_slots.numpy(), num_segments]
+        segments_shape_should_be = [
+            test_context.shell_context.num_slots.numpy(),
+            2,
+            num_segments,
+        ]
+        counts_shape_should_be = [
+            test_context.shell_context.num_slots.numpy(),
+            num_segments,
+        ]
 
         @tf.function
         def test_functor(ea, segments, num_segments, rot_key):
@@ -206,8 +213,15 @@ class TestShellTensor(tf.test.TestCase):
         for _ in range(ndims - 2):
             segments = segments[..., 0]
 
-        segments_shape_should_be = [test_context.shell_context.num_slots.numpy(), 2, num_segments] + test_context.outer_shape[1:]
-        counts_shape_should_be = [test_context.shell_context.num_slots.numpy(), num_segments]
+        segments_shape_should_be = [
+            test_context.shell_context.num_slots.numpy(),
+            2,
+            num_segments,
+        ] + test_context.outer_shape[1:]
+        counts_shape_should_be = [
+            test_context.shell_context.num_slots.numpy(),
+            num_segments,
+        ]
         # TODO: Should counts shape really be this?
         # counts_shape_should_be = [test_context.shell_context.num_slots.numpy(), num_segments] + test_context.outer_shape[1:]
 

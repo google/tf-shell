@@ -227,8 +227,12 @@ class TestPtPtOptimizer(tf.test.TestCase):
                 self._test_func(test_context, pt_enc_dec, 4, 0, "PolynomialExport64")
 
             with self.subTest(f"Optimizer for func pt_enc_dec_complex."):
-                self._test_func(test_context, pt_enc_dec_complex, 4, 0, "PolynomialImport64")
-                self._test_func(test_context, pt_enc_dec_complex, 4, 0, "PolynomialExport64")
+                self._test_func(
+                    test_context, pt_enc_dec_complex, 4, 0, "PolynomialImport64"
+                )
+                self._test_func(
+                    test_context, pt_enc_dec_complex, 4, 0, "PolynomialExport64"
+                )
 
 
 class TestPtPtAutoEnableOptimizer(tf.test.TestCase):

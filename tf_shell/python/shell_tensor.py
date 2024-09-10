@@ -34,7 +34,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
     @property
     def shape(self):
         try:
-            return tf.TensorShape([self._context.num_slots.numpy()]).concatenate(self._raw_tensor.get_shape())
+            return tf.TensorShape([self._context.num_slots.numpy()]).concatenate(
+                self._raw_tensor.get_shape()
+            )
         except AttributeError:
             return tf.TensorShape([None]).concatenate(self._raw_tensor.get_shape())
 
@@ -124,7 +126,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 # In the special case of scalar addition, instead of padding
                 # with zeros replicate the scalar across all slots and broadcast
                 # to the correct shape.
-                other = tf.broadcast_to(other, tf.expand_dims(self._context.num_slots, 0))
+                other = tf.broadcast_to(
+                    other, tf.expand_dims(self._context.num_slots, 0)
+                )
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
                 # In the special case of broadcasting over the packing'
@@ -199,7 +203,9 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 # In the special case of scalar subtraction, instead of padding
                 # with zeros replicate the scalar across all slots and broadcast
                 # to the correct shape.
-                other = tf.broadcast_to(other, tf.expand_dims(self._context.num_slots, 0))
+                other = tf.broadcast_to(
+                    other, tf.expand_dims(self._context.num_slots, 0)
+                )
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
                 other = tf.broadcast_to(
@@ -631,7 +637,7 @@ def to_tensorflow(s_tensor, key=None):
         # Mod reduce the key to match the level of the ciphertext.
         while key.level > s_tensor._context.level:
             key = mod_reduce_key64(key)
-        
+
         # Decrypt op returns a tf Tensor.
         tf_tensor = shell_ops.decrypt64(
             context=s_tensor._context._raw_context,

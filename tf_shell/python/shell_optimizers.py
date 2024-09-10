@@ -44,6 +44,7 @@ all_shell_optimizers = [
     "ModuliAutotuneOptimizer",
 ]
 
+
 def optimize_shell_graph(func, optimizers=all_shell_optimizers):
     rewriter_config = rewriter_config_pb2.RewriterConfig()
     rewriter_config.meta_optimizer_iterations = rewriter_config_pb2.RewriterConfig.ONE

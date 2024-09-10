@@ -18,14 +18,14 @@
 #include "tensorflow/core/framework/shape_inference.h"
 
 using tensorflow::OkStatus;
+using tensorflow::TensorProto;
+using tensorflow::TensorShape;
 using tensorflow::errors::InvalidArgument;
 using tensorflow::shape_inference::DimensionHandle;
 using tensorflow::shape_inference::InferenceContext;
 using tensorflow::shape_inference::ScalarShape;
 using tensorflow::shape_inference::ShapeHandle;
 using tensorflow::shape_inference::UnchangedShape;
-using tensorflow::TensorProto;
-using tensorflow::TensorShape;
 
 // Tensorflow does not have size_t but Shell Context parameters require it.
 // Code below must assume size_t is a unit64 because of this.

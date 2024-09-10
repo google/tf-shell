@@ -1,5 +1,4 @@
 #include "pt_pt.h"
-#include "utils.h"
 
 #include "tensorflow/core/grappler/clusters/cluster.h"
 #include "tensorflow/core/grappler/costs/graph_properties.h"
@@ -9,6 +8,7 @@
 #include "tensorflow/core/grappler/utils/functions.h"
 #include "tensorflow/core/grappler/utils/graph_view.h"
 #include "tensorflow/core/grappler/utils/topological_sort.h"
+#include "utils.h"
 
 namespace tensorflow {
 namespace grappler {

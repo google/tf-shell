@@ -32,10 +32,10 @@
 #include "tensorflow/core/framework/variant_op_registry.h"
 #include "utils.h"
 
-using tensorflow::tstring;
-using tensorflow::VariantTensorData;
 using tensorflow::DT_UINT64;
 using tensorflow::Status;
+using tensorflow::tstring;
+using tensorflow::VariantTensorData;
 
 // This class wraps SHELL encryption library objects to store state required for
 // performing homomorphic operations on encrypted data.
@@ -150,10 +150,11 @@ class ContextVariant {
       Tensor pt_modulus_tensor = Tensor(pt_modulus_);
       Tensor noise_variance_tensor = Tensor(noise_variance_);
       Tensor seed_tensor = Tensor(seed_);
-      Tensor substitution_powers_tensor =
-          Tensor(DT_UINT64, TensorShape({int64_t(substitution_powers_.size())}));
+      Tensor substitution_powers_tensor = Tensor(
+          DT_UINT64, TensorShape({int64_t(substitution_powers_.size())}));
       for (size_t i = 0; i < substitution_powers_.size(); ++i) {
-        substitution_powers_tensor.flat<uint64_t>()(i) = substitution_powers_[i];
+        substitution_powers_tensor.flat<uint64_t>()(i) =
+            substitution_powers_[i];
       }
 
       data->tensors_.reserve(7);
@@ -199,8 +200,7 @@ class ContextVariant {
       substitution_powers.push_back(data.tensors_[6].vec<uint64_t>()(i));
     }
 
-    Status s =
-        Initialize(log_n, qs, ps, pt_modulus, noise_variance, std_seed);
+    Status s = Initialize(log_n, qs, ps, pt_modulus, noise_variance, std_seed);
     return s.ok();
   };
 

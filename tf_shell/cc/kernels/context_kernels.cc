@@ -77,12 +77,12 @@ class AutoContextOp : public OpKernel {
     // automatically choose encryption parameters for a given computation.
     // This op should be replaced with a ContextImportOp at graph optimization
     // time and should never be called.
-    op_ctx->SetStatus(
-        tensorflow::errors::Internal("AutoContextOp should never be called. The "
-                                     "graph should be optimized to replace this "
-                                     "op with a ContextImportOp. If you see this, "
-                                     "there was likely an error in generating "
-                                     "ciphertext parameters for this computation."));
+    op_ctx->SetStatus(tensorflow::errors::Internal(
+        "AutoContextOp should never be called. The "
+        "graph should be optimized to replace this "
+        "op with a ContextImportOp. If you see this, "
+        "there was likely an error in generating "
+        "ciphertext parameters for this computation."));
   }
 };
 

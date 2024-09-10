@@ -34,7 +34,9 @@ def gen_context(scaling_factor=1):
 @tf.function
 def ct_ct_add(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits + 1, 32) if use_auto_context else gen_context()
+        gen_autocontext(test_values_num_bits + 1, 32)
+        if use_auto_context
+        else gen_context()
     )
     key = tf_shell.create_key64(shell_context)
     a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
@@ -107,6 +109,7 @@ def long_arith(cleartext_a, cleartext_b, use_auto_context=False):
     intermediate = ((a * b) + a) + b
     result = tf_shell.to_tensorflow(intermediate, key)
     return result
+
 
 @tf.function
 def long_arith_with_scaling(cleartext_a, cleartext_b, use_auto_context=False):
@@ -244,7 +247,7 @@ class TestAutoParamEnableOptimizer(tf.test.TestCase):
 
         shell_optimizers.enable_tf_shell_optimizer()
         c = ct_ct_add(a, b, True)
-        
+
         # If the optimizer ran, the shape should be padded out to the
         # ciphertext modulus.
         self.assertNotEqual(c.shape, shape)

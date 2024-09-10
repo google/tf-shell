@@ -61,6 +61,7 @@ def ct_pt_pt_mul_add_no_opt(ct, pt, num_opts):
         intermediate += pt
     return intermediate
 
+
 @tf.function
 def ct_pt_pt_reused_no_opt(ct, pt, num_opts):
     inner = ct + pt
@@ -112,7 +113,9 @@ class TestCtPtOptimizer(tf.test.TestCase):
             )
         )
 
-    def _test_func(self, test_context, tf_func, num_pt_ops, expected_num_pt_ops, pt_op_name):
+    def _test_func(
+        self, test_context, tf_func, num_pt_ops, expected_num_pt_ops, pt_op_name
+    ):
         a = test_utils.uniform_for_n_muls(test_context, num_pt_ops + 2)
         b = test_utils.uniform_for_n_muls(test_context, num_pt_ops + 2)
 
@@ -190,9 +193,7 @@ class TestCtPtOptimizer(tf.test.TestCase):
                 )
 
             with self.subTest(f"Optimizer for func ct_pt_pt_reused_no_opt."):
-                self._test_func(
-                    test_context, ct_pt_pt_reused_no_opt, 5, 2, "AddCtPt64"
-                )
+                self._test_func(test_context, ct_pt_pt_reused_no_opt, 5, 2, "AddCtPt64")
 
 
 class TestCtPtAutoEnableOptimizer(tf.test.TestCase):

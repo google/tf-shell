@@ -103,7 +103,8 @@ Status AddScalarConstNode(T value, utils::Mutation* mutation,
   } else {
     []<bool flag = false>() {
       static_assert(flag, "AddScalarConstNode does not support this type");
-    }();
+    }
+    ();
   }
   tensor->set_allocated_tensor_shape(tensor_shape.release());
   (*node.mutable_attr())["value"].set_allocated_tensor(tensor.release());
@@ -323,7 +324,8 @@ Status ChooseShellParams(ShellParams& params, uint64_t const total_pt_bits,
 
   uint64_t bounded_total_pt_bits = std::max(total_pt_bits, kMinPrimeBits);
 
-  uint64_t t = FindPrimeMod2n(two_n, bounded_total_pt_bits, bounded_total_pt_bits + 4);
+  uint64_t t =
+      FindPrimeMod2n(two_n, bounded_total_pt_bits, bounded_total_pt_bits + 4);
   if (t == 0) {
     if constexpr (debug_moduli) {
       std::cout << "Could not find a prime for plaintext modulus." << std::endl;

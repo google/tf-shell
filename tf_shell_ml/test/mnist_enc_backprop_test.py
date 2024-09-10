@@ -170,18 +170,14 @@ class TestMNISTBackprop(tf.test.TestCase):
         shell_output_layer_grad = tf.concat(
             [
                 tf.expand_dims(repeated_output_layer_grad[0, ...], 0),
-                tf.expand_dims(
-                    repeated_output_layer_grad[batch_size // 2, ...], 0
-                ),
+                tf.expand_dims(repeated_output_layer_grad[batch_size // 2, ...], 0),
             ],
             axis=0,
         )
         shell_hidden_layer_grad = tf.concat(
             [
                 tf.expand_dims(repeated_hidden_layer_grad[0, ...], 0),
-                tf.expand_dims(
-                    repeated_hidden_layer_grad[batch_size // 2, ...], 0
-                ),
+                tf.expand_dims(repeated_hidden_layer_grad[batch_size // 2, ...], 0),
             ],
             axis=0,
         )
