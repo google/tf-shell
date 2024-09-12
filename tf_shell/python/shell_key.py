@@ -66,13 +66,13 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
         raise ValueError("Context and key levels must match.")
 
     raw_rot_keys_at_level = {}
-    while context.mul_depth_supported >= 0:
-        if context.mul_depth_supported not in skip_at_mul_depth:
+    while context.level >= 0:
+        if context.level not in skip_at_mul_depth:
             raw_rot_keys_at_level[context.level] = shell_ops.rotation_key_gen64(
                 context._raw_context, key._raw_key
             )
 
-        if context.mul_depth_supported == 0 or context.level == 1:
+        if context.level <= 1:
             break
         context = mod_reduce_context64(context)
         key = mod_reduce_key64(key)
@@ -106,13 +106,13 @@ def create_fast_rotation_key64(context, key, skip_at_mul_depth=[]):
         raise ValueError("Context and key levels must match.")
 
     raw_rot_keys_at_level = {}
-    while context.mul_depth_supported >= 0:
-        if context.mul_depth_supported not in skip_at_mul_depth:
+    while context.level >= 0:
+        if context.level not in skip_at_mul_depth:
             raw_rot_keys_at_level[context.level] = shell_ops.fast_rotation_key_gen64(
                 context._raw_context, key._raw_key
             )
 
-        if context.mul_depth_supported == 0 or context.level == 1:
+        if context.level <= 1:
             break
         context = mod_reduce_context64(context)
         key = mod_reduce_key64(key)

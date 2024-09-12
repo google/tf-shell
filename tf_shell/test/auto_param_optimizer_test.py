@@ -26,7 +26,6 @@ def gen_context(scaling_factor=1):
         main_moduli=[288230376151760897, 288230376152137729],
         plaintext_modulus=4294991873,
         scaling_factor=scaling_factor,
-        mul_depth_supported=1,
         seed="test_seed",
     )
 

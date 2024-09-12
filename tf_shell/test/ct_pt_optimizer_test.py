@@ -109,7 +109,6 @@ class TestCtPtOptimizer(tf.test.TestCase):
                 aux_moduli=[],
                 plaintext_modulus=40961,
                 scaling_factor=1,
-                mul_depth_supported=0,
             )
         )
 
@@ -205,7 +204,6 @@ class TestCtPtAutoEnableOptimizer(tf.test.TestCase):
             main_moduli=[8556589057, 8388812801],
             plaintext_modulus=40961,
             scaling_factor=3,
-            mul_depth_supported=3,
             seed="test_seed",
         )
 

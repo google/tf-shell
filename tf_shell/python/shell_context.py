@@ -31,7 +31,6 @@ class ShellContext64(tf.experimental.ExtensionType):
     noise_variance: int
     noise_bits: int
     scaling_factor: int
-    mul_depth_supported: int
     seed: str
 
     def __init__(
@@ -44,7 +43,6 @@ class ShellContext64(tf.experimental.ExtensionType):
         plaintext_modulus,
         noise_variance,
         scaling_factor,
-        mul_depth_supported,
         seed,
     ):
         self._raw_context = _raw_context
@@ -64,15 +62,12 @@ class ShellContext64(tf.experimental.ExtensionType):
         else:
             self.noise_bits = self.noise_variance.bit_length() + 1
         self.scaling_factor = scaling_factor
-        self.mul_depth_supported = mul_depth_supported
         self.seed = seed
 
 
 def mod_reduce_context64(context):
     if not isinstance(context, ShellContext64):
         raise ValueError("context must be a ShellContext64.")
-
-    assert context.mul_depth_supported > 0, "Not enough multiplication primes."
 
     smaller_context = shell_ops.modulus_reduce_context64(context._raw_context)
 
@@ -85,7 +80,6 @@ def mod_reduce_context64(context):
         plaintext_modulus=context.plaintext_modulus,
         noise_variance=context.noise_variance,
         scaling_factor=context.scaling_factor,
-        mul_depth_supported=context.mul_depth_supported - 1,
         seed=context.seed,
     )
 
@@ -99,7 +93,6 @@ def create_context64(
     aux_moduli=[],
     noise_variance=8,
     scaling_factor=1,
-    mul_depth_supported=0,
     seed="",
 ):
     if len(seed) > 64:
@@ -125,7 +118,6 @@ def create_context64(
         plaintext_modulus=plaintext_modulus,
         noise_variance=noise_variance,
         scaling_factor=scaling_factor,
-        mul_depth_supported=mul_depth_supported,
         seed=seed,
     )
 
@@ -157,6 +149,5 @@ def create_autocontext64(
         plaintext_modulus=0,
         noise_variance=noise_variance,
         scaling_factor=scaling_factor,
-        mul_depth_supported=0,
         seed=seed,
     )

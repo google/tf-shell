@@ -64,10 +64,6 @@ class ShellTensor64(tf.experimental.ExtensionType):
     def level(self):
         return self._context.level
 
-    @property
-    def mul_depth_left(self):
-        return self._context.mul_depth_supported
-
     def __getitem__(self, slice):
         slots = slice[0]
         if slots.start != None or slots.stop != None or slots.step != None:
@@ -787,11 +783,6 @@ def matmul(x, y, rotation_key=None, fast=False):
                 f"Underlying dtypes must match. Got {x._underlying_dtype} and {y.dtype}"
             )
 
-        if x.mul_depth_left <= 0:
-            raise ValueError(
-                "Insufficient multiplication depth remaining to perform matmul."
-            )
-
         # Encode the plaintext y to the same scaling factor as x.
         scaled_y = _encode_scaling(y, x._scaling_factor)
 
@@ -811,11 +802,6 @@ def matmul(x, y, rotation_key=None, fast=False):
         if x.dtype != y._underlying_dtype:
             raise ValueError(
                 f"Underlying dtypes must match. Got {x.dtype} and {y._underlying_dtype}"
-            )
-
-        if y.mul_depth_left <= 0:
-            raise ValueError(
-                "Insufficient multiplication depth remaining to perform matmul."
             )
 
         # Encode the plaintext x to the same scaling factor as y.

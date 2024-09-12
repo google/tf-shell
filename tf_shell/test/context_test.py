@@ -26,7 +26,6 @@ class TestShellContext(tf.test.TestCase):
             main_moduli=[288230376151748609, 18014398509506561, 8404993, 8380417],
             plaintext_modulus=281474976768001,
             scaling_factor=8392705,
-            mul_depth_supported=2,
         )
 
         ql = context.main_moduli[-1]
@@ -50,7 +49,6 @@ class TestShellContext(tf.test.TestCase):
             main_moduli=[288230376151748609, 18014398509506561, 1073153, 1032193],
             plaintext_modulus=281474976768001,
             scaling_factor=1052673,
-            mul_depth_supported=2,
         )
         key = tf_shell.create_key64(context)
 

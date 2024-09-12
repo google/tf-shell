@@ -29,7 +29,6 @@ class TestContext:
         plaintext_modulus,
         noise_variance=8,
         scaling_factor=1,
-        mul_depth_supported=0,
         seed="test seed".ljust(64),
         generate_rotation_keys=False,
     ):
@@ -43,7 +42,6 @@ class TestContext:
             plaintext_modulus=plaintext_modulus,
             noise_variance=noise_variance,
             scaling_factor=scaling_factor,
-            mul_depth_supported=mul_depth_supported,
             seed=seed,
         )
 
@@ -185,8 +183,6 @@ def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
     datatypes return fractional values at the appropriate quantization.
     """
     scaling_factor = test_context.shell_context.scaling_factor
-    if scaling_factor > 1 and num_muls > test_context.shell_context.mul_depth_supported:
-        raise ValueError("Number of multiplications not supported by context.")
 
     min_val, max_val = get_bounds_for_n_muls(test_context, num_muls)
 

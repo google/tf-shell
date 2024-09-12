@@ -26,7 +26,6 @@ context = tf_shell.create_context64(
     main_moduli=[576460752303439873],
     plaintext_modulus=557057,
     scaling_factor=3,
-    mul_depth_supported=1,
 )
 # 121 bits of security according to lattice estimator primal_bdd.
 # Runtime 95 seconds (46 ms/example).

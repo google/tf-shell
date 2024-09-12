@@ -41,7 +41,6 @@ class TestShellTensorRotation(tf.test.TestCase):
                     aux_moduli=[],
                     plaintext_modulus=4206593,
                     scaling_factor=1,
-                    mul_depth_supported=1,
                     generate_rotation_keys=True,
                 )
             )
@@ -60,7 +59,6 @@ class TestShellTensorRotation(tf.test.TestCase):
                     aux_moduli=[],
                     plaintext_modulus=4206593,
                     scaling_factor=8,
-                    mul_depth_supported=1,
                     generate_rotation_keys=True,
                 )
             )
@@ -167,8 +165,6 @@ class TestShellTensorRotation(tf.test.TestCase):
 
     def test_roll_mod_reduced(self):
         for test_context in self.test_contexts:
-            if test_context.shell_context.mul_depth_supported == 0:
-                continue
             rotation_range = test_context.shell_context.num_slots // 2 - 1
             for roll_num in range(-rotation_range, rotation_range, 1):
                 with self.subTest(

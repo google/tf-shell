@@ -27,7 +27,6 @@ import tf_shell_ml
 #     main_moduli=[288230376151748609, 144115188076060673],
 #     plaintext_modulus=4294991873,
 #     scaling_factor=3,
-#     mul_depth_supported=3,
 #     seed="test_seed",
 # )
 # 61 bits of security according to lattice estimator primal_bdd.
@@ -40,7 +39,6 @@ context = tf_shell.create_context64(
     main_moduli=[288230376151760897, 288230376152137729],
     plaintext_modulus=4294991873,
     scaling_factor=3,
-    mul_depth_supported=3,
     seed="test_seed",
 )
 # 120 bits of security according to lattice estimator primal_bdd.

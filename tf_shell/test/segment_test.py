@@ -36,7 +36,6 @@ class TestShellTensor(tf.test.TestCase):
                     aux_moduli=[],
                     plaintext_modulus=40961,
                     scaling_factor=1,
-                    mul_depth_supported=0,
                     generate_rotation_keys=True,
                 )
             )

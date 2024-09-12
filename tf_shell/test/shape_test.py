@@ -46,7 +46,6 @@ class TestShellTensor(tf.test.TestCase):
                     aux_moduli=[],
                     plaintext_modulus=40961,
                     scaling_factor=1,
-                    mul_depth_supported=0,
                 )
             )
 
@@ -65,7 +64,6 @@ class TestShellTensor(tf.test.TestCase):
                         aux_moduli=[],
                         plaintext_modulus=40961,
                         scaling_factor=scaling_factor,
-                        mul_depth_supported=0,
                     )
                 )
 

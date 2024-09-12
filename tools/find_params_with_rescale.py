@@ -178,7 +178,6 @@ print(
     f"    plaintext_modulus={plaintext_modulus},\n"
     f"    noise_variance=8,\n"
     f"    scaling_factor={scaling_factor},\n"
-    f"    mul_depth_supported={mul_depth},\n"
     f"    seed='',\n"
     f")"
 )
