@@ -15,12 +15,14 @@
  */
 
 #pragma once
+
 #include "shell_encryption/rns/rns_bgv_ciphertext.h"
 #include "shell_encryption/transcription.h"
 #include "tensorflow/core/framework/variant.h"
 #include "tensorflow/core/framework/variant_encode_decode.h"
 #include "tensorflow/core/framework/variant_op_registry.h"
 #include "tensorflow/core/framework/variant_tensor_data.h"
+#include "utils_serdes.h"
 
 using tensorflow::VariantTensorData;
 
@@ -46,7 +48,7 @@ class SymmetricKeyVariant {
   std::string TypeName() const { return kTypeName; }
 
   void Encode(VariantTensorData* data) const {
-    data->tensors_.reserve(4);
+    data->tensors_.reserve(5);
 
     // First store the key.
     auto serialized_key_or = key->Key().Serialize(key->Moduli());
@@ -59,36 +61,14 @@ class SymmetricKeyVariant {
     serialized_key_or.value().SerializeToString(&serialized_key);
     data->tensors_.push_back(Tensor(serialized_key));
 
-    // Instead of storing the vector<PrimeModulus>, store just the moduli. Skip
-    // the NTT parameters and ModularInt parameters as they can be recomputed.
-    data->tensors_.push_back(Tensor(key->Moduli().size()));
-
-    // Extract the moduli.
-    std::vector<Int> moduli;
-    moduli.reserve(key->Moduli().size());
-    for (auto const& modulus : key->Moduli()) {
-      moduli.push_back(modulus->Modulus());
-    }
-
-    // Encode the moduli as a string.
-    auto moduli_bytes_or = rlwe::TranscribeBits<Int, rlwe::Uint8>(
-        moduli, moduli.size() * IntNumBits, IntNumBits, 8);
-    if (!moduli_bytes_or.ok()) {
-      std::cout << "ERROR: Failed to transcribe bits: "
-                << moduli_bytes_or.status();
-      return;
-    }
-    std::string moduli_str(
-        std::make_move_iterator(moduli_bytes_or.value().begin()),
-        std::make_move_iterator(moduli_bytes_or.value().end()));
-    data->tensors_.push_back(Tensor(moduli_str));
+    SerializePrimeModuli<T>(data, key->Moduli(), key->LogN());
 
     // Store the variance of the key.
     data->tensors_.push_back(Tensor(key->Variance()));
   };
 
   bool Decode(VariantTensorData const& data) {
-    if (data.tensors_.size() != 4) {
+    if (data.tensors_.size() != 5) {
       return false;
     }
 
@@ -104,45 +84,11 @@ class SymmetricKeyVariant {
       return false;
     }
 
-    // Recover log_n.
-    int log_n = serialized_key_polynomial.log_n();
-
-    // Recover the number of moduli.
-    int num_moduli = data.tensors_[1].scalar<int>()(0);
-
-    // Recover the raw moduli.
-    std::string const moduli_str(data.tensors_[2].scalar<tstring>()().begin(),
-                                 data.tensors_[2].scalar<tstring>()().end());
-    std::vector<rlwe::Uint8> moduli_v(moduli_str.begin(), moduli_str.end());
-    auto moduli_or = rlwe::TranscribeBits<rlwe::Uint8, Int>(
-        moduli_v, num_moduli * IntNumBits, 8, IntNumBits);
-    if (!moduli_or.ok()) {
-      std::cout << "ERROR: Failed to transcribe bits: " << moduli_or.status();
-      return false;
-    }
-
-    // Recreate the prime moduli, i.e. a vector of PrimeModulus.
+    // Recover the prime moduli.
     std::vector<rlwe::PrimeModulus<ModularInt> const*> prime_moduli;
-    prime_moduli.reserve(moduli_or.value().size());
-    for (auto const& modulus : moduli_or.value()) {
-      auto mod_params_or = ModularInt::Params::Create(modulus);
-      if (!mod_params_or.ok()) {
-        std::cout << "ERROR: Failed to create mod params: "
-                  << mod_params_or.status();
-        return false;
-      }
-      auto ntt_params_or = rlwe::InitializeNttParameters<ModularInt>(
-          log_n, mod_params_or.value().get());
-      if (!ntt_params_or.ok()) {
-        std::cout << "ERROR: Failed to initialize NTT parameters: "
-                  << ntt_params_or.status();
-        return false;
-      }
-      auto ntt_params_ptr = std::make_unique<rlwe::NttParameters<ModularInt>>(
-          std::move(ntt_params_or.value()));
-
-      prime_moduli.push_back(new rlwe::PrimeModulus<ModularInt>{
-          std::move(mod_params_or.value()), std::move(ntt_params_ptr)});
+    int log_n;
+    if (!DeerializePrimeModuli<T>(data, 1, prime_moduli, log_n)) {
+      return false;
     }
 
     // Using the moduli, reconstruct the key polynomial.
@@ -155,7 +101,7 @@ class SymmetricKeyVariant {
     }
 
     // Recover the variance.
-    int variance = data.tensors_[3].scalar<int>()(0);
+    int variance = data.tensors_[4].scalar<int>()(0);
 
     // Create the key without having access to the constructor.
     struct RawKey {

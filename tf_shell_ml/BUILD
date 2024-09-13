@@ -10,6 +10,7 @@ py_library(
         "embedding.py",
         "globalaveragepool1d.py",
         "loss.py",
+        "model.py",
     ],
     visibility = ["//visibility:public"],
     deps = [

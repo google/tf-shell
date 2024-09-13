@@ -14,11 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
+import tensorflow.keras as keras
 from tensorflow.python.keras import initializers
 import tf_shell
 
 
-class ShellDropout:
+class ShellDropout(keras.layers.Layer):
     def __init__(
         self,
         rate,
@@ -26,6 +27,7 @@ class ShellDropout:
         seed=None,
         per_batch=False,
     ):
+        super().__init__()
         self.rate = float(rate)
         if (self.rate < 0.0) or (self.rate >= 1.0):
             raise ValueError(
@@ -37,17 +39,20 @@ class ShellDropout:
         if self.per_batch and self.noise_shape is not None:
             raise ValueError("noise_shape must be None when per_batch is True")
 
-        self.built = False
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "activation": self.activation,
+                "activation_deriv": self.activation_deriv,
+            }
+        )
+        return config
 
     def build(self, input_shape):
         self.units_in = int(input_shape[1])
 
-        self.built = True
-
-    def __call__(self, inputs, training=False):
-        if not self.built:
-            self.build(inputs.shape)
-
+    def call(self, inputs, training=False):
         if not training or self.rate == 0.0:
             return inputs
 

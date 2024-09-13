@@ -115,7 +115,15 @@ class FastRotationKeyGenOp : public OpKernel {
       keys.push_back(key_sub_i);
     }
 
-    FastRotationKeyVariant key_var(std::move(keys));
+    // Deep copy the prime moduli for storage in the FastRotationKeyVariant.
+    std::vector<rlwe::PrimeModulus<ModularInt> const*> prime_moduli_copy;
+    prime_moduli_copy.reserve(shell_ctx->MainPrimeModuli().size());
+    for (auto const& modulus : shell_ctx->MainPrimeModuli()) {
+      prime_moduli_copy.push_back(modulus);
+    }
+
+    FastRotationKeyVariant key_var(std::move(keys),
+                                   std::move(prime_moduli_copy));
     output->flat<Variant>()(0) = std::move(key_var);
   }
 };
@@ -193,7 +201,7 @@ class FastReduceSumByRotationOp : public OpKernel {
         OP_REQUIRES_VALUE(RnsPolynomial sum_component_zero, op_ctx,
                           ct.Component(0));  // deep copy to start the sum.
 
-        for (uint shift = 1; shift < num_slots / 2; shift <<= 1) {
+        for (uint shift = 1; shift < uint(num_slots / 2); shift <<= 1) {
           // Rotate by the shift.
           OP_REQUIRES_VALUE(
               RnsPolynomial sum_shifted, op_ctx,
@@ -391,3 +399,7 @@ REGISTER_KERNEL_BUILDER(Name("DecryptFastRotated64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int64>("dtype"),
                         DecryptFastRotatedOp<uint64, int64>);
+
+typedef FastRotationKeyVariant<uint64> FastRotationKeyVariantUint64;
+REGISTER_UNARY_VARIANT_DECODE_FUNCTION(FastRotationKeyVariantUint64,
+                                       FastRotationKeyVariantUint64::kTypeName);

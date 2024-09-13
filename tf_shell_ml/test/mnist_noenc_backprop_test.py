@@ -67,8 +67,8 @@ optimizer = tf.keras.optimizers.Adam(0.01)
 @tf.function
 def train_step(x, y):
     # Forward pass.
-    y_1 = hidden_layer(x)
-    y_pred = output_layer(y_1)
+    y_1 = hidden_layer(x, training=True)
+    y_pred = output_layer(y_1, training=True)
     # loss = loss_fn(y, y_pred)  # Expensive and not needed for this test.
 
     # Backward pass.

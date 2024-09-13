@@ -14,11 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
+import tensorflow.keras as keras
 from tensorflow.python.keras import initializers
 import tf_shell
 
 
-class ShellDense:
+class ShellDense(keras.layers.Layer):
     def __init__(
         self,
         units,
@@ -32,6 +33,7 @@ class ShellDense:
         is_first_layer=False,
         use_fast_reduce_sum=False,
     ):
+        super().__init__()
         self.units = int(units)
         self.activation = activation
         self.activation_deriv = activation_deriv
@@ -44,25 +46,36 @@ class ShellDense:
         self.is_first_layer = is_first_layer
         self.use_fast_reduce_sum = use_fast_reduce_sum
 
-        self.built = False
-        self.weights = []
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "activation": self.activation,
+                "activation_deriv": self.activation_deriv,
+            }
+        )
+        return config
 
     def build(self, input_shape):
         self.units_in = int(input_shape[1])
-        self.kernel = tf.Variable(self.kernel_initializer([self.units_in, self.units]))
-        self.weights.append(self.kernel)
+        self.kernel = self.add_weight(
+            shape=[self.units_in, self.units],
+            initializer=self.kernel_initializer,
+            trainable=True,
+            name="kernel",
+        )
 
         if self.use_bias:
-            self.bias = tf.Variable(self.bias_initializer([self.units]))
-            self.weights.append(self.bias)
+            self.bias = self.add_weight(
+                shape=[self.units],
+                initializer="zeros",
+                trainable=True,
+                name="kernel",
+            )
 
-        self.built = True
-
-    def __call__(self, inputs):
-        if not self.built:
-            self.build(inputs.shape)
-
-        self._layer_input = inputs
+    def call(self, inputs, training=False):
+        if training:
+            self._layer_input = inputs
 
         if self.use_bias:
             outputs = tf.matmul(inputs, self.weights[0]) + self.weights[1]
@@ -85,7 +98,15 @@ class ShellDense:
         y = self._layer_output
         kernel = self.weights[0]
         grad_weights = []
-        batch_size = int(x.shape[0])
+
+        # On the forward pass, inputs may be batched differently than the
+        # ciphertext scheme when not in eager mode. Pad them to match the
+        # ciphertext scheme.
+        if isinstance(dy, tf_shell.ShellTensor64):
+            padding = [[0, dy._context.num_slots - x.shape[0]]] + [
+                [0, 0] for _ in range(len(x.shape) - 1)
+            ]
+            x = tf.pad(x, padding)
 
         if self.activation_deriv is not None:
             dy = self.activation_deriv(z, dy)
@@ -104,6 +125,7 @@ class ShellDense:
             d_weights = tf_shell.matmul(tf.transpose(x), dy, rotation_key)
 
         if not self.skip_normalization:
+            batch_size = tf.shape(plaintext_packed_dx)[0]
             d_weights = d_weights / batch_size
         grad_weights.append(d_weights)
 
@@ -120,5 +142,5 @@ class ShellDense:
         return grad_weights, d_x
 
     def unpack(self, plaintext_packed_dx):
-        batch_size = plaintext_packed_dx.shape[0] // 2
+        batch_size = tf.shape(plaintext_packed_dx)[0] // 2
         return plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]

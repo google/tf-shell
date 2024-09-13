@@ -181,9 +181,9 @@ class TestPlaintextPostScale(tf.test.TestCase):
         )
 
     def test_mnist_post_scale(self):
-        self._test_mnist_post_scale(eager_mode=False)
-        tf.keras.backend.clear_session()
-        self._test_mnist_post_scale(eager_mode=True)
+        for eager_mode in [False, True]:
+            with self.subTest(f"{self._testMethodName} with eager_mode={eager_mode}."):
+                self._test_mnist_post_scale(eager_mode)
 
 
 if __name__ == "__main__":

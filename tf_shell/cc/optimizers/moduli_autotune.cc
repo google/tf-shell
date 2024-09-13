@@ -26,6 +26,7 @@ namespace {
 
 constexpr bool const debug_moduli = false;
 constexpr bool const debug_graph = false;
+constexpr bool const debug_output_params = true;
 constexpr uint64_t const kNoiseMargin = 30;
 constexpr uint64_t const kMaxPrimeBits = 58;
 constexpr uint64_t const kMinPrimeBits = 12;
@@ -737,8 +738,27 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
   }
 
   TF_RETURN_IF_ERROR(ChooseShellParams(params, total_plaintext_bits, log_q));
+  if constexpr (debug_output_params) {
+    std::cout << "Final parameters:" << std::endl;
+    std::cout << "log_n: " << params.log_n << std::endl;
+    std::cout << "t: " << params.t << std::endl;
+    std::cout << "qs: ";
+    for (auto const& q : params.qs) {
+      std::cout << q << " ";
+    }
+    std::cout << std::endl;
+  }
 
   TF_RETURN_IF_ERROR(ReplaceAutoparamWithContext(ctx, params, auto_params));
+
+  if constexpr (debug_graph) {
+    std::cout << "Optimized graph: " << std::endl;
+    int const num_nodes = ctx.graph_view.NumNodes();
+    for (int i = 0; i < num_nodes; ++i) {
+      std::cout << ctx.graph_view.GetNode(i)->node()->DebugString()
+                << std::endl;
+    }
+  }
 
   *optimized_graph = std::move(mutable_item.graph);
 

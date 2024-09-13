@@ -14,11 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
+import tensorflow.keras as keras
 from tensorflow.python.keras import initializers
 import tf_shell
 
 
-class ShellEmbedding:
+class ShellEmbedding(keras.layers.Layer):
     def __init__(
         self,
         input_dim,
@@ -26,22 +27,29 @@ class ShellEmbedding:
         embeddings_initializer="uniform",
         skip_embeddings_below_index=0,
     ):
+        super().__init__()
         self.input_dim = int(input_dim)
         self.output_dim = int(output_dim)
         self.embeddings_initializer = initializers.get(embeddings_initializer)
         self.skip_embeddings_below_index = skip_embeddings_below_index
 
-        self.weights = []
-        self.build()
-
-    def build(self):
-        self.embeddings = tf.Variable(
-            self.embeddings_initializer([self.input_dim, self.output_dim])
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "activation": self.activation,
+                "activation_deriv": self.activation_deriv,
+            }
         )
-        self.weights.append(self.embeddings)
-        self.built = True
+        return config
 
-    def __call__(self, inputs):
+    def build(self, input_shape):
+        self.embeddings = self.add_weight(
+            shape=[self.input_dim, self.output_dim],
+            initializer=self.embeddings_initializer,
+        )
+
+    def call(self, inputs):
         if inputs.dtype != tf.int64:
             raise ValueError(
                 f"Embedding layer expects int64 input. Got {inputs.dtype}."
@@ -82,7 +90,7 @@ class ShellEmbedding:
         with (2*batch_size) slots. tf_shell.segment_sum must pull apart the
         packing dimension of the values by masking with a one-hot.
         """
-        batch_size = self._layer_input.shape[0] // 2
+        batch_size = tf.shape(self._layer_input.shape)[0] // 2
 
         if dy.ndim != self._layer_input.ndim + 1:
             raise ValueError(

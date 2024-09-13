@@ -14,22 +14,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
+import tensorflow.keras as keras
 from tensorflow.python.keras import initializers
 import tf_shell
 
 
-class GlobalAveragePooling1D:
+class GlobalAveragePooling1D(keras.layers.Layer):
     def __init__(self):
-        self.weights = []
-        self.built = True
+        super().__init__()
 
-    def __call__(self, inputs, training=False):
-        self._layer_intermediate = inputs.shape[1]
+    def call(self, inputs, training=False):
+        if training:
+            self._layer_intermediate = inputs.shape[1]
 
         outputs = tf_shell.reduce_sum(inputs, axis=1)
-        outputs /= self._layer_intermediate
+        outputs /= inputs.shape[1]
 
         return outputs
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "activation": self.activation,
+                "activation_deriv": self.activation_deriv,
+            }
+        )
+        return config
 
     def backward(self, dy):
         dx = tf_shell.expand_dims(dy, axis=1)

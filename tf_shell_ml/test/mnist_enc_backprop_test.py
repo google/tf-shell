@@ -64,8 +64,8 @@ val_dataset = val_dataset.batch(batch_size)
 @tf.function
 def train_step(x, y, hidden_layer, output_layer, loss_fn):
     # Forward pass.
-    y_1 = hidden_layer(x)
-    y_pred = output_layer(y_1)
+    y_1 = hidden_layer(x, training=True)
+    y_pred = output_layer(y_1, training=True)
     # loss = loss_fn(y, y_pred)  # Expensive and not needed for this test.
 
     # Backward pass.
