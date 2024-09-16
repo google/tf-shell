@@ -95,5 +95,6 @@
         "bazel-tf-shell/**": true,
         "third_party/**": true,
         "~/.cache/**": true,
+        "**/.cache/**": true,
     },
 }
