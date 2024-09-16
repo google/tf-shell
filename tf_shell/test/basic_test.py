@@ -24,16 +24,6 @@ np.set_printoptions(threshold=sys.maxsize)
 
 
 class TestShellTensor(tf.test.TestCase):
-    # log_slots = 11
-    # slots = 2**log_slots
-
-    # def get_context():
-    #     return tf_shell.create_context64(
-    #         log_n=TestShellTensor.log_slots,
-    #         main_moduli=[8556589057, 8388812801],
-    #         plaintext_modulus=40961,
-    #     )
-
     test_contexts = None
 
     @classmethod
