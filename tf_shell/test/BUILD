@@ -175,3 +175,16 @@ py_test(
         requirement("tensorflow-cpu"),
     ],
 )
+
+py_test(
+    name = "clip_and_noise_test",
+    size = "medium",
+    srcs = [
+        "clip_and_noise_test.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)

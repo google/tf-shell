@@ -10,4 +10,7 @@ RUN curl -fSsL -o /usr/local/bin/bazelisk https://github.com/bazelbuild/bazelisk
 
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get install -y python3 python3-pip python-is-python3 clang-format python3-venv cloc \
+    && sudo apt-get install -y software-properties-common `# EMP deps` \
+    && sudo apt-get update `# EMP deps` \
+    && sudo apt-get install -y cmake git build-essential libssl-dev `# EMP deps` \
     && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/* /tmp/library-scripts

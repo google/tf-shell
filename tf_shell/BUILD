@@ -27,9 +27,13 @@ cc_binary(
     copts = [
         "-pthread",
         "-fPIC",
+        "-fpermissive",  # For EMP's usage of EVP_sha3_256 in openssl
+        "-maes",  # EMP
+        "-mssse3",  # EMP
     ],
     linkshared = 1,
     deps = [
+        "//third_party/emp:emp-sh2pc",
         "//third_party/tensorflow:hermetic_tf",
         "@shell_encryption//shell_encryption:context",
         "@shell_encryption//shell_encryption:montgomery",

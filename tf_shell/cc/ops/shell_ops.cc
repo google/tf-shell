@@ -387,3 +387,25 @@ REGISTER_OP("UnsortedCtSegmentSum")
     .Attr("Tindices: {int32,int64}")
     .Attr("Tnumsegments: {int32,int64} = DT_INT32")
     .SetShapeFn(ShellSegmentReductionWithNumSegmentsShape);
+
+// MPC-based kernels.
+REGISTER_OP("ClipAndNoiseFeaturesParty")
+    .Attr("Dtype: {int32, int64}")
+    .Attr("Bitwidth: int")
+    .Attr("StartPort: int")
+    .Attr("LabelPartyHost: string")
+    .Input("mask: Dtype")
+    .Output("clipped_noised_grad: Dtype")
+    .SetShapeFn(UnchangedArgShape<0>)
+    .SetIsStateful();  // For port allocations.
+
+REGISTER_OP("ClipAndNoiseLabelsParty")
+    .Attr("Dtype: {int32, int64}")
+    .Attr("Bitwidth: int")
+    .Attr("StartPort: int")
+    .Attr("FeaturePartyHost: string")
+    .Input("masked_grads: Dtype")
+    .Input("clipping_thresh: Dtype")
+    .Input("noise: Dtype")
+    .SetShapeFn(ScalarShape)
+    .SetIsStateful();  // For port allocations.

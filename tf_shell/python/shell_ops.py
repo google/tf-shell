@@ -74,3 +74,7 @@ expand_dims_variant = shell_ops.expand_dims_variant
 
 # Segmenmt-based reductions.
 segment_sum_ct = shell_ops.unsorted_ct_segment_sum
+
+# MPC-based ops.
+clip_and_noise_features_party = shell_ops.clip_and_noise_features_party
+clip_and_noise_labels_party = shell_ops.clip_and_noise_labels_party

@@ -42,3 +42,6 @@ from tf_shell.python.shell_key import ShellRotationKey64
 from tf_shell.python.shell_key import create_rotation_key64
 from tf_shell.python.shell_key import ShellFastRotationKey64
 from tf_shell.python.shell_key import create_fast_rotation_key64
+
+from tf_shell.python.shell_ops import clip_and_noise_features_party
+from tf_shell.python.shell_ops import clip_and_noise_labels_party
