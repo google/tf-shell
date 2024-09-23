@@ -216,14 +216,14 @@ class TestCtPtAutoEnableOptimizer(tf.test.TestCase):
         pt_b = tf_shell.to_shell_plaintext(b, context)
 
         # Call the function as usual.
-        unopt_time = timeit(lambda: ct_pt_pt_add(ct_a, pt_b, 10), number=1)
+        unopt_time = timeit(lambda: ct_pt_pt_add(ct_a, pt_b, 10), number=10)
 
         # Turn on automatic optimization. Note there is no way to get the
         # optimized graph from the tf.function so we need to rely on timing info
         # to make sure it's turned on.
         shell_optimizers.enable_tf_shell_optimizer(["CtPtOptimizer"])
 
-        opt_time = timeit(lambda: ct_pt_pt_add(ct_a, pt_b, 10), number=1)
+        opt_time = timeit(lambda: ct_pt_pt_add(ct_a, pt_b, 10), number=10)
 
         # Optimized time should be twice as fast due to the two ciphertext
         # components, but give it some slack and check it is faster.
