@@ -85,11 +85,10 @@ class ContextVariant {
                                   log_n_, qs_, ps_, pt_modulus_));
     ct_context_ = std::make_shared<Context const>(std::move(ct_context));
 
-    int log_t = floor(std::log2(static_cast<double>(pt_modulus)));
     TF_SHELL_ASSIGN_OR_RETURN(
         auto error_params,
         ErrorParams::Create(log_n, ct_context_->MainPrimeModuli(),
-                            ct_context_->AuxPrimeModuli(), log_t,
+                            ct_context_->AuxPrimeModuli(), BitWidth(pt_modulus),
                             sqrt(noise_variance)));
     error_params_ =
         std::make_shared<ErrorParams const>(std::move(error_params));
@@ -206,7 +205,7 @@ class ContextVariant {
 
   std::string DebugString() const { return "ShellContextVariant"; }
 
-  static constexpr int kLogGadgetBase = 10;
+  static constexpr int kLogGadgetBase = 4;
 
   size_t log_n_;
   std::vector<T> qs_;
@@ -219,6 +218,9 @@ class ContextVariant {
   // Ideally these members wouldn't be smart pointers (plain pointers or even
   // just the objects), but many of them don't have default constructors and
   // in some places SHELL expects callers to use smart pointers.
+  // Futhermore, other objects in tf-shell hold shared_ptrs to these objects,
+  // because sometimes tensorflow decides to delete this ContextVariant
+  // while the moduli held in these objects are still needed for encoding.
   std::shared_ptr<ModularIntParams const> pt_params_;
   std::shared_ptr<NttParams const> pt_ntt_params_;
   std::shared_ptr<Context const> ct_context_;

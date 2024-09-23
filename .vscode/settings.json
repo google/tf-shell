@@ -78,7 +78,10 @@
         "typeindex": "cpp",
         "typeinfo": "cpp",
         "valarray": "cpp",
-        "variant": "cpp"
+        "variant": "cpp",
+        "csetjmp": "cpp",
+        "shared_mutex": "cpp",
+        "span": "cpp"
     },
     "search.exclude": {
         "**/.git": true,
@@ -97,4 +100,5 @@
         "~/.cache/**": true,
         "**/.cache/**": true,
     },
+    "git.ignoreLimitWarning": true,
 }

@@ -20,11 +20,8 @@ using TopMutableGraphView = tensorflow::grappler::MutableGraphView;
 
 struct RemapperContext {
   explicit RemapperContext(GrapplerItem* item, Status* status)
-      : nodes_to_preserve(item->NodesToPreserve()),
-        graph_view(&item->graph, status),
-        graph_properties(*item) {}
+      : graph_view(&item->graph, status), graph_properties(*item) {}
 
-  std::unordered_set<std::string> nodes_to_preserve;
   MutableGraphView graph_view;
   GraphProperties graph_properties;
 };

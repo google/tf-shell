@@ -49,5 +49,6 @@ class GlobalAveragePooling1D(keras.layers.Layer):
         )
         return [], dx
 
-    def unpack(self, packed_dw):
+    @staticmethod
+    def unpack(packed_dw):
         return packed_dw

@@ -183,15 +183,18 @@ int GetMulDepth(RemapperContext& ctx) {
       }
     }
 
-    else if (IsNegCt(*this_node_def) || IsRoll(*this_node_def) ||
-             IsReduceSumByRotation(*this_node_def) ||
+    else if (IsNegCt(*this_node_def) ||
              IsFastReduceSumByRotation(*this_node_def) ||
              IsUnsortedCtSegmentSum(*this_node_def)) {
       int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
       node_mul_depth[i] = node_mul_depth[fanin_a_index];
     }
 
-    // TODO check the input args here
+    else if (IsRoll(*this_node_def) || IsReduceSumByRotation(*this_node_def)) {
+      int const fanin_a_index = this_node_view->GetRegularFanin(2).node_index();
+      node_mul_depth[i] = node_mul_depth[fanin_a_index];
+    }
+
     else if (IsExpandDimsVariant(*this_node_def)) {
       int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
       node_mul_depth[i] = node_mul_depth[fanin_a_index];
@@ -449,9 +452,13 @@ Status EstimateNodeNoise(
   else if (IsRoll(*node_def)) {
     uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
         kNumComponents, kLogGadgetBase, gadget_dimension));
-    *this_noise = std::max(noise_a, rot_noise) + 1;
-  } else if (IsReduceSumByRotation(*node_def) ||
-             IsFastReduceSumByRotation(*node_def)) {
+    *this_noise = std::max(noise_b, rot_noise) + 1;
+  } else if (IsReduceSumByRotation(*node_def)) {
+    uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
+        kNumComponents, kLogGadgetBase, gadget_dimension));
+    rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
+    *this_noise = std::max(noise_b, rot_noise);
+  } else if (IsFastReduceSumByRotation(*node_def)) {
     uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
         kNumComponents, kLogGadgetBase, gadget_dimension));
     rot_noise += BitWidth(params.log_n);  // There are log_n rotations.

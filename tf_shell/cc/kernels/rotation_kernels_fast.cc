@@ -122,8 +122,7 @@ class FastRotationKeyGenOp : public OpKernel {
       prime_moduli_copy.push_back(modulus);
     }
 
-    FastRotationKeyVariant key_var(std::move(keys),
-                                   std::move(prime_moduli_copy));
+    FastRotationKeyVariant key_var(std::move(keys), shell_ctx_var->ct_context_);
     output->flat<Variant>()(0) = std::move(key_var);
   }
 };
@@ -166,6 +165,9 @@ class FastReduceSumByRotationOp : public OpKernel {
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+    OP_REQUIRES_OK(
+        op_ctx, const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
     SymmetricCt const& ct = ct_var->ct;
     int num_slots = 1 << ct.LogN();
     int num_components = ct.NumModuli();
@@ -191,6 +193,10 @@ class FastReduceSumByRotationOp : public OpKernel {
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument(
                         "SymmetricCtVariant a did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         OP_REQUIRES(op_ctx, ct_var->ct.Degree() == 1,
                     InvalidArgument("Only Degree 1 ciphertexts supported."));
         SymmetricCt const& ct = ct_var->ct;
@@ -223,7 +229,9 @@ class FastReduceSumByRotationOp : public OpKernel {
 
         SymmetricCt ct_out(std::move(components), moduli_vector, ct.PowerOfS(),
                            ct.Error() * ct.LogN(), ct.ErrorParams());
-        SymmetricCtVariant ct_out_var(std::move(ct_out));
+        SymmetricCtVariant ct_out_var(std::move(ct_out),
+                                      shell_ctx_var->ct_context_,
+                                      shell_ctx_var->error_params_);
         flat_output(i) = std::move(ct_out_var);
       }
     };
@@ -268,6 +276,10 @@ class DecryptFastRotatedOp : public OpKernel {
 
     OP_REQUIRES_VALUE(FastRotationKeyVariant<From> const* key_var, op_ctx,
                       GetVariant<FastRotationKeyVariant<From>>(op_ctx, 1));
+    OP_REQUIRES(op_ctx, key_var != nullptr,
+                InvalidArgument("Failed to unwrap FastRotationKeyVariant."));
+    OP_REQUIRES_OK(op_ctx, const_cast<FastRotationKeyVariant<From>*>(key_var)
+                               ->MaybeLazyDecode(shell_ctx_var->ct_context_));
     std::vector<RnsPolynomial> const& keys = key_var->keys;
 
     Tensor const& input = op_ctx->input(2);
@@ -282,6 +294,9 @@ class DecryptFastRotatedOp : public OpKernel {
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+    OP_REQUIRES_OK(
+        op_ctx, const_cast<SymmetricCtVariant<From>*>(ct_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
     OP_REQUIRES(op_ctx, ct_var->ct.Degree() == 1,
                 InvalidArgument("Ciphertext must have degree 1."));
 
@@ -304,6 +319,10 @@ class DecryptFastRotatedOp : public OpKernel {
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument("SymmetricCtVariant at flat index: ", i,
                                     " did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<From>*>(ct_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt const& ct = ct_var->ct;
 
         OP_REQUIRES_VALUE(RnsPolynomial ct_a, op_ctx, ct.Component(1));

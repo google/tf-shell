@@ -93,7 +93,9 @@ struct ZeroCt {
         SymmetricCt::CreateZero(shell_ctx_var->ct_context_->MainPrimeModuli(),
                                 shell_ctx_var->error_params_.get());
     SymmetricCt zero_ct(std::move(zero_generic_ct));
-    SymmetricCtVariant<T> zero_var(std::move(zero_ct));
+    SymmetricCtVariant<T> zero_var(std::move(zero_ct),
+                                   shell_ctx_var->ct_context_,
+                                   shell_ctx_var->error_params_);
     return zero_var;
   }
 };
@@ -239,6 +241,10 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
             OP_REQUIRES(ctx, data_var != nullptr,
                         InvalidArgument("SymmetricCtVariant for data did not "
                                         "unwrap successfully."));
+            OP_REQUIRES_OK(
+                ctx,
+                const_cast<SymmetricCtVariant<T>*>(data_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
 
             // Select the desired slots in the ciphertext, masking off the
             // others.
@@ -253,10 +259,12 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
             OP_REQUIRES(ctx, output_var != nullptr,
                         InvalidArgument("SymmetricCtVariant for output did not "
                                         "unwrap successfully."));
+            // No need to lazy decode the output_var, it was created in this op.
 
             if (output_var->ct.Len() == 0) {
               // Output has not been set yet.
-              SymmetricCtVariant var(masked_data_ct);
+              SymmetricCtVariant var(masked_data_ct, shell_ctx_var->ct_context_,
+                                     shell_ctx_var->error_params_);
               unreduced_output((int64_t)j, chip) = std::move(var);
             } else {
               OP_REQUIRES_OK(ctx, reduction(masked_data_ct, output_var->ct));
@@ -289,6 +297,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
           SymmetricCt accum_bottom = unreduced_output(j, chip)
                                          .get<SymmetricCtVariant<T>>()
                                          ->ct;  // deep copy
+          // No need to lazy decode the accums, they were created in this op.
 
           for (int64_t slot = 1; slot < num_slots; ++slot) {
             // Skip the middle slot, it is already included in accum_bottom.
@@ -320,8 +329,12 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
               }
             }
           }
-          SymmetricCtVariant<T> top_var(std::move(accum_top));
-          SymmetricCtVariant<T> bottom_var(std::move(accum_bottom));
+          SymmetricCtVariant<T> top_var(std::move(accum_top),
+                                        shell_ctx_var->ct_context_,
+                                        shell_ctx_var->error_params_);
+          SymmetricCtVariant<T> bottom_var(std::move(accum_bottom),
+                                           shell_ctx_var->ct_context_,
+                                           shell_ctx_var->error_params_);
           output(0, j, chip) = std::move(top_var);
           output(1, j, chip) = std::move(bottom_var);
         }

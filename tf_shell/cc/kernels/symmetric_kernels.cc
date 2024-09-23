@@ -70,7 +70,8 @@ class KeyGenOp : public OpKernel {
         Key::Sample(shell_ctx->LogN(), shell_ctx_var->noise_variance_,
                     shell_ctx->MainPrimeModuli(), prng));
 
-    SymmetricKeyVariant<T> key_variant(std::move(k));
+    SymmetricKeyVariant<T> key_variant(std::move(k),
+                                       shell_ctx_var->ct_context_);
     out->scalar<Variant>()() = std::move(key_variant);
   }
 };
@@ -97,6 +98,10 @@ class EncryptOp : public OpKernel {
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
+    OP_REQUIRES_OK(op_ctx,
+                   const_cast<SymmetricKeyVariant<T>*>(secret_key_var)
+                       ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                         shell_ctx_var->noise_variance_));
     std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     Tensor const& input = op_ctx->input(2);
@@ -117,6 +122,9 @@ class EncryptOp : public OpKernel {
         OP_REQUIRES(op_ctx, pv != nullptr,
                     InvalidArgument("PolynomialVariant at flat index:", i,
                                     "did not unwrap successfully."));
+        OP_REQUIRES_OK(op_ctx,
+                       const_cast<PolynomialVariant<T>*>(pv)->MaybeLazyDecode(
+                           shell_ctx_var->ct_context_));
         Polynomial const& p = pv->poly;
 
         SymmetricCt ciphertext = secret_key
@@ -126,7 +134,9 @@ class EncryptOp : public OpKernel {
                                          shell_ctx_var->prng_.get())
                                      .value();
 
-        SymmetricCtVariant ciphertext_var(std::move(ciphertext));
+        SymmetricCtVariant ciphertext_var(std::move(ciphertext),
+                                          shell_ctx_var->ct_context_,
+                                          shell_ctx_var->error_params_);
         flat_output(i) = std::move(ciphertext_var);
       }
     };
@@ -160,6 +170,10 @@ class DecryptOp : public OpKernel {
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<From> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<From>>(op_ctx, 1));
+    OP_REQUIRES_OK(op_ctx,
+                   const_cast<SymmetricKeyVariant<From>*>(secret_key_var)
+                       ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                         shell_ctx_var->noise_variance_));
     std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     Tensor const& input = op_ctx->input(2);
@@ -184,6 +198,10 @@ class DecryptOp : public OpKernel {
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument("SymmetricCtVariant at flat index: ", i,
                                     " did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<From>*>(ct_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt const& ct = ct_var->ct;
 
         // Skip empy ciphertexts (constructed with shell's ::CreateZero).
@@ -263,3 +281,7 @@ REGISTER_KERNEL_BUILDER(
 typedef SymmetricKeyVariant<uint64> KeyVariantUint64;
 REGISTER_UNARY_VARIANT_DECODE_FUNCTION(KeyVariantUint64,
                                        KeyVariantUint64::kTypeName);
+
+typedef SymmetricCtVariant<uint64> CtVariantUint64;
+REGISTER_UNARY_VARIANT_DECODE_FUNCTION(CtVariantUint64,
+                                       CtVariantUint64::kTypeName);

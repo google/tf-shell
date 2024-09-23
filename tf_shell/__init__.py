@@ -26,6 +26,7 @@ from tf_shell.python.shell_tensor import fast_reduce_sum
 from tf_shell.python.shell_tensor import matmul
 from tf_shell.python.shell_tensor import expand_dims
 from tf_shell.python.shell_tensor import reshape
+from tf_shell.python.shell_tensor import shape
 from tf_shell.python.shell_tensor import broadcast_to
 from tf_shell.python.shell_tensor import segment_sum
 

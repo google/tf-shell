@@ -131,7 +131,8 @@ class PolynomialImportOp : public OpKernel {
             encoder->EncodeBgv(wrapped_nums, shell_ctx->MainPrimeModuli()));
 
         // Wrap in a PolynomialVariant and store in output tensor.
-        auto variant = PolynomialVariant<To>(std::move(rns_polynomial));
+        auto variant = PolynomialVariant<To>(std::move(rns_polynomial),
+                                             shell_ctx_var->ct_context_);
         flat_output(i) = std::move(variant);
       }
     };
@@ -187,6 +188,10 @@ class PolynomialExportOp : public OpKernel {
         OP_REQUIRES(op_ctx, pv != nullptr,
                     InvalidArgument("PolynomialVariant at flat index: ", i,
                                     " did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx, const_cast<PolynomialVariant<From>*>(pv)->MaybeLazyDecode(
+                        shell_ctx_var->ct_context_));
+
         // Deep copy the polynomial.
         OP_REQUIRES_VALUE(
             RnsPolynomial rns_polynomial, op_ctx,
@@ -318,3 +323,7 @@ REGISTER_KERNEL_BUILDER(Name("PolynomialExport64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int64>("dtype"),
                         PolynomialExportOp<uint64, int64>);
+
+typedef PolynomialVariant<uint64> PolynomialVariantUint64;
+REGISTER_UNARY_VARIANT_DECODE_FUNCTION(PolynomialVariantUint64,
+                                       PolynomialVariantUint64::kTypeName);

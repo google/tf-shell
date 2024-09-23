@@ -78,8 +78,22 @@ class ModulusReduceKeyOp : public OpKernel {
 
   void Compute(OpKernelContext* op_ctx) override {
     // Unpack the input arguments.
+    // The first argument is the un-reduced context object. This is needed
+    // to lazy decode the key before reducing it.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
+
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
-                      GetVariant<SymmetricKeyVariant<T>>(op_ctx, 0));
+                      GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
+    OP_REQUIRES(
+        op_ctx, secret_key_var->key != nullptr,
+        InvalidArgument("SymmetricKeyVariant did not unwrap successfully."));
+    OP_REQUIRES_OK(op_ctx,
+                   const_cast<SymmetricKeyVariant<T>*>(secret_key_var)
+                       ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                         shell_ctx_var->noise_variance_));
     Key secret_key = *secret_key_var->key;  // Deep copy.
 
     // Allocate a scalar output tensor to store the reduced key.
@@ -89,7 +103,8 @@ class ModulusReduceKeyOp : public OpKernel {
     OP_REQUIRES_OK(op_ctx, secret_key.ModReduce());
 
     // Store the reduced key in the output tensor.
-    SymmetricKeyVariant<T> reduced_key_variant(std::move(secret_key));
+    SymmetricKeyVariant<T> reduced_key_variant(std::move(secret_key),
+                                               shell_ctx_var->ct_context_);
     out->scalar<Variant>()() = std::move(reduced_key_variant);
   }
 };
@@ -145,13 +160,19 @@ class ModulusReduceCtOp : public OpKernel {
         OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                     InvalidArgument("SymmetricCtVariant at flat index:", i,
                                     " did not unwrap successfully."));
-
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<T>*>(ct_a_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt result_ct =
             ct_a_var->ct;  // Deep copy. ModReduce is in place.
+
         OP_REQUIRES_OK(op_ctx, result_ct.ModReduce(t, ql_inv));
 
         // Store in the output.
-        SymmetricCtVariant<T> result_var(std::move(result_ct));
+        SymmetricCtVariant<T> result_var(std::move(result_ct),
+                                         shell_ctx_var->ct_context_,
+                                         shell_ctx_var->error_params_);
         flat_output(i) = std::move(result_var);
       }
     };
@@ -209,6 +230,10 @@ class ModulusReducePtOp : public OpKernel {
         OP_REQUIRES(op_ctx, pt_a_var != nullptr,
                     InvalidArgument("PolynomialVariant at flat index:", i,
                                     " did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<PolynomialVariant<T>*>(pt_a_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_));
 
         // Deep copy the polynomial because ModReduce is in place.
         OP_REQUIRES_VALUE(RnsPolynomial pt_a, op_ctx,
@@ -217,7 +242,8 @@ class ModulusReducePtOp : public OpKernel {
 
         OP_REQUIRES_OK(op_ctx, pt_a.ModReduceLsb(t, ql_inv, main_moduli));
 
-        PolynomialVariant<T> result_var(std::move(pt_a));
+        PolynomialVariant<T> result_var(std::move(pt_a),
+                                        shell_ctx_var->ct_context_);
         flat_output(i) = std::move(result_var);
       }
     };

@@ -570,7 +570,7 @@ def to_encrypted(x, key, context=None):
             return ShellTensor64(
                 _raw_tensor=shell_ops.encrypt64(
                     x._context._raw_context,
-                    key._raw_key,
+                    key._get_key_at_level(x._context.level),
                     x._raw_tensor,
                 ),
                 _context=x._context,
@@ -630,14 +630,10 @@ def to_tensorflow(s_tensor, key=None):
                 "Key must be provided to decrypt an encrypted ShellTensor."
             )
 
-        # Mod reduce the key to match the level of the ciphertext.
-        while key.level > s_tensor._context.level:
-            key = mod_reduce_key64(key)
-
         # Decrypt op returns a tf Tensor.
         tf_tensor = shell_ops.decrypt64(
             context=s_tensor._context._raw_context,
-            key=key._raw_key,
+            key=key._get_key_at_level(s_tensor._context.level),
             val=s_tensor._raw_tensor,
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
@@ -682,7 +678,9 @@ def roll(x, shift, rotation_key):
         shift = tf.cast(shift, tf.int64)
 
         return ShellTensor64(
-            _raw_tensor=shell_ops.roll64(raw_rotation_key, x._raw_tensor, shift),
+            _raw_tensor=shell_ops.roll64(
+                x._context._raw_context, raw_rotation_key, x._raw_tensor, shift
+            ),
             _context=x._context,
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
@@ -714,7 +712,7 @@ def reduce_sum(x, axis, rotation_key=None):
 
             return ShellTensor64(
                 _raw_tensor=shell_ops.reduce_sum_by_rotation64(
-                    raw_rotation_key, x._raw_tensor
+                    x._context._raw_context, raw_rotation_key, x._raw_tensor
                 ),
                 _context=x._context,
                 _underlying_dtype=x._underlying_dtype,
@@ -724,7 +722,9 @@ def reduce_sum(x, axis, rotation_key=None):
 
         else:
             return ShellTensor64(
-                _raw_tensor=shell_ops.reduce_sum64(x._raw_tensor, axis=axis),
+                _raw_tensor=shell_ops.reduce_sum64(
+                    x._context._raw_context, x._raw_tensor, axis=axis
+                ),
                 _context=x._context,
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
@@ -893,6 +893,21 @@ def reshape(x, shape):
         return tf.reshape(x, shape)
     else:
         raise ValueError("Unsupported type for expand_dims")
+
+
+def shape(x):
+    if isinstance(x, ShellTensor64):
+        return tf.concat(
+            [
+                tf.expand_dims(tf.cast(x._context.num_slots, dtype=tf.int32), axis=0),
+                tf.shape(x._raw_tensor),
+            ],
+            axis=0,
+        )
+    elif isinstance(x, tf.Tensor):
+        return tf.shape(x)
+    else:
+        raise ValueError("Unsupported type for shape")
 
 
 def broadcast_to(x, shape):

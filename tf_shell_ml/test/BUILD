@@ -51,9 +51,19 @@ py_test(
 )
 
 py_test(
-    name = "model_test",
+    name = "model_local_test",
     size = "large",
-    srcs = ["model_test.py"],
+    srcs = ["model_local_test.py"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
+    name = "model_distrib_test",
+    size = "large",
+    srcs = ["model_distrib_test.py"],
     deps = [
         "//tf_shell_ml",
         requirement("tensorflow-cpu"),

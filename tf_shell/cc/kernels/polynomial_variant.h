@@ -28,24 +28,77 @@ using tensorflow::VariantTensorData;
 template <typename T>
 class PolynomialVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
+  using Context = rlwe::RnsContext<ModularInt>;
   using Polynomial = rlwe::RnsPolynomial<ModularInt>;
+  std::vector<ModularInt> dummy = {static_cast<ModularInt>(0)};
 
  public:
-  PolynomialVariant() {}
+  PolynomialVariant() : poly(Polynomial::Create({dummy}, false).value()) {}
 
-  PolynomialVariant(Polynomial arg) : poly(std::move(arg)) {}
+  PolynomialVariant(Polynomial arg, std::shared_ptr<Context const> ct_context_)
+      : poly(std::move(arg)), ct_context(ct_context_) {}
 
   static inline char const kTypeName[] = "ShellPolynomialVariant";
 
   std::string TypeName() const { return kTypeName; }
 
-  // TODO(jchoncholas): implement for networking
-  void Encode(VariantTensorData* data) const {};
+  void Encode(VariantTensorData* data) const {
+    auto serialized_poly_or = poly.Serialize(ct_context->MainPrimeModuli());
+    if (!serialized_poly_or.ok()) {
+      std::cout << "ERROR: Failed to serialize polynomial: "
+                << serialized_poly_or.status();
+      return;
+    }
+    std::string serialized_poly;
+    serialized_poly_or.value().SerializeToString(&serialized_poly);
+    data->tensors_.push_back(Tensor(serialized_poly));
+  };
 
-  // TODO(jchoncholas): implement for networking
-  bool Decode(VariantTensorData const& data) { return true; };
+  bool Decode(VariantTensorData const& data) {
+    if (data.tensors_.size() != 1) {
+      std::cout << "ERROR: Decode polynomial Expected 1 tensor, got "
+                << data.tensors_.size() << "." << std::endl;
+      return false;
+    }
+
+    if (!poly_str.empty()) {
+      std::cout << "ERROR: Polynomial already decoded";
+      return false;
+    }
+
+    poly_str = std::string(data.tensors_[0].scalar<tstring>()().begin(),
+                           data.tensors_[0].scalar<tstring>()().end());
+
+    return true;
+  };
+
+  Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_) {
+    if (poly_str.empty()) {
+      return OkStatus();
+    }
+
+    rlwe::SerializedRnsPolynomial serialized_poly;
+    bool ok = serialized_poly.ParseFromString(poly_str);
+    if (!ok) {
+      return InvalidArgument("Failed to parse polynomial.");
+    }
+
+    TF_ASSIGN_OR_RETURN(
+        poly, Polynomial::Deserialize(serialized_poly,
+                                      ct_context_->MainPrimeModuli()));
+
+    // Hold a pointer to the context for future encoding.
+    ct_context = ct_context_;
+
+    // Clear the serialized polynomial string.
+    poly_str.clear();
+
+    return OkStatus();
+  };
 
   std::string DebugString() const { return "ShellPolynomialVariant"; }
 
   Polynomial poly;
+  std::string poly_str;
+  std::shared_ptr<Context const> ct_context;
 };

@@ -61,8 +61,6 @@ class TestModel(tf.test.TestCase):
                 scaling_factor=3,
                 noise_offset_log2=64,
             ),
-            None,
-            None,
             True,
         )
 
@@ -76,7 +74,7 @@ class TestModel(tf.test.TestCase):
         m.build([None, 784])
         # m(train_dataset)
         m.summary()
-        history = m.fit(train_dataset, epochs=1, validation_data=val_dataset)
+        history = m.fit(train_dataset.take(16), epochs=1, validation_data=val_dataset)
 
 
 if __name__ == "__main__":

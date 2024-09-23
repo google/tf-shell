@@ -21,7 +21,6 @@
 #include "tensorflow/core/framework/variant_encode_decode.h"
 #include "tensorflow/core/framework/variant_op_registry.h"
 #include "tensorflow/core/framework/variant_tensor_data.h"
-#include "utils_serdes.h"
 
 using tensorflow::VariantTensorData;
 
@@ -45,7 +44,7 @@ class RotationKeyVariant {
   void Encode(VariantTensorData* data) const {};
 
   // TODO(jchoncholas): implement for networking
-  bool Decode(VariantTensorData const& data) { return true; };
+  bool Decode(VariantTensorData const& data) { return false; };
 
   std::string DebugString() const { return "ShellRotationKeyVariant"; }
 
@@ -68,11 +67,11 @@ class SingleRotationKeyVariant {
 
   std::string TypeName() const { return kTypeName; }
 
-  // TODO(jchoncholas): implement for networking
+  // Individual keys are never sent over the network.
   void Encode(VariantTensorData* data) const {};
 
-  // TODO(jchoncholas): implement for networking
-  bool Decode(VariantTensorData const& data) { return true; };
+  // Individual keys are never sent over the network.
+  bool Decode(VariantTensorData const& data) { return false; };
 
   std::string DebugString() const { return "SingleRotationKeyVariant"; }
 
@@ -82,6 +81,7 @@ class SingleRotationKeyVariant {
 template <typename T>
 class FastRotationKeyVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
+  using Context = rlwe::RnsContext<ModularInt>;
   using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
   using PrimeModulus = rlwe::PrimeModulus<ModularInt>;
 
@@ -90,20 +90,18 @@ class FastRotationKeyVariant {
 
   // Create with gadget first, then create and add keys.
   FastRotationKeyVariant(std::vector<RnsPolynomial> keys,
-                         std::vector<PrimeModulus const*> prime_moduli)
-      : keys(std::move(keys)), prime_moduli(std::move(prime_moduli)) {}
+                         std::shared_ptr<Context const> ct_context_)
+      : keys(std::move(keys)), ct_context(ct_context_) {}
 
   static inline char const kTypeName[] = "ShellFastRotationKeyVariant";
 
   std::string TypeName() const { return kTypeName; }
 
   void Encode(VariantTensorData* data) const {
-    data->tensors_.reserve(keys.size() + 3);
-
-    SerializePrimeModuli<T>(data, prime_moduli, keys[0].LogN());
+    data->tensors_.reserve(keys.size());
 
     for (auto const& key : keys) {
-      auto serialized_key_or = key.Serialize(prime_moduli);
+      auto serialized_key_or = key.Serialize(ct_context->MainPrimeModuli());
       if (!serialized_key_or.ok()) {
         std::cout << "ERROR: Failed to serialize key: "
                   << serialized_key_or.status();
@@ -116,42 +114,64 @@ class FastRotationKeyVariant {
   };
 
   bool Decode(VariantTensorData const& data) {
-    size_t num_keys = data.tensors_.size() - 3;
-    keys.reserve(num_keys);
-
-    // Recover the prime moduli.
-    prime_moduli.clear();
-    int log_n;
-    if (!DeerializePrimeModuli<T>(data, 0, prime_moduli, log_n)) {
+    if (data.tensors_.size() < 1) {
+      std::cout << "ERROR: Not enough tensors to deserialize fast rotation key."
+                << std::endl;
       return false;
     }
 
-    for (size_t i = 3; i < data.tensors_.size(); ++i) {
+    if (!key_strs.empty()) {
+      std::cout << "ERROR: Fast rotation key already decoded." << std::endl;
+      return false;
+    }
+
+    size_t num_keys = data.tensors_.size();
+    key_strs.reserve(num_keys);
+
+    for (size_t i = 0; i < data.tensors_.size(); ++i) {
       std::string const serialized_key(
           data.tensors_[i].scalar<tstring>()().begin(),
           data.tensors_[i].scalar<tstring>()().end());
-      rlwe::SerializedRnsPolynomial serialized_key_polynomial;
-      bool ok = serialized_key_polynomial.ParseFromString(serialized_key);
-      // std::cout << serialized_key_polynomial.DebugString() << std::endl;
-      if (!ok) {
-        std::cout << "ERROR: Failed to parse key polynomial." << std::endl;
-        return false;
-      }
-      auto key_polynomial_or = rlwe::RnsPolynomial<ModularInt>::Deserialize(
-          serialized_key_polynomial, prime_moduli);
-      if (!key_polynomial_or.ok()) {
-        std::cout << "ERROR: Failed to deserialize key polynomial: "
-                  << key_polynomial_or.status();
-        return false;
-      }
-      keys.push_back(std::move(key_polynomial_or.value()));
+
+      key_strs.push_back(std::move(serialized_key));
     }
 
     return true;
   };
 
+  Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_) {
+    // If the keys have already been fully decoded, nothing to do.
+    if (key_strs.empty()) {
+      return OkStatus();
+    }
+
+    for (auto const& key_str : key_strs) {
+      rlwe::SerializedRnsPolynomial serialized_key;
+      bool ok = serialized_key.ParseFromString(key_str);
+      if (!ok) {
+        return InvalidArgument("Failed to parse fast rotation key polynomial.");
+      }
+
+      // Using the moduli, reconstruct the key polynomial.
+      TF_ASSIGN_OR_RETURN(auto key_polynomial,
+                          rlwe::RnsPolynomial<ModularInt>::Deserialize(
+                              serialized_key, ct_context_->MainPrimeModuli()));
+
+      keys.push_back(std::move(key_polynomial));
+    }
+
+    // Hold a pointer to the context for future encoding.
+    ct_context = ct_context_;
+
+    // Clear the key strings.
+    key_strs.clear();
+
+    return OkStatus();
+  };
+
   std::string DebugString() const { return "ShellFastRotationKeyVariant"; }
 
   std::vector<RnsPolynomial> keys;
-  std::vector<rlwe::PrimeModulus<ModularInt> const*> prime_moduli;
+  std::vector<std::string> key_strs;
+  std::shared_ptr<Context const> ct_context;
 };

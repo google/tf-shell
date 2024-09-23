@@ -116,6 +116,7 @@ class ShellEmbedding(keras.layers.Layer):
 
         return [summedvalues], tf.zeros(0)
 
-    def unpack(self, plaintext_packed_dx):
+    @staticmethod
+    def unpack(plaintext_packed_dx):
         batch_size = tf.shape(plaintext_packed_dx)[0] // 2
         return plaintext_packed_dx[0, 0] + plaintext_packed_dx[batch_size, 1]

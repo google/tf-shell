@@ -53,8 +53,9 @@ class MulCtCtOp : public OpKernel {
   explicit MulCtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Unpack the input arguments. The 0th argument is the context, which is not
-    // directly used in this op but required for graph optimization.
+    // Unpack the input arguments.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
 
@@ -82,6 +83,10 @@ class MulCtCtOp : public OpKernel {
       OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index:", i,
                                   " for input a did not unwrap successfully."));
+      OP_REQUIRES_OK(
+          op_ctx,
+          const_cast<SymmetricCtVariant<T>*>(ct_a_var)->MaybeLazyDecode(
+              shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
       SymmetricCt const& ct_a = ct_a_var->ct;
 
       SymmetricCtVariant<T> const* ct_b_var =
@@ -89,11 +94,16 @@ class MulCtCtOp : public OpKernel {
       OP_REQUIRES(op_ctx, ct_b_var != nullptr,
                   InvalidArgument("SymmetricCtVariant at flat index:", i,
                                   " for input b did not unwrap successfully."));
+      OP_REQUIRES_OK(
+          op_ctx,
+          const_cast<SymmetricCtVariant<T>*>(ct_b_var)->MaybeLazyDecode(
+              shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
       SymmetricCt const& ct_b = ct_b_var->ct;
 
       OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx, ct_a * ct_b);
 
-      SymmetricCtVariant ct_c_var(std::move(ct_c));
+      SymmetricCtVariant ct_c_var(std::move(ct_c), shell_ctx_var->ct_context_,
+                                  shell_ctx_var->error_params_);
       flat_output(i) = std::move(ct_c_var);
     }
   }
@@ -110,8 +120,9 @@ class MulCtPtOp : public OpKernel {
   explicit MulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Unpack the input arguments. The 0th argument is the context, which is not
-    // directly used in this op but required for graph optimization.
+    // Unpack the input arguments.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
     Tensor const& a = op_ctx->input(1);
     Tensor const& b = op_ctx->input(2);
 
@@ -150,6 +161,10 @@ class MulCtPtOp : public OpKernel {
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index:", i,
                             " for input a did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<T>*>(ct_a_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt const& ct_a = ct_a_var->ct;
 
         PolynomialVariant<T> const* pv_b_var =
@@ -158,12 +173,17 @@ class MulCtPtOp : public OpKernel {
             op_ctx, pv_b_var != nullptr,
             InvalidArgument("PolynomialVariant at flat index:", i,
                             " for input b did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<PolynomialVariant<T>*>(pv_b_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_));
         RnsPolynomial const& pt_b = pv_b_var->poly;
 
         OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx,
                           ct_a * pt_b);  // shell absorb operation
 
-        SymmetricCtVariant ct_c_var(std::move(ct_c));
+        SymmetricCtVariant ct_c_var(std::move(ct_c), shell_ctx_var->ct_context_,
+                                    shell_ctx_var->error_params_);
         flat_output(i) = std::move(ct_c_var);
       }
     };
@@ -233,21 +253,31 @@ class MulShellTfScalarOp : public OpKernel {
 
       if constexpr (std::is_same<CtOrPolyVariant,
                                  PolynomialVariant<T>>::value) {
+        OP_REQUIRES_OK(op_ctx,
+                       const_cast<PolynomialVariant<T>*>(ct_or_pt_var)
+                           ->MaybeLazyDecode(shell_ctx_var->ct_context_));
         RnsPolynomial const& poly = ct_or_pt_var->poly;
 
         OP_REQUIRES_VALUE(RnsPolynomial result, op_ctx,
                           poly.Mul(wrapped_b, shell_ctx->MainPrimeModuli()));
 
-        CtOrPolyVariant result_var(std::move(result));
+        CtOrPolyVariant result_var(std::move(result),
+                                   shell_ctx_var->ct_context_);
         flat_output(i) = std::move(result_var);
       } else if constexpr (std::is_same<CtOrPolyVariant,
                                         SymmetricCtVariant<T>>::value) {
+        OP_REQUIRES_OK(op_ctx,
+                       const_cast<SymmetricCtVariant<T>*>(ct_or_pt_var)
+                           ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                             shell_ctx_var->error_params_));
         SymmetricCt const& ct = ct_or_pt_var->ct;
 
         OP_REQUIRES_VALUE(SymmetricCt result, op_ctx,
                           ct * wrapped_b);  // shell aborb operation
 
-        CtOrPolyVariant result_var(std::move(result));
+        SymmetricCtVariant result_var(std::move(result),
+                                      shell_ctx_var->ct_context_,
+                                      shell_ctx_var->error_params_);
         flat_output(i) = std::move(result_var);
       }
     }
@@ -324,6 +354,9 @@ class MulPtPtOp : public OpKernel {
       OP_REQUIRES(op_ctx, pv_a_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index:", i,
                                   " for input a did not unwrap successfully."));
+      OP_REQUIRES_OK(
+          op_ctx, const_cast<PolynomialVariant<T>*>(pv_a_var)->MaybeLazyDecode(
+                      shell_ctx_var->ct_context_));
       RnsPolynomial const& pt_a = pv_a_var->poly;
 
       PolynomialVariant<T> const* pv_b_var =
@@ -331,12 +364,16 @@ class MulPtPtOp : public OpKernel {
       OP_REQUIRES(op_ctx, pv_b_var != nullptr,
                   InvalidArgument("PolynomialVariant at flat index:", i,
                                   " for input b did not unwrap successfully."));
+      OP_REQUIRES_OK(
+          op_ctx, const_cast<PolynomialVariant<T>*>(pv_b_var)->MaybeLazyDecode(
+                      shell_ctx_var->ct_context_));
       RnsPolynomial const& pt_b = pv_b_var->poly;
 
       OP_REQUIRES_VALUE(RnsPolynomial pt_c, op_ctx,
                         pt_a.Mul(pt_b, shell_ctx->MainPrimeModuli()));
 
-      PolynomialVariant<T> pt_c_var(std::move(pt_c));
+      PolynomialVariant<T> pt_c_var(std::move(pt_c),
+                                    shell_ctx_var->ct_context_);
       flat_output(i) = std::move(pt_c_var);
     }
   }
@@ -418,6 +455,10 @@ class MatMulCtPtOp : public OpKernel {
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: 0",
                             " for input a did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<T>*>(ct_a_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt const& ct_a = ct_a_var->ct;
 
         // Before multiplying, the check if the plaintext integer is signed.
@@ -436,6 +477,10 @@ class MatMulCtPtOp : public OpKernel {
               op_ctx, ct_a_var != nullptr,
               InvalidArgument("SymmetricCtVariant at flat index:", j,
                               " for input a did not unwrap successfully."));
+          OP_REQUIRES_OK(
+              op_ctx,
+              const_cast<SymmetricCtVariant<T>*>(ct_a_var)->MaybeLazyDecode(
+                  shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
           SymmetricCt const& ct_a = ct_a_var->ct;
 
           // Again check if the plaintext integer is signed.
@@ -447,7 +492,9 @@ class MatMulCtPtOp : public OpKernel {
           OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(scaled));
         }
 
-        SymmetricCtVariant<T> ct_result_var(std::move(ct_result));
+        SymmetricCtVariant ct_result_var(std::move(ct_result),
+                                         shell_ctx_var->ct_context_,
+                                         shell_ctx_var->error_params_);
         flat_output(i) = std::move(ct_result_var);
       }
     };
@@ -635,6 +682,10 @@ class MatMulPtCtOp : public OpKernel {
                 op_ctx, ct_b_var != nullptr,
                 InvalidArgument("SymmetricCtVariant at flat index: 0",
                                 " for input a did not unwrap successfully."));
+            OP_REQUIRES_OK(
+                op_ctx,
+                const_cast<SymmetricCtVariant<T>*>(ct_b_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
             SymmetricCt const& ct_b = ct_b_var->ct;
 
             // Perform the multiplication.
@@ -697,7 +748,9 @@ class MatMulPtCtOp : public OpKernel {
             // matrix where every element in the ciphertext is the same value,
             // the result of the reduce sum operation. Store in the output
             // tensor.
-            SymmetricCtVariant<T> ct_result_var(std::move(ct_result));
+            SymmetricCtVariant<T> ct_result_var(std::move(ct_result),
+                                                shell_ctx_var->ct_context_,
+                                                shell_ctx_var->error_params_);
             flat_output(outer, i, ct_col) = std::move(ct_result_var);
           }
         }

@@ -141,6 +141,7 @@ class ShellDense(keras.layers.Layer):
 
         return grad_weights, d_x
 
-    def unpack(self, plaintext_packed_dx):
+    @staticmethod
+    def unpack(plaintext_packed_dx):
         batch_size = tf.shape(plaintext_packed_dx)[0] // 2
         return plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]

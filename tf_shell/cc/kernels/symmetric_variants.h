@@ -22,13 +22,14 @@
 #include "tensorflow/core/framework/variant_encode_decode.h"
 #include "tensorflow/core/framework/variant_op_registry.h"
 #include "tensorflow/core/framework/variant_tensor_data.h"
-#include "utils_serdes.h"
 
 using tensorflow::VariantTensorData;
+using tensorflow::errors::InvalidArgument;
 
 template <typename T>
 class SymmetricKeyVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
+  using Context = rlwe::RnsContext<ModularInt>;
   using Key = rlwe::RnsRlweSecretKey<ModularInt>;
   using Int = typename ModularInt::Int;
   constexpr static int const IntNumBits = std::numeric_limits<Int>::digits;
@@ -36,21 +37,14 @@ class SymmetricKeyVariant {
  public:
   SymmetricKeyVariant() {}
 
-  SymmetricKeyVariant(Key&& k) { key = std::make_shared<Key>(k); }
-
-  Status Initialize(Key k) {
-    key = std::make_shared<Key>(k);
-    return OkStatus();
-  }
+  SymmetricKeyVariant(Key&& k, std::shared_ptr<Context const> ct_context_)
+      : key(std::make_shared<Key>(std::move(k))), ct_context(ct_context_) {}
 
   static inline char const kTypeName[] = "ShellSymmetricKeyVariant";
 
   std::string TypeName() const { return kTypeName; }
 
   void Encode(VariantTensorData* data) const {
-    data->tensors_.reserve(5);
-
-    // First store the key.
     auto serialized_key_or = key->Key().Serialize(key->Moduli());
     if (!serialized_key_or.ok()) {
       std::cout << "ERROR: Failed to serialize key: "
@@ -60,48 +54,44 @@ class SymmetricKeyVariant {
     std::string serialized_key;
     serialized_key_or.value().SerializeToString(&serialized_key);
     data->tensors_.push_back(Tensor(serialized_key));
-
-    SerializePrimeModuli<T>(data, key->Moduli(), key->LogN());
-
-    // Store the variance of the key.
-    data->tensors_.push_back(Tensor(key->Variance()));
   };
 
   bool Decode(VariantTensorData const& data) {
-    if (data.tensors_.size() != 5) {
+    if (data.tensors_.size() != 1) {
+      std::cout << "ERROR: Decode SymmetricKeyVariant expected 1 tensor, got "
+                << data.tensors_.size() << std::endl;
+      return false;
+    }
+
+    if (!key_str.empty()) {
+      std::cout << "ERROR: Key already decoded." << std::endl;
       return false;
     }
 
     // Recover the key polynomial.
-    std::string const serialized_key(
-        data.tensors_[0].scalar<tstring>()().begin(),
-        data.tensors_[0].scalar<tstring>()().end());
-    rlwe::SerializedRnsPolynomial serialized_key_polynomial;
-    bool ok = serialized_key_polynomial.ParseFromString(serialized_key);
-    // std::cout << serialized_key_polynomial.DebugString() << std::endl;
-    if (!ok) {
-      std::cout << "ERROR: Failed to parse key polynomial." << std::endl;
-      return false;
+    key_str = std::string(data.tensors_[0].scalar<tstring>()().begin(),
+                          data.tensors_[0].scalar<tstring>()().end());
+
+    return true;
+  };
+
+  Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_,
+                         int noise_variance) {
+    // If this key has already been fully decoded, nothing to do.
+    if (key_str.empty()) {
+      return OkStatus();
     }
 
-    // Recover the prime moduli.
-    std::vector<rlwe::PrimeModulus<ModularInt> const*> prime_moduli;
-    int log_n;
-    if (!DeerializePrimeModuli<T>(data, 1, prime_moduli, log_n)) {
-      return false;
+    rlwe::SerializedRnsPolynomial serialized_key;
+    bool ok = serialized_key.ParseFromString(key_str);
+    if (!ok) {
+      return InvalidArgument("Failed to parse key polynomial.");
     }
 
     // Using the moduli, reconstruct the key polynomial.
-    auto key_polynomial_or = rlwe::RnsPolynomial<ModularInt>::Deserialize(
-        serialized_key_polynomial, prime_moduli);
-    if (!key_polynomial_or.ok()) {
-      std::cout << "ERROR: Failed to deserialize key polynomial: "
-                << key_polynomial_or.status();
-      return false;
-    }
-
-    // Recover the variance.
-    int variance = data.tensors_[4].scalar<int>()(0);
+    TF_ASSIGN_OR_RETURN(auto key_polynomial,
+                        rlwe::RnsPolynomial<ModularInt>::Deserialize(
+                            serialized_key, ct_context_->MainPrimeModuli()));
 
     // Create the key without having access to the constructor.
     struct RawKey {
@@ -109,40 +99,120 @@ class SymmetricKeyVariant {
       std::vector<rlwe::PrimeModulus<ModularInt> const*> moduli;
       int variance;
     };
-    RawKey raw_key{std::move(key_polynomial_or.value()),
-                   std::move(prime_moduli), variance};
+    RawKey raw_key{std::move(key_polynomial),
+                   std::move(ct_context_->MainPrimeModuli()), noise_variance};
     Key* recovered_key = reinterpret_cast<Key*>(&raw_key);  // UB!
     key = std::make_shared<Key>(*recovered_key);
 
-    return true;
-  };
+    // Hold a pointer to the context so the moduli this key depends on wont be
+    // deleted if the ContextVariant is deleted before this key.
+    ct_context = ct_context_;
+
+    // Clear the serialized key string.
+    key_str.clear();
+
+    return OkStatus();
+  }
 
   std::string DebugString() const { return "ShellSymmetricKeyVariant"; }
 
   std::shared_ptr<Key> key;
+  std::string key_str;
+  std::shared_ptr<Context const> ct_context;
 };
 
 template <typename T>
 class SymmetricCtVariant {
   using ModularInt = rlwe::MontgomeryInt<T>;
+  using Context = rlwe::RnsContext<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
+  using ErrorParams = rlwe::RnsErrorParams<ModularInt>;
 
  public:
-  SymmetricCtVariant() {}
+  SymmetricCtVariant() : ct({}, {}, 0, 0, nullptr) {}
 
-  SymmetricCtVariant(SymmetricCt arg) : ct(std::move(arg)) {}
+  SymmetricCtVariant(SymmetricCt ct, std::shared_ptr<Context const> ct_context_,
+                     std::shared_ptr<ErrorParams const> error_params_)
+      : ct(std::move(ct)),
+        ct_context(ct_context_),
+        error_params(error_params_) {}
 
   static inline char const kTypeName[] = "ShellSymmetricCtVariant";
 
   std::string TypeName() const { return kTypeName; }
 
-  // TODO(jchoncholas): implement for networking
-  void Encode(VariantTensorData* data) const {};
+  void Encode(VariantTensorData* data) const {
+    // Store the ciphertext.
+    auto serialized_ct_or = ct.Serialize();
+    if (!serialized_ct_or.ok()) {
+      std::cout << "ERROR: Failed to serialize ciphertext: "
+                << serialized_ct_or.status() << std::endl;
+      return;
+    }
+    std::string serialized_ct;
+    serialized_ct_or.value().SerializeToString(&serialized_ct);
+    data->tensors_.push_back(Tensor(serialized_ct));
+  };
 
-  // TODO(jchoncholas): implement for networking
-  bool Decode(VariantTensorData const& data) { return true; };
+  // Decoding requires access to a shell RnsContext object. TensorFlow requires
+  // that a variant (i.e. this class) must be able to decode itself without
+  // external context. This causes an issue because storing the context
+  // for every ciphertext is wasteful. To work around this, partially decode
+  // the ciphertext polynomials to a string, and wait to complete the decode
+  // until an operation is attempted and the context is available.
+  bool Decode(VariantTensorData const& data) {
+    if (data.tensors_.size() != 1) {
+      std::cout << "ERROR: Decode SymmetricCtVariant expected 1 tensor, got "
+                << data.tensors_.size() << std::endl;
+      return false;
+    }
+
+    if (!ct_str.empty()) {
+      std::cout << "ERROR: Ciphertext already decoded." << std::endl;
+      return false;
+    }
+
+    // Recover the serialized ciphertext string.
+    ct_str = std::string(data.tensors_[0].scalar<tstring>()().begin(),
+                         data.tensors_[0].scalar<tstring>()().end());
+
+    return true;
+  };
+
+  Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_,
+                         std::shared_ptr<ErrorParams const> error_params_) {
+    // If this ciphertext has already been fully decoded, nothing to do.
+    if (ct_str.empty()) {
+      return OkStatus();
+    }
+
+    rlwe::SerializedRnsRlweCiphertext serialized_ct;
+    bool ok = serialized_ct.ParseFromString(ct_str);
+    if (!ok) {
+      return InvalidArgument("Failed to parse ciphertext.");
+    }
+    TF_ASSIGN_OR_RETURN(
+        auto generic_ct,
+        SymmetricCt::Deserialize(serialized_ct, ct_context_->MainPrimeModuli(),
+                                 error_params_.get()));
+    ct = std::move(static_cast<SymmetricCt>(generic_ct));
+
+    // Hold a pointer to the context and error params so the moduli this
+    // ciphertext depends on wont be deleted if the ContextVariant is delected
+    // before this ciphertext.
+    ct_context = ct_context_;
+    error_params = error_params_;
+
+    // Clear the serialized ciphertext string.
+    ct_str.clear();
+
+    return OkStatus();
+  };
 
   std::string DebugString() const { return "ShellSymmetricCtVariant"; }
 
   SymmetricCt ct;
+  std::string ct_str;
+  std::shared_ptr<Context const> ct_context;
+  std::shared_ptr<ErrorParams const> error_params;
 };

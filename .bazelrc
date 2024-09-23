@@ -5,17 +5,31 @@ build -c opt
 build --cxxopt='-std=c++17'
 build --cxxopt='-D_GLIBCXX_USE_CXX11_ABI=1'
 
+# To enable asan, pass `--config=asan` to bazel.
 # If there are compilation issues with asan and absl, try making the changes
 # described by:
 # https://github.com/abseil/abseil-cpp/pull/1399/files#diff-32cf2e2d37473ed6eb8f8b7e1126983fcca9a5fe02885098094c9ed4ceda8a6f
 build:asan --strip=never
-build:asan --copt -O1
+build:asan --copt -O0
 build:asan --copt -g
+build:asan --copt -DADDRESS_SANITIZER
 build:asan --copt -fno-omit-frame-pointer
 # Sanitizers don't work with absl::string at version 20230802.1.
-#build:asan --copt -fsanitize=address
-#build:asan --linkopt -fsanitize=address
-#python tests may use static link flags below for gcc instead of
-#-fsanitize=address
-build:asan --copt -static-libasan
-build:asan --linkopt -static-libasan
+build:asan --copt -fsanitize=address
+build:asan --linkopt -fsanitize=address
+
+# To use in py_test, add the following to the test target:
+#    env = {
+#        "LD_PRELOAD": "/usr/lib/gcc/x86_64-linux-gnu/11/libasan.so /usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+#    },
+# To use static link flags, see the following:
+# build:asan --copt -static-libasan
+# build:asan --linkopt -static-libasan
+
+# Other debugging techniques:
+# Run the binary directly from bazel-bin with gdb:
+#   bazel build //path/to:test # see stdout for the path to the binary
+#   gdb --args python bazel-bin/path/to/binary
+#
+# Run the test under valgrind:
+#   bazel test -c dbg //path/to:test --run_under=valgrind

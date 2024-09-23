@@ -46,8 +46,12 @@ use_repo(pip, "pip")
 # abseil, the version used here must match the version used by tensorflow.
 # See what version of abseil tensorflow is using here:
 # https://github.com/tensorflow/tensorflow/blob/master/third_party/absl/workspace.bzl
-#bazel_dep(name = "abseil-cpp", version = "20230802.1", repo_name = "com_google_absl")  # tf > 2.16.2
-bazel_dep(name = "abseil-cpp", version = "20230125.1", repo_name = "com_google_absl")  # tf == 2.15.0
+# bazel_dep(name = "abseil-cpp", version = "20230802.1", repo_name = "com_google_absl")  # tf > 2.16
+# single_version_override(
+#     module_name = "abseil-cpp",
+#     version = "20230802.1",
+# )
+bazel_dep(name = "abseil-cpp", version = "20230125.1", repo_name = "com_google_absl")  # tf == 2.15
 single_version_override(
     module_name = "abseil-cpp",
     version = "20230125.1",

@@ -218,17 +218,19 @@ REGISTER_OP("RotationKeyGen64")
     .SetShapeFn(ScalarShape);
 
 REGISTER_OP("Roll64")
+    .Input("context: variant")
     .Input("rotation_key: variant")
     .Input("value: variant")
     .Input("shift: int64")
     .Output("rotated_value: variant")
-    .SetShapeFn(UnchangedArgShape<1>);
+    .SetShapeFn(UnchangedArgShape<2>);
 
 REGISTER_OP("ReduceSumByRotation64")
+    .Input("context: variant")
     .Input("rotation_key: variant")
     .Input("value: variant")
     .Output("repeated_reduce_sum: variant")
-    .SetShapeFn(UnchangedArgShape<1>);
+    .SetShapeFn(UnchangedArgShape<2>);
 
 REGISTER_OP("FastRotationKeyGen64")
     .Input("context: variant")
@@ -253,11 +255,12 @@ REGISTER_OP("DecryptFastRotated64")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 
 REGISTER_OP("ReduceSum64")
+    .Input("context: variant")
     .Input("value: variant")
     .Attr("axis: int")
     .Output("repeated_reduce_sum: variant")
     .SetShapeFn([](InferenceContext* c) {
-      tsl::int32 rank = c->Rank(c->input(0));
+      tsl::int32 rank = c->Rank(c->input(1));
 
       tsl::int32 axis;
       TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
@@ -292,11 +295,11 @@ REGISTER_OP("ReduceSum64")
       // This op currently only supports keepdim=False whose shape is computed
       // via the following.
       ShapeHandle prefix;
-      TF_RETURN_IF_ERROR(c->Subshape(c->input(0), 0, clamped_axis, &prefix));
+      TF_RETURN_IF_ERROR(c->Subshape(c->input(1), 0, clamped_axis, &prefix));
 
       ShapeHandle postfix;
       TF_RETURN_IF_ERROR(
-          c->Subshape(c->input(0), clamped_axis + 1, rank, &postfix));
+          c->Subshape(c->input(1), clamped_axis + 1, rank, &postfix));
 
       if (clamped_axis == 0) {
         output = postfix;
@@ -317,6 +320,7 @@ REGISTER_OP("ModulusReduceContext64")
     .SetShapeFn(ScalarShape);
 
 REGISTER_OP("ModulusReduceKey64")
+    .Input("unreduced_context: variant")
     .Input("key: variant")
     .Output("reduced_key: variant")
     .SetShapeFn(ScalarShape);

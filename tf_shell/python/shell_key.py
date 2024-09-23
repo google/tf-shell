@@ -21,31 +21,45 @@ import typing
 
 
 class ShellKey64(tf.experimental.ExtensionType):
-    _raw_key: tf.Tensor
-    level: int
+    _raw_keys_at_level: typing.Mapping[int, tf.Tensor]
+
+    def _get_key_at_level(self, level):
+        if level not in self._raw_keys_at_level:
+            raise ValueError(f"No key at level {level}.")
+        return self._raw_keys_at_level[level]
 
 
-def create_key64(context):
+def mod_reduce_key64(unreduced_context, raw_key):
+    if not isinstance(unreduced_context, ShellContext64):
+        raise ValueError("context must be a ShellContext64.")
+
+    if not isinstance(raw_key, tf.Tensor):
+        raise ValueError("raw_key must be a Tensor")
+
+
+def create_key64(context, skip_at_mul_depth=[]):
     if not isinstance(context, ShellContext64):
         raise ValueError("context must be a ShellContext64")
 
-    return ShellKey64(
-        _raw_key=shell_ops.key_gen64(context._raw_context), level=context.level
-    )
+    raw_keys_at_level = {}
 
+    # Generate and store the first key.
+    key = shell_ops.key_gen64(context._raw_context)
+    raw_keys_at_level[context.level] = key
 
-def mod_reduce_key64(key):
-    if not isinstance(key, ShellKey64):
-        raise ValueError("key must be a ShellKey64")
+    # Mod reduce to compute the remaining keys.
+    while context.level > 1:
+        key = shell_ops.modulus_reduce_key64(context._raw_context, key)
+        context = mod_reduce_context64(context)
 
-    smaller_raw_key = shell_ops.modulus_reduce_key64(key._raw_key)
-    mod_reduced = ShellKey64(smaller_raw_key, key.level - 1)
-    return mod_reduced
+        if context.level not in skip_at_mul_depth:
+            raw_keys_at_level[context.level] = key
+
+    return ShellKey64(_raw_keys_at_level=raw_keys_at_level)
 
 
 class ShellRotationKey64(tf.experimental.ExtensionType):
     _raw_rot_keys_at_level: typing.Mapping[int, tf.Tensor]
-    context: ShellContext64
 
     def _get_key_at_level(self, level):
         if level not in self._raw_rot_keys_at_level:
@@ -62,29 +76,27 @@ def create_rotation_key64(context, key, skip_at_mul_depth=[]):
     if not isinstance(context, ShellContext64):
         raise ValueError("context must be a ShellContext64.")
 
-    if context.level != key.level:
-        raise ValueError("Context and key levels must match.")
+    if not isinstance(key, ShellKey64):
+        raise ValueError("key must be a ShellKey64.")
 
     raw_rot_keys_at_level = {}
     while context.level >= 0:
         if context.level not in skip_at_mul_depth:
             raw_rot_keys_at_level[context.level] = shell_ops.rotation_key_gen64(
-                context._raw_context, key._raw_key
+                context._raw_context,
+                key._get_key_at_level(context.level),
             )
 
         if context.level <= 1:
             break
-        context = mod_reduce_context64(context)
-        key = mod_reduce_key64(key)
 
-    return ShellRotationKey64(
-        _raw_rot_keys_at_level=raw_rot_keys_at_level, context=context
-    )
+        context = mod_reduce_context64(context)
+
+    return ShellRotationKey64(_raw_rot_keys_at_level=raw_rot_keys_at_level)
 
 
 class ShellFastRotationKey64(tf.experimental.ExtensionType):
     _raw_rot_keys_at_level: typing.Mapping[int, tf.Tensor]
-    context: ShellContext64
 
     def _get_key_at_level(self, level):
         if level not in self._raw_rot_keys_at_level:
@@ -102,21 +114,19 @@ def create_fast_rotation_key64(context, key, skip_at_mul_depth=[]):
     if not isinstance(context, ShellContext64):
         raise ValueError("context must be a ShellContext64.")
 
-    if context.level != key.level:
-        raise ValueError("Context and key levels must match.")
+    if not isinstance(key, ShellKey64):
+        raise ValueError("key must be a ShellKey64.")
 
     raw_rot_keys_at_level = {}
     while context.level >= 0:
         if context.level not in skip_at_mul_depth:
             raw_rot_keys_at_level[context.level] = shell_ops.fast_rotation_key_gen64(
-                context._raw_context, key._raw_key
+                context._raw_context, key._get_key_at_level(context.level)
             )
 
         if context.level <= 1:
             break
-        context = mod_reduce_context64(context)
-        key = mod_reduce_key64(key)
 
-    return ShellFastRotationKey64(
-        _raw_rot_keys_at_level=raw_rot_keys_at_level, context=context
-    )
+        context = mod_reduce_context64(context)
+
+    return ShellFastRotationKey64(_raw_rot_keys_at_level=raw_rot_keys_at_level)

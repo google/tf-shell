@@ -38,6 +38,15 @@ using tensorflow::errors::Unimplemented;
 // The substitution power for Galois rotation by one slot.
 constexpr int base_power = 5;
 
+constexpr uint64_t BitWidth(uint64_t n) {
+  uint64_t bits = 0;
+  while (n) {
+    n >>= 1;
+    ++bits;
+  }
+  return bits;
+}
+
 // Given an OpKernelContext and an index, returns the scalar value at that index
 // in the context. If the tensor is not a scalar, returns an error.
 template <typename T>

@@ -169,14 +169,16 @@ class RollOp : public OpKernel {
 
   void Compute(OpKernelContext* op_ctx) override {
     // Get the input tensors.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
-                      GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
+                      GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
 
     std::vector<RotationKey> const& keys = rotation_key_var->keys;
 
-    Tensor const& value = op_ctx->input(1);
+    Tensor const& value = op_ctx->input(2);
 
-    OP_REQUIRES_VALUE(int64 shift, op_ctx, GetScalar<int64>(op_ctx, 2));
+    OP_REQUIRES_VALUE(int64 shift, op_ctx, GetScalar<int64>(op_ctx, 3));
     shift = -shift;  // tensorflow.roll() uses negative shift for left shift.
 
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
@@ -195,6 +197,9 @@ class RollOp : public OpKernel {
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+    OP_REQUIRES_OK(
+        op_ctx, const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
     SymmetricCt const& ct = ct_var->ct;
     int num_slots = 1 << ct.LogN();
     int num_components = ct.NumModuli();
@@ -226,17 +231,24 @@ class RollOp : public OpKernel {
             op_ctx, ct_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: ", i,
                             " for input a did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt const& ct = ct_var->ct;
 
         if (shift == 0) {
-          SymmetricCtVariant ct_out_var(ct);
+          SymmetricCtVariant ct_out_var(ct, shell_ctx_var->ct_context_,
+                                        shell_ctx_var->error_params_);
           flat_output(i) = std::move(ct_out_var);
         } else {
           OP_REQUIRES_VALUE(auto ct_sub, op_ctx,
                             ct.Substitute(key->SubstitutionPower()));
           OP_REQUIRES_VALUE(auto ct_rot, op_ctx, key->ApplyTo(ct_sub));
 
-          SymmetricCtVariant ct_out_var(std::move(ct_rot));
+          SymmetricCtVariant ct_out_var(std::move(ct_rot),
+                                        shell_ctx_var->ct_context_,
+                                        shell_ctx_var->error_params_);
           flat_output(i) = std::move(ct_out_var);
         }
       }
@@ -267,8 +279,15 @@ class ReduceSumByRotationOp : public OpKernel {
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Recover the input tensor.
-    Tensor const& value = op_ctx->input(1);
+    // Recover the inputs.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+
+    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
+                      GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
+
+    std::vector<RotationKey> const& keys = rotation_key_var->keys;
+    Tensor const& value = op_ctx->input(2);
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
 
@@ -280,15 +299,12 @@ class ReduceSumByRotationOp : public OpKernel {
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+    OP_REQUIRES_OK(
+        op_ctx, const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
     SymmetricCt const& ct = ct_var->ct;
     int num_slots = 1 << ct.LogN();
     int num_components = ct.NumModuli();
-
-    // Recover the input rotation keys.
-    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
-                      GetVariant<RotationKeyVariant<T>>(op_ctx, 0));
-
-    std::vector<RotationKey> const& keys = rotation_key_var->keys;
 
     // Allocate the output tensor which is the same size as the input tensor,
     // TensorFlow's reduce_sum has slightly different semantics than this
@@ -308,6 +324,10 @@ class ReduceSumByRotationOp : public OpKernel {
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument(
                         "SymmetricCtVariant a did not unwrap successfully."));
+        OP_REQUIRES_OK(
+            op_ctx,
+            const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt sum = ct_var->ct;  // deep copy to start the sum.
 
         // Add the rotations to the sum.
@@ -330,7 +350,9 @@ class ReduceSumByRotationOp : public OpKernel {
           OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct_rot));
         }
 
-        SymmetricCtVariant ct_out_var(std::move(sum));
+        SymmetricCtVariant ct_out_var(std::move(sum),
+                                      shell_ctx_var->ct_context_,
+                                      shell_ctx_var->error_params_);
         flat_output(i) = std::move(ct_out_var);
       }
     };
@@ -370,8 +392,11 @@ class ReduceSumOp : public OpKernel {
   }
 
   void Compute(OpKernelContext* op_ctx) override {
-    // Recover the input tensor.
-    Tensor const& value = op_ctx->input(0);
+    // Recover the inputs.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+
+    Tensor const& value = op_ctx->input(1);
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
 
@@ -435,6 +460,10 @@ class ReduceSumOp : public OpKernel {
           OP_REQUIRES(op_ctx, first_ct_var != nullptr,
                       InvalidArgument(
                           "SymmetricCtVariant a did not unwrap successfully."));
+          OP_REQUIRES_OK(op_ctx,
+                         const_cast<SymmetricCtVariant<T>*>(first_ct_var)
+                             ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                               shell_ctx_var->error_params_));
           SymmetricCt sum = first_ct_var->ct;  // deep copy to start the sum.
 
           // Add the remaining chips.
@@ -445,6 +474,10 @@ class ReduceSumOp : public OpKernel {
                 op_ctx, ct_var != nullptr,
                 InvalidArgument(
                     "SymmetricCtVariant a did not unwrap successfully."));
+            OP_REQUIRES_OK(
+                op_ctx,
+                const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
             SymmetricCt const& ct = ct_var->ct;
 
             // Perform the addition.
@@ -452,7 +485,8 @@ class ReduceSumOp : public OpKernel {
           }
 
           // Store in the output.
-          SymmetricCtVariant res_var(std::move(sum));
+          SymmetricCtVariant res_var(std::move(sum), shell_ctx_var->ct_context_,
+                                     shell_ctx_var->error_params_);
           flat_output(i, j) = std::move(res_var);
         }
 
