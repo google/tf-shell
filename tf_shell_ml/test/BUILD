@@ -4,6 +4,7 @@ py_test(
     name = "mnist_post_scale_test",
     size = "large",
     srcs = ["mnist_post_scale_test.py"],
+    tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
         requirement("tensorflow-cpu"),
@@ -24,6 +25,7 @@ py_test(
     name = "mnist_enc_backprop_test",
     size = "large",
     srcs = ["mnist_enc_backprop_test.py"],
+    tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
         requirement("tensorflow-cpu"),
@@ -54,6 +56,7 @@ py_test(
     name = "model_local_test",
     size = "large",
     srcs = ["model_local_test.py"],
+    tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
         requirement("tensorflow-cpu"),
@@ -64,6 +67,7 @@ py_test(
     name = "model_distrib_test",
     size = "large",
     srcs = ["model_distrib_test.py"],
+    tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
         requirement("tensorflow-cpu"),
