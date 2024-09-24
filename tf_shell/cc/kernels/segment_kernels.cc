@@ -73,7 +73,7 @@ template <typename Device, typename T, typename Index, typename InitialValueF,
 struct UnsortedSegmentFunctor {
   void operator()(
       OpKernelContext* ctx, ContextVariant<T> const* shell_ctx_var,
-      std::vector<rlwe::RnsGaloisKey<rlwe::MontgomeryInt<T>>> const& keys,
+      std::vector<std::shared_ptr<rlwe::RnsGaloisKey<rlwe::MontgomeryInt<T>>>> const& keys,
       TensorShape const& segment_ids_shape,
       typename TTypes<Index, 2>::ConstTensor segment_ids,
       typename TTypes<Variant, 2>::ConstTensor data,
@@ -117,7 +117,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
 
   void operator()(OpKernelContext* ctx, ContextVariant<T> const* shell_ctx_var,
-                  std::vector<RotationKey> const& keys,
+                  std::vector<std::shared_ptr<RotationKey>> const& keys,
                   TensorShape const& segment_ids_shape,
                   typename TTypes<Index, 2>::ConstTensor segment_ids,
                   typename TTypes<Variant, 2>::ConstTensor data,
@@ -308,10 +308,9 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
               RotationKey const* key;
               int64_t key_slot = slot;
               if (key_slot > num_slots / 2) key_slot = slot - num_slots / 2;
-              --key_slot;  // -1 to skip key at zero.
               OP_REQUIRES(ctx, key_slot < static_cast<int64_t>(keys.size()),
                           InvalidArgument("No key for slot '", key_slot, "'"));
-              key = &keys[key_slot];
+              key = keys[key_slot].get();
 
               SymmetricCt const& ct =
                   unreduced_output(j, chip).get<SymmetricCtVariant<T>>()->ct;

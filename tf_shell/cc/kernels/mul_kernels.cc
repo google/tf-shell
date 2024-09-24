@@ -574,8 +574,8 @@ class MatMulPtCtOp : public OpKernel {
       OP_REQUIRES_VALUE(rotation_key_var, op_ctx,
                         GetVariant<RotationKeyVariant<T>>(op_ctx, 3));
     }
-    std::vector<RotationKey> empty_rot_keys{};
-    std::vector<RotationKey> const& rot_keys =
+    std::vector<std::shared_ptr<RotationKey>> empty_rot_keys{};
+    std::vector<std::shared_ptr<RotationKey>> const& rot_keys =
         use_fast_rotations ? empty_rot_keys : rotation_key_var->keys;
 
     // b is a vector of Polynomials so first dimension is the number of
@@ -732,7 +732,7 @@ class MatMulPtCtOp : public OpKernel {
                     shift - 1 <
                         static_cast<int>(rot_keys.size()),  // Skip key 0.
                     InvalidArgument("No key for shift of '", shift, "'"));
-                RotationKey const* k = &rot_keys[shift - 1];  // Skip key 0.
+                RotationKey const* k = rot_keys[shift].get();
 
                 // Rotate by the shift.
                 OP_REQUIRES_VALUE(auto ct_sub, op_ctx,

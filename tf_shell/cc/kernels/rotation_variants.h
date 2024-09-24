@@ -33,9 +33,6 @@ class RotationKeyVariant {
  public:
   RotationKeyVariant() {}
 
-  // Create with gadget first, then create and add keys.
-  RotationKeyVariant(Gadget gadget) : gadget(gadget) {}
-
   static inline char const kTypeName[] = "ShellRotationKeyVariant";
 
   std::string TypeName() const { return kTypeName; }
@@ -48,34 +45,10 @@ class RotationKeyVariant {
 
   std::string DebugString() const { return "ShellRotationKeyVariant"; }
 
-  Gadget gadget;
-  std::vector<RotationKey> keys;
-};
-
-template <typename T>
-class SingleRotationKeyVariant {
-  using ModularInt = rlwe::MontgomeryInt<T>;
-  using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
-
- public:
-  SingleRotationKeyVariant() {}
-
-  // Create with gadget first, then create and add keys.
-  SingleRotationKeyVariant(RotationKey key) : key(key) {}
-
-  static inline char const kTypeName[] = "SingleRotationKeyVariant";
-
-  std::string TypeName() const { return kTypeName; }
-
-  // Individual keys are never sent over the network.
-  void Encode(VariantTensorData* data) const {};
-
-  // Individual keys are never sent over the network.
-  bool Decode(VariantTensorData const& data) { return false; };
-
-  std::string DebugString() const { return "SingleRotationKeyVariant"; }
-
-  RotationKey key;
+  // Each key holds a raw pointer to gadget. Use a smart pointer to the gadget
+  // to help with copy semantics.
+  std::shared_ptr<Gadget> gadget;
+  std::vector<std::shared_ptr<RotationKey>> keys;
 };
 
 template <typename T>
