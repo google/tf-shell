@@ -64,7 +64,8 @@ def get_bounds_for_n_adds(test_context, num_adds):
     """Returns a safe range for plaintext values when doing a given number of
     additions."""
     dtype = test_context.plaintext_dtype
-    plaintext_modulus = test_context.shell_context.plaintext_modulus
+    plaintext_modulus = tf.cast(test_context.shell_context.plaintext_modulus, float)
+    num_adds = math.ceil(num_adds)
     scaling_factor = test_context.shell_context.scaling_factor
 
     # Make sure not to exceed the range of the dtype.
@@ -104,6 +105,8 @@ def get_bounds_for_n_muls(test_context, num_muls):
     plaintext modulus or the datatype."""
     dtype = test_context.plaintext_dtype
     plaintext_modulus = test_context.shell_context.plaintext_modulus
+    plaintext_modulus = tf.cast(test_context.shell_context.plaintext_modulus, float)
+    num_muls = math.ceil(num_muls)
 
     # Each multiplication doubles the number of scaling factors in the result.
     max_scaling_factor = test_context.shell_context.scaling_factor ** (2**num_muls)

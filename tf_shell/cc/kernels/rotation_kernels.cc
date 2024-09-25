@@ -61,11 +61,19 @@ class RotationKeyGenOp : public OpKernel {
     // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
-
+    OP_REQUIRES(
+        op_ctx, secret_key_var != nullptr,
+        InvalidArgument("SymmetricKeyVariant did not unwrap successfully."));
+    OP_REQUIRES_OK(op_ctx,
+                   const_cast<SymmetricKeyVariant<T>*>(secret_key_var)
+                       ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                         shell_ctx_var->noise_variance_));
     std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     // Allocate the output tensor which is a scalar containing the rotation key.
@@ -144,9 +152,14 @@ class RollOp : public OpKernel {
     // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
+
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
-
+    OP_REQUIRES(
+        op_ctx, rotation_key_var != nullptr,
+        InvalidArgument("RotationKeyVariant did not unwrap successfully."));
     std::vector<std::shared_ptr<RotationKey>> const& keys =
         rotation_key_var->keys;
 
@@ -218,9 +231,13 @@ class RollOp : public OpKernel {
                             ct.Substitute(key->SubstitutionPower()));
           OP_REQUIRES_VALUE(auto ct_rot, op_ctx, key->ApplyTo(ct_sub));
 
-          SymmetricCtVariant ct_out_var(std::move(ct_rot),
-                                        shell_ctx_var->ct_context_,
-                                        shell_ctx_var->error_params_);
+          // Wrap the result in a SymmetricCtVariant and store it in the output.
+          // The output ct will hold raw pointers to moduli stored in the
+          // input's context. Ensure the output ciphertext Variant wrapper holds
+          // smart pointers to the input's context to prevent premature deletion
+          // of the moduli
+          SymmetricCtVariant ct_out_var(std::move(ct_rot), ct_var->ct_context,
+                                        ct_var->error_params);
           flat_output(i) = std::move(ct_out_var);
         }
       }
@@ -254,16 +271,20 @@ class ReduceSumByRotationOp : public OpKernel {
     // Recover the inputs.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
 
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, op_ctx,
                       GetVariant<RotationKeyVariant<T>>(op_ctx, 1));
-
+    OP_REQUIRES(
+        op_ctx, rotation_key_var != nullptr,
+        InvalidArgument("RotationKeyVariant did not unwrap successfully."));
     std::vector<std::shared_ptr<RotationKey>> const& keys =
         rotation_key_var->keys;
+
     Tensor const& value = op_ctx->input(2);
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
-
     auto flat_value = value.flat<Variant>();
 
     // Recover num_slots from first ciphertext.
@@ -308,10 +329,8 @@ class ReduceSumByRotationOp : public OpKernel {
         // ciphertext separately. So the max rotation is by half the number
         // of slots.
         for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
-          OP_REQUIRES(
-              op_ctx,
-              shift < static_cast<int64>(keys.size()),
-              InvalidArgument("No key for shift of '", shift, "'"));
+          OP_REQUIRES(op_ctx, shift < static_cast<int64>(keys.size()),
+                      InvalidArgument("No key for shift of '", shift, "'"));
           auto key = keys[shift];
 
           // Rotate by the shift.
@@ -323,9 +342,13 @@ class ReduceSumByRotationOp : public OpKernel {
           OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct_rot));
         }
 
-        SymmetricCtVariant ct_out_var(std::move(sum),
-                                      shell_ctx_var->ct_context_,
-                                      shell_ctx_var->error_params_);
+        // Wrap the result in a SymmetricCtVariant and store it in the output.
+        // The output ct will hold raw pointers to moduli stored in the  input's
+        // context. Ensure the output ciphertext Variant wrapper holds smart
+        // pointers to the input's context to prevent premature deletion of the
+        // moduli
+        SymmetricCtVariant ct_out_var(std::move(sum), ct_var->ct_context,
+                                      ct_var->error_params);
         flat_output(i) = std::move(ct_out_var);
       }
     };
@@ -368,6 +391,8 @@ class ReduceSumOp : public OpKernel {
     // Recover the inputs.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
 
     Tensor const& value = op_ctx->input(1);
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
@@ -457,9 +482,13 @@ class ReduceSumOp : public OpKernel {
             OP_REQUIRES_OK(op_ctx, sum.AddInPlace(ct));
           }
 
-          // Store in the output.
-          SymmetricCtVariant res_var(std::move(sum), shell_ctx_var->ct_context_,
-                                     shell_ctx_var->error_params_);
+          // Wrap the result in a SymmetricCtVariant and store it in the output.
+          // The output ct will hold raw pointers to moduli stored in the
+          // input's context. Ensure the output ciphertext Variant wrapper holds
+          // smart pointers to the input's context to prevent premature deletion
+          // of the moduli
+          SymmetricCtVariant res_var(std::move(sum), first_ct_var->ct_context,
+                                     first_ct_var->error_params);
           flat_output(i, j) = std::move(res_var);
         }
 

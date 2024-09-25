@@ -127,20 +127,72 @@ def long_arith_with_scaling(cleartext_a, cleartext_b, use_auto_context=False):
     return result
 
 
-# @tf.function
-# def ct_roll(cleartext_a, cleartext_b, use_auto_context=False):
-#     shell_context = (
-#         gen_autocontext(test_values_num_bits)
-#         if use_auto_context
-#         else gen_context()
-#     )
-#     key = tf_shell.create_key64(shell_context)
-#     a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
-#     b = tf_shell.to_shell_plaintext(cleartext_b, shell_context)
+@tf.function
+def reduce_sum_axis_1(cleartext_a, cleartext_b, use_auto_context=False):
+    shell_context = (
+        gen_autocontext(test_values_num_bits + cleartext_a.shape[1].bit_length(), 52)
+        if use_auto_context
+        else gen_context()
+    )
+    key = tf_shell.create_key64(shell_context)
+    a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
 
-#     intermediate = (a * b) + b + a
-#     result = tf_shell.to_tensorflow(intermediate, key)
-#     return result
+    intermediate = tf_shell.reduce_sum(a, axis=1)
+
+    result = tf_shell.to_tensorflow(intermediate, key)
+    return result
+
+
+@tf.function
+def reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
+    shell_context = (
+        gen_autocontext(test_values_num_bits + cleartext_a.shape[0].bit_length(), 52)
+        if use_auto_context
+        else gen_context()
+    )
+    key = tf_shell.create_key64(shell_context)
+    public_rotation_key = tf_shell.create_rotation_key64(shell_context, key)
+    a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
+
+    intermediate = tf_shell.reduce_sum(a, axis=0, rotation_key=public_rotation_key)
+
+    result = tf_shell.to_tensorflow(intermediate, key)
+    return result
+
+
+@tf.function
+def fast_reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
+    shell_context = (
+        gen_autocontext(
+            test_values_num_bits + cleartext_a.shape[0].bit_length() + 14, 52
+        )
+        if use_auto_context
+        else gen_context()
+    )
+    key = tf_shell.create_key64(shell_context)
+    secret_fast_rotation_key = tf_shell.create_fast_rotation_key64(shell_context, key)
+
+    a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
+
+    intermediate = tf_shell.fast_reduce_sum(a)
+
+    result = tf_shell.to_tensorflow(intermediate, secret_fast_rotation_key)
+    return result
+
+
+@tf.function
+def ct_roll(cleartext_a, cleartext_b, use_auto_context=False):
+    shell_context = (
+        gen_autocontext(test_values_num_bits, 52) if use_auto_context else gen_context()
+    )
+    key = tf_shell.create_key64(shell_context)
+    public_rotation_key = tf_shell.create_rotation_key64(shell_context, key)
+    a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
+
+    intermediate = tf_shell.roll(a, 5, rotation_key=public_rotation_key)
+
+    result = tf_shell.to_tensorflow(intermediate, key)
+    return result
 
 
 def count_ops(graph, op_name):
@@ -201,12 +253,32 @@ class TestAutoParamOptimizer(tf.test.TestCase):
 
         # Check the optimized graph still computes the correct value.
         eager_c = tf_func(a, b, False)
-        padded_c = tf.pad(
-            eager_c,
-            [[0, c.shape[0] - eager_c.shape[0]]]
-            + [[0, 0] for _ in range(len(c.shape) - 1)],
-        )
-        self.assertAllEqual(c, padded_c)
+
+        # c and eager c may be different dimensions due to the number of slots
+        # chosen by the optimizer. Match the dimensions before comparing the
+        # values.
+        if tf_func == reduce_sum_axis_0 or tf_func == fast_reduce_sum_axis_0:
+            # Concatenate the first and middle slots of each value before comparing.
+            eager_c = tf.concat([eager_c[0], eager_c[eager_c.shape[0] // 2]], axis=0)
+            c = tf.concat([c[0], c[c.shape[0] // 2]], axis=0)
+
+        else:
+            # Pad the first (slotting) dimension of the outputs to the same value.
+            def pad_first_dim(tensor, first_dim):
+                if first_dim > tensor.shape[0]:
+                    return tf.pad(
+                        tensor,
+                        [[0, first_dim - tensor.shape[0]]]
+                        + [[0, 0] for _ in range(len(tensor.shape) - 1)],
+                    )
+                else:
+                    return tensor
+
+            max_fist_dim = tf.maximum(c.shape[0], eager_c.shape[0])
+            eager_c = pad_first_dim(eager_c, max_fist_dim)
+            c = pad_first_dim(c, max_fist_dim)
+
+        self.assertAllEqual(c, eager_c)
 
     def test_func(self):
         with self.subTest(f"Optimizer for func ct_ct_add."):
@@ -226,6 +298,18 @@ class TestAutoParamOptimizer(tf.test.TestCase):
 
         with self.subTest(f"Optimizer for func long_arith_with_scaling."):
             self._test_func(long_arith_with_scaling)
+
+        with self.subTest(f"Optimizer for reduce sum axis 1."):
+            self._test_func(reduce_sum_axis_1)
+
+        with self.subTest(f"Optimizer for reduce sum axis 0."):
+            self._test_func(reduce_sum_axis_0)
+
+        with self.subTest(f"Optimizer for fast reduce sum axis 0."):
+            self._test_func(fast_reduce_sum_axis_0)
+
+        with self.subTest(f"Optimizer for roll."):
+            self._test_func(ct_roll)
 
 
 class TestAutoParamEnableOptimizer(tf.test.TestCase):

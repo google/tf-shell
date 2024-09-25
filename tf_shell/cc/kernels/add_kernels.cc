@@ -144,8 +144,11 @@ class AddCtCtOp : public OpKernel {
       ShellAddSub add_or_sub;
       OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx, add_or_sub(ct_a, ct_b));
 
-      SymmetricCtVariant ct_c_var(std::move(ct_c), shell_ctx_var->ct_context_,
-                                  shell_ctx_var->error_params_);
+      // SHELL's addition preserves moduli pointers of the first input.
+      // Ensure the output holds smart pointers to the input's context to
+      // prevent premature deletion of the moduli.
+      SymmetricCtVariant ct_c_var(std::move(ct_c), ct_a_var->ct_context,
+                                  ct_a_var->error_params);
       flat_output(i) = std::move(ct_c_var);
     }
   }
@@ -210,8 +213,12 @@ class AddCtPtOp : public OpKernel {
       ShellAddSub add_or_sub;
       OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx, add_or_sub(ct_a, pt_b));
 
-      SymmetricCtVariant ct_c_var(std::move(ct_c), shell_ctx_var->ct_context_,
-                                  shell_ctx_var->error_params_);
+      // The output ct will hold raw pointers to moduli stored in the  input's
+      // context. Ensure the output ciphertext Variant wrapper holds smart
+      // pointers to the input's context to prevent premature deletion of the
+      // moduli
+      SymmetricCtVariant ct_c_var(std::move(ct_c), ct_a_var->ct_context,
+                                  ct_a_var->error_params);
       flat_output(i) = std::move(ct_c_var);
     }
   }
@@ -324,9 +331,10 @@ class NegCtOp : public OpKernel {
 
       OP_REQUIRES_VALUE(auto ct_out, op_ctx, ct_a.Negate());
 
-      SymmetricCtVariant ct_out_var(std::move(ct_out),
-                                    shell_ctx_var->ct_context_,
-                                    shell_ctx_var->error_params_);
+      // The output ct will hold smart pointers to the input's context
+      // to prevent premature deletion of the moduli.
+      SymmetricCtVariant ct_out_var(std::move(ct_out), ct_a_var->ct_context,
+                                    ct_a_var->error_params);
       flat_output(i) = std::move(ct_out_var);
     }
   }

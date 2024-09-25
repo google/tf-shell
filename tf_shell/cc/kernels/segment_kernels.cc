@@ -71,14 +71,14 @@ namespace functor {
 template <typename Device, typename T, typename Index, typename InitialValueF,
           typename ReductionF>
 struct UnsortedSegmentFunctor {
-  void operator()(
-      OpKernelContext* ctx, ContextVariant<T> const* shell_ctx_var,
-      std::vector<std::shared_ptr<rlwe::RnsGaloisKey<rlwe::MontgomeryInt<T>>>> const& keys,
-      TensorShape const& segment_ids_shape,
-      typename TTypes<Index, 2>::ConstTensor segment_ids,
-      typename TTypes<Variant, 2>::ConstTensor data,
-      typename TTypes<Variant, 2>::Tensor unreduced_output,
-      typename TTypes<Variant, 3>::Tensor output);
+  void operator()(OpKernelContext* ctx, ContextVariant<T> const* shell_ctx_var,
+                  std::vector<std::shared_ptr<
+                      rlwe::RnsGaloisKey<rlwe::MontgomeryInt<T>>>> const& keys,
+                  TensorShape const& segment_ids_shape,
+                  typename TTypes<Index, 2>::ConstTensor segment_ids,
+                  typename TTypes<Variant, 2>::ConstTensor data,
+                  typename TTypes<Variant, 2>::Tensor unreduced_output,
+                  typename TTypes<Variant, 3>::Tensor output);
 };
 
 template <typename T>
@@ -262,9 +262,13 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
             // No need to lazy decode the output_var, it was created in this op.
 
             if (output_var->ct.Len() == 0) {
-              // Output has not been set yet.
-              SymmetricCtVariant var(masked_data_ct, shell_ctx_var->ct_context_,
-                                     shell_ctx_var->error_params_);
+              // Output has not been set yet, wrap the result in a
+              // SymmetricCtVariant and store. The output ct will hold raw
+              // pointers to moduli stored in the  input's context. Ensure the
+              // output ciphertext Variant wrapper holds smart pointers to the
+              // input's context to prevent premature deletion of the moduli.
+              SymmetricCtVariant var(masked_data_ct, data_var->ct_context,
+                                     data_var->error_params);
               unreduced_output((int64_t)j, chip) = std::move(var);
             } else {
               OP_REQUIRES_OK(ctx, reduction(masked_data_ct, output_var->ct));

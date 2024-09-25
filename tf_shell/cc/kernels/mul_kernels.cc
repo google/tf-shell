@@ -102,8 +102,12 @@ class MulCtCtOp : public OpKernel {
 
       OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx, ct_a * ct_b);
 
-      SymmetricCtVariant ct_c_var(std::move(ct_c), shell_ctx_var->ct_context_,
-                                  shell_ctx_var->error_params_);
+      // Wrap the result in a SymmetricCtVariant and store it in the output.
+      // SHELL's multiplication preserves moduli pointers of the first input.
+      // Ensure the output holds smart pointers to the input's context to
+      // prevent premature deletion of the moduli.
+      SymmetricCtVariant ct_c_var(std::move(ct_c), ct_a_var->ct_context,
+                                  ct_a_var->error_params);
       flat_output(i) = std::move(ct_c_var);
     }
   }
@@ -182,8 +186,13 @@ class MulCtPtOp : public OpKernel {
         OP_REQUIRES_VALUE(SymmetricCt ct_c, op_ctx,
                           ct_a * pt_b);  // shell absorb operation
 
-        SymmetricCtVariant ct_c_var(std::move(ct_c), shell_ctx_var->ct_context_,
-                                    shell_ctx_var->error_params_);
+        // Wrap the result in a SymmetricCtVariant and store it in the output.
+        // The output ct will hold raw pointers to moduli stored in the  input's
+        // context. Ensure the output ciphertext Variant wrapper holds smart
+        // pointers to the input's context to prevent premature deletion of the
+        // moduli
+        SymmetricCtVariant ct_c_var(std::move(ct_c), ct_a_var->ct_context,
+                                    ct_a_var->error_params);
         flat_output(i) = std::move(ct_c_var);
       }
     };
@@ -261,8 +270,8 @@ class MulShellTfScalarOp : public OpKernel {
         OP_REQUIRES_VALUE(RnsPolynomial result, op_ctx,
                           poly.Mul(wrapped_b, shell_ctx->MainPrimeModuli()));
 
-        CtOrPolyVariant result_var(std::move(result),
-                                   shell_ctx_var->ct_context_);
+        PolynomialVariant<T> result_var(std::move(result),
+                                        shell_ctx_var->ct_context_);
         flat_output(i) = std::move(result_var);
       } else if constexpr (std::is_same<CtOrPolyVariant,
                                         SymmetricCtVariant<T>>::value) {
@@ -275,9 +284,13 @@ class MulShellTfScalarOp : public OpKernel {
         OP_REQUIRES_VALUE(SymmetricCt result, op_ctx,
                           ct * wrapped_b);  // shell aborb operation
 
+        // The output ct will hold raw pointers to moduli stored in the  input's
+        // context. Ensure the output ciphertext Variant wrapper holds smart
+        // pointers to the input's context to prevent premature deletion of the
+        // moduli
         SymmetricCtVariant result_var(std::move(result),
-                                      shell_ctx_var->ct_context_,
-                                      shell_ctx_var->error_params_);
+                                      ct_or_pt_var->ct_context,
+                                      ct_or_pt_var->error_params);
         flat_output(i) = std::move(result_var);
       }
     }
@@ -492,9 +505,8 @@ class MatMulCtPtOp : public OpKernel {
           OP_REQUIRES_OK(op_ctx, ct_result.AddInPlace(scaled));
         }
 
-        SymmetricCtVariant ct_result_var(std::move(ct_result),
-                                         shell_ctx_var->ct_context_,
-                                         shell_ctx_var->error_params_);
+        SymmetricCtVariant ct_result_var(
+            std::move(ct_result), ct_a_var->ct_context, ct_a_var->error_params);
         flat_output(i) = std::move(ct_result_var);
       }
     };
@@ -554,10 +566,6 @@ class MatMulPtCtOp : public OpKernel {
     auto const& sub_powers = shell_ctx_var->substitution_powers_;
     OP_REQUIRES(op_ctx, shell_ctx != nullptr,
                 InvalidArgument("Shell context object is empty."));
-    auto const& main_moduli = shell_ctx->MainPrimeModuli();
-    std::vector<Modulus const*> main_moduli_vector;
-    main_moduli_vector.assign(main_moduli.begin(), main_moduli.end());
-
     Encoder const* encoder = shell_ctx_var->encoder_.get();
     // TODO if debug
     OP_REQUIRES(op_ctx, encoder != nullptr,
@@ -622,6 +630,22 @@ class MatMulPtCtOp : public OpKernel {
     auto flat_b = b.flat<Variant>();
     auto flat_output = output->shaped<Variant, 3>(
         {num_pt_outer_dims, num_pt_inner_rows, num_ct_cols});
+
+    // Extract the first ciphertext in b to recover the moduli. This is used
+    // to create new ciphertexts after fast rotations and note the moduli must
+    // come from the ciphertext, not the shell context, to ensure smart pointers
+    // are properly preserved.
+    SymmetricCtVariant<T> const* first_ct_b_var =
+        std::move(flat_b(0).get<SymmetricCtVariant<T>>());
+    OP_REQUIRES(op_ctx, first_ct_b_var != nullptr,
+                InvalidArgument("SymmetricCtVariant at flat index: 0",
+                                " for input b did not unwrap successfully."));
+    OP_REQUIRES_OK(op_ctx, const_cast<SymmetricCtVariant<T>*>(first_ct_b_var)
+                               ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                                 shell_ctx_var->error_params_));
+    auto const& main_moduli = first_ct_b_var->ct.Moduli();
+    std::vector<Modulus const*> main_moduli_vector;
+    main_moduli_vector.assign(main_moduli.begin(), main_moduli.end());
 
     // Setup constants used in parallelizing the computation.
     auto thread_pool =
@@ -721,9 +745,11 @@ class MatMulPtCtOp : public OpKernel {
               };
 
               // Recreate the ciphertext with the new components.
-              ct_result = SymmetricCt{
-                  std::move(components), main_moduli_vector, ct_b.PowerOfS(),
-                  ct_b.Error() * ct_b.LogN(), ct_b.ErrorParams()};
+              // TODO(james-choncholas): Noise estimation is not correct.
+              ct_result = SymmetricCt{std::move(components), main_moduli_vector,
+                                      ct_result.PowerOfS(),
+                                      ct_result.Error() * ct_result.LogN(),
+                                      ct_result.ErrorParams()};
 
             } else {
               for (int shift = 1; shift < num_slots / 2; shift <<= 1) {
@@ -749,8 +775,8 @@ class MatMulPtCtOp : public OpKernel {
             // the result of the reduce sum operation. Store in the output
             // tensor.
             SymmetricCtVariant<T> ct_result_var(std::move(ct_result),
-                                                shell_ctx_var->ct_context_,
-                                                shell_ctx_var->error_params_);
+                                                ct_b_var->ct_context,
+                                                ct_b_var->error_params);
             flat_output(outer, i, ct_col) = std::move(ct_result_var);
           }
         }

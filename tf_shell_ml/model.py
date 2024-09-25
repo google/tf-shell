@@ -47,7 +47,7 @@ class TfShellSequential(keras.Sequential):
         self.use_encryption = use_encryption
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
-        self.clipping_threshold = 100000
+        self.clipping_threshold = 10000000
         self.mpc_bit_width = 16
 
     def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
@@ -91,9 +91,6 @@ class TfShellSequential(keras.Sequential):
             else:
                 enc_y = y
                 public_rotation_key = None
-            tf.print("ran labels party encrypt")
-
-        self.mpc_scaling_factor = shell_context.scaling_factor
 
         with tf.device(self.features_party_dev):
             # Forward pass in plaintext.
@@ -127,8 +124,6 @@ class TfShellSequential(keras.Sequential):
                 (g + m) for g, m in zip(reversed(dJ_dw), reversed(mask))
             ]
 
-            tf.print("ran features party backprop")
-
         with tf.device(self.labels_party_dev):
             if self.use_encryption:
                 # Decrypt the weight gradients.
@@ -158,26 +153,22 @@ class TfShellSequential(keras.Sequential):
 
             masked_grads = [tf.reshape(mg, [-1]) for mg in masked_grads]
             masked_grads = tf.concat(masked_grads, axis=0)
-            tf.print("  half way throuh")
 
             # Sample the noise for differential privacy.
             # TODO: set stddev based on clipping threshold.
             noise = tf.random.normal(tf.shape(masked_grads), stddev=1)
-            tf.print("  sampled noise")
 
             # After decryption, the mask has dtype float. Encode it back to int
             # with shells scaling factor for use in the clip and noise protocol.
             # Do the same for the noise.
             masked_grads = tf.cast(
-                tf.round(masked_grads * self.mpc_scaling_factor), tf.int64
+                tf.round(masked_grads * shell_context.scaling_factor), tf.int64
             )
-            noise = tf.cast(tf.round(noise * self.mpc_scaling_factor), tf.int64)
-            tf.print("  casted to int")
+            noise = tf.cast(tf.round(noise * shell_context.scaling_factor), tf.int64)
 
             # If running features party and labels party on the same node,
             # skip the MPC protocol.
             # if self.labels_party_dev != self.features_party_dev:
-            #     tf.print("running labels party decrypt")
             #     # Start labels party MPC protocol.
             #     tf_shell.clip_and_noise_labels_party(
             #         masked_grads,
@@ -187,14 +178,13 @@ class TfShellSequential(keras.Sequential):
             #         StartPort=5555,
             #         FeaturePartyHost="127.0.0.1",
             #     )
-            tf.print("ran labels party decrypt")
 
         with tf.device(self.features_party_dev):
             # Encode the mask with the scaling factor for use in the clip and
             # noise protocol.
             mask = [tf.reshape(m, [-1]) for m in mask]
             mask = tf.concat(mask, axis=0)
-            mask = tf.cast(tf.round(mask * self.mpc_scaling_factor), tf.int64)
+            # mask = tf.cast(tf.round(mask * shell_context.scaling_factor, tf.int64)
 
             # If running features party and labels party on the same node,
             # skip the MPC protocol and clip and noise the gradients directly.
@@ -207,29 +197,31 @@ class TfShellSequential(keras.Sequential):
             #     )
             # else:
             unmasked_grads = masked_grads - mask
-            clipped_noised_grads = tf.cond(
-                tf.reduce_sum(unmasked_grads * unmasked_grads)
-                > self.clipping_threshold,
-                lambda: self.clipping_threshold + noise,
-                lambda: unmasked_grads + noise,
-            )
+            # clipped_noised_grads = tf.cond(
+            #     tf.reduce_sum(unmasked_grads * unmasked_grads)
+            #     > self.clipping_threshold,
+            #     lambda: self.clipping_threshold + noise,
+            #     lambda: unmasked_grads + noise,
+            # )
+            # clipped_noised_grads = unmasked_grads + noise
+            clipped_noised_grads = unmasked_grads
 
             # Emulate overflow of 2's complement addition between `Bitwidth`
             # integers from when grad + noise is computed under the MPC
             # protocol. Note any overflow in the masking / unmasking cancels
             # out.
-            min_val = -(2 ** (self.mpc_bit_width - 1))
-            max_val = 2 ** (self.mpc_bit_width - 1) - 1
-            clipped_noised_grads = tf.where(
-                clipped_noised_grads > max_val,
-                min_val + (clipped_noised_grads - max_val),
-                clipped_noised_grads,
-            )
+            # min_val = -(2 ** (self.mpc_bit_width - 1))
+            # max_val = 2 ** (self.mpc_bit_width - 1) - 1
+            # clipped_noised_grads = tf.where(
+            #     clipped_noised_grads > max_val,
+            #     min_val + (clipped_noised_grads - max_val),
+            #     clipped_noised_grads,
+            # )
             # end else
 
             # Decode the clipped and noised gradients.
             clipped_noised_grads = (
-                tf.cast(clipped_noised_grads, float) / self.mpc_scaling_factor
+                tf.cast(clipped_noised_grads, float) / shell_context.scaling_factor
             )
 
             # Reover the original shapes of the inputs
@@ -243,9 +235,7 @@ class TfShellSequential(keras.Sequential):
                 weights += l.weights
 
             # Apply the gradients to the model.
-            tf.print("  clipped and noised grads", clipped_noised_grads)
             self.optimizer.apply_gradients(zip(clipped_noised_grads, weights))
-            tf.print("ran features party apply")
 
         # Do not update metrics during secure training.
         if not self.use_encryption:

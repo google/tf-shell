@@ -15,7 +15,7 @@ namespace grappler {
 
 namespace {
 
-constexpr bool const debug = false;
+constexpr bool const debug = true;
 
 bool IsReplaceableOp(NodeDef const& node) {
   return IsAddPtPt(node) || IsSubPtPt(node) || IsMulPtPt(node) || IsNegPt(node);

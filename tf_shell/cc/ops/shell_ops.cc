@@ -40,6 +40,9 @@ REGISTER_OP("ContextImport64")
     .Input("seed: string")
     .Output("shell_context: variant")
     .Output("new_log_n: uint64")
+    .Output("new_qs: uint64")
+    .Output("new_ps: uint64")
+    .Output("new_pt_modulus: uint64")
     .SetShapeFn(MultiScalarOut<2>);
 
 REGISTER_OP("AutoShellContext64")
@@ -49,6 +52,9 @@ REGISTER_OP("AutoShellContext64")
     .Input("noise_variance: uint64")
     .Output("shell_context: variant")
     .Output("new_log_n: uint64")
+    .Output("new_qs: uint64")
+    .Output("new_ps: uint64")
+    .Output("new_pt_modulus: uint64")
     .SetShapeFn(MultiScalarOut<2>);
 
 REGISTER_OP("PolynomialImport64")

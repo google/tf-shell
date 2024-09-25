@@ -464,12 +464,12 @@ Status EstimateNodeNoise(
     rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
     *this_noise = std::max(noise_a, rot_noise);
   } else if (IsReduceSum(*node_def)) {
-    auto const* axis_node_def =
-        node_view->GetRegularFanin(2).node_view()->node();
+    // auto const* axis_node_def =
+    //     node_view->GetRegularFanin(2).node_view()->node();
 
-    uint64_t axis = 0;
-    TF_RETURN_IF_ERROR(
-        GetScalarConstValue<uint64_t, DT_UINT64>(*axis_node_def, &axis));
+    // uint64_t axis = 0;
+    // TF_RETURN_IF_ERROR(
+    //     GetScalarConstValue<uint64_t, DT_UINT64>(*axis_node_def, &axis));
     *this_noise = noise_a;  // TODO depends on axis attribute and shape.
   }
 

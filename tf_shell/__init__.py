@@ -37,8 +37,6 @@ from tf_shell.python.shell_context import create_autocontext64
 
 from tf_shell.python.shell_key import ShellKey64
 from tf_shell.python.shell_key import create_key64
-from tf_shell.python.shell_key import mod_reduce_key64
-
 from tf_shell.python.shell_key import ShellRotationKey64
 from tf_shell.python.shell_key import create_rotation_key64
 from tf_shell.python.shell_key import ShellFastRotationKey64

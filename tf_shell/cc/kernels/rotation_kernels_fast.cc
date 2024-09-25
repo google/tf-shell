@@ -84,11 +84,19 @@ class FastRotationKeyGenOp : public OpKernel {
     // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
 
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
-
+    OP_REQUIRES(
+        op_ctx, secret_key_var != nullptr,
+        InvalidArgument("SymmetricKeyVariant did not unwrap successfully."));
+    OP_REQUIRES_OK(op_ctx,
+                   const_cast<SymmetricKeyVariant<T>*>(secret_key_var)
+                       ->MaybeLazyDecode(shell_ctx_var->ct_context_,
+                                         shell_ctx_var->noise_variance_));
     std::shared_ptr<Key> const secret_key = secret_key_var->key;
 
     // Allocate the output tensor which is a scalar containing the fast rotation
@@ -151,6 +159,8 @@ class FastReduceSumByRotationOp : public OpKernel {
   void Compute(OpKernelContext* op_ctx) override {
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
     auto const& sub_powers = shell_ctx_var->substitution_powers_;
 
     // Recover the input tensor.
@@ -159,7 +169,7 @@ class FastReduceSumByRotationOp : public OpKernel {
                 InvalidArgument("Cannot fast_reduce_sum an empty ciphertext."));
     auto flat_value = value.flat<Variant>();
 
-    // Recover num_slots from first ciphertext.
+    // Recover num_slots and moduli from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
         std::move(flat_value(0).get<SymmetricCtVariant<T>>());
     OP_REQUIRES(
@@ -229,9 +239,8 @@ class FastReduceSumByRotationOp : public OpKernel {
 
         SymmetricCt ct_out(std::move(components), moduli_vector, ct.PowerOfS(),
                            ct.Error() * ct.LogN(), ct.ErrorParams());
-        SymmetricCtVariant ct_out_var(std::move(ct_out),
-                                      shell_ctx_var->ct_context_,
-                                      shell_ctx_var->error_params_);
+        SymmetricCtVariant ct_out_var(std::move(ct_out), ct_var->ct_context,
+                                      ct_var->error_params);
         flat_output(i) = std::move(ct_out_var);
       }
     };

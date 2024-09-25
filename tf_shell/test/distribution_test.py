@@ -16,6 +16,7 @@
 import tensorflow as tf
 import tf_shell
 import os
+import test_utils
 
 job_prefix = "tfshell"
 features_party_job = f"{job_prefix}features"
@@ -64,6 +65,7 @@ class TestDistributed(tf.test.TestCase):
 
         with tf.device(labels_party_dev):
             key = tf_shell.create_key64(shell_context)
+            fast_rotation_key = tf_shell.create_fast_rotation_key64(shell_context, key)
             a = tf.random.uniform(
                 [shell_context.num_slots, 3], dtype=tf.float32, maxval=10
             )
@@ -85,14 +87,19 @@ class TestDistributed(tf.test.TestCase):
         # pt_d is sent between the parties.
         with tf.device(features_party_dev):
             enc_e = enc_a + pt_d
+            enc_f = tf_shell.fast_reduce_sum(enc_e)
 
         # enc_c is sent between the parties.
         with tf.device(labels_party_dev):
             c = tf_shell.to_tensorflow(enc_c, key)
             e = tf_shell.to_tensorflow(enc_e, key)
+            f = tf_shell.to_tensorflow(enc_f, fast_rotation_key)
 
         self.assertAllClose(c, a + b, atol=1)
         self.assertAllClose(e, a + d, atol=1)
+        self.assertAllClose(
+            f, test_utils.plaintext_reduce_sum_axis_0(a + d), atol=1, rtol=1e-2
+        )
 
 
 if __name__ == "__main__":

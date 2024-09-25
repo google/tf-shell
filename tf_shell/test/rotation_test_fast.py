@@ -67,16 +67,9 @@ class TestShellTensorFastRotation(tf.test.TestCase):
 
     def _test_fast_reduce_sum_axis_0(self, test_context):
         # reduce_sum across axis 0 requires adding over all the slots.
-        try:
-            tftensor = test_utils.uniform_for_n_adds(
-                test_context, num_adds=test_context.shell_context.num_slots / 2
-            )
-        except Exception as e:
-            print(
-                f"Note: Skipping test fast_reduce_sum_axis_0 with context {test_context}. Not enough precision to support this test."
-            )
-            print(e)
-            return
+        tftensor = test_utils.uniform_for_n_adds(
+            test_context, num_adds=test_context.shell_context.num_slots / 2
+        )
 
         s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
         enc = tf_shell.to_encrypted(s, test_context.key)
@@ -117,7 +110,6 @@ class TestShellTensorFastRotation(tf.test.TestCase):
 
     def test_no_fast_reduce_sum_degree_two_ct(self):
         test_context = self.test_contexts[0]
-        print(f"test context num slots {test_context.shell_context.num_slots}")
         tftensor = tf.ones(
             [test_context.shell_context.num_slots, 1],
             dtype=test_context.plaintext_dtype,

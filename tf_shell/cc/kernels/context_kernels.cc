@@ -51,19 +51,35 @@ class ContextImportOp : public OpKernel {
     OP_REQUIRES_VALUE(tstring t_seed, op_ctx, GetScalar<tstring>(op_ctx, 5));
     std::string seed(t_seed.c_str());
 
-    // Allocate the output.
+    // Allocate the outputs.
     Tensor* out0;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, TensorShape{}, &out0));
     Tensor* out1;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(1, TensorShape{}, &out1));
+    Tensor* out2;
+    OP_REQUIRES_OK(op_ctx,
+                   op_ctx->allocate_output(2, TensorShape{qs.size()}, &out2));
+    Tensor* out3;
+    OP_REQUIRES_OK(op_ctx,
+                   op_ctx->allocate_output(3, TensorShape{ps.size()}, &out3));
+    Tensor* out4;
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(4, TensorShape{}, &out4));
 
     // Initialize the context variant and store it in the output.
     ContextVariant<T> ctx_variant{};
     OP_REQUIRES_OK(op_ctx, ctx_variant.Initialize(log_n, qs, ps, pt_modulus,
                                                   noise_variance, seed));
-
     out0->scalar<Variant>()() = std::move(ctx_variant);
+
+    // Output other parameters for usage with auto-context.
     out1->scalar<uint64_t>()() = log_n;
+    for (size_t i = 0; i < qs.size(); ++i) {
+      out2->flat<T>()(i) = qs[i];
+    }
+    for (size_t i = 0; i < ps.size(); ++i) {
+      out3->flat<T>()(i) = ps[i];
+    }
+    out4->scalar<T>()() = pt_modulus;
   }
 };
 

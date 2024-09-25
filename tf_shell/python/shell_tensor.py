@@ -18,7 +18,6 @@ import tf_shell.python.shell_ops as shell_ops
 from tf_shell.python.shell_context import ShellContext64
 from tf_shell.python.shell_context import mod_reduce_context64
 from tf_shell.python.shell_key import ShellKey64
-from tf_shell.python.shell_key import mod_reduce_key64
 from tf_shell.python.shell_key import ShellRotationKey64
 from tf_shell.python.shell_key import ShellFastRotationKey64
 
@@ -76,6 +75,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
             _underlying_dtype=self._underlying_dtype,
             _scaling_factor=self._scaling_factor,
             _is_enc=self.is_encrypted,
+            _is_fast_rotated=self._is_fast_rotated,
         )
 
     def __add__(self, other):
@@ -115,6 +115,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=self._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
+                _is_fast_rotated=self._is_fast_rotated or other._is_fast_rotated,
             )
 
         elif isinstance(other, tf.Tensor):
@@ -193,6 +194,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=self._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
+                _is_fast_rotated=self._is_fast_rotated or other._is_fast_rotated,
             )
         elif isinstance(other, tf.Tensor):
             if other.shape == () or other.shape == (1,):
@@ -274,6 +276,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=self._scaling_factor,
                 _is_enc=self._is_enc,
+                _is_fast_rotated=self._is_fast_rotated,
             )
         else:
             # Try to import the unknown operand to a TensorFlow tensor and
@@ -302,6 +305,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
             _underlying_dtype=self._underlying_dtype,
             _scaling_factor=self._scaling_factor,
             _is_enc=self._is_enc,
+            _is_fast_rotated=self._is_fast_rotated,
         )
 
     def __mul__(self, other):
@@ -345,6 +349,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=matched_self._scaling_factor**2,
                 _is_enc=self._is_enc or other._is_enc,
+                _is_fast_rotated=self._is_fast_rotated or other._is_fast_rotated,
             )
         elif isinstance(other, tf.Tensor):
             # Multiplying by a scalar uses a special op which is more efficient
@@ -376,6 +381,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                     _underlying_dtype=self._underlying_dtype,
                     _scaling_factor=self._scaling_factor**2,
                     _is_enc=self._is_enc,
+                    _is_fast_rotated=self._is_fast_rotated,
                 )
 
             else:
@@ -398,6 +404,16 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
     def __rmul__(self, other):
         return self * other
+
+    def _get_generic_shell_tensor_spec(self):
+        return ShellTensor64.Spec(
+            _raw_tensor=tf.TensorSpec(self._raw_tensor.shape, dtype=tf.variant),
+            _context=self._context._get_generic_context_spec(),
+            _underlying_dtype=self._underlying_dtype,
+            _scaling_factor=self._scaling_factor,
+            _is_enc=self._is_enc,
+            _is_fast_rotated=self._is_fast_rotated,
+        )
 
 
 def mod_reduce_tensor64(shell_tensor):
@@ -427,17 +443,32 @@ def mod_reduce_tensor64(shell_tensor):
         _underlying_dtype=shell_tensor._underlying_dtype,
         _scaling_factor=shell_tensor._scaling_factor,
         _is_enc=shell_tensor._is_enc,
+        _is_fast_rotated=shell_tensor._is_fast_rotated,
     )
 
     return reduced_self
 
 
+def _match_moduli_x_to_y(x, target_level):
+    x = tf.while_loop(
+        lambda x_red: x_red._context.level > target_level,
+        lambda x_red: mod_reduce_tensor64(x_red),
+        loop_vars=[x],
+        shape_invariants=[
+            x._get_generic_shell_tensor_spec(),
+        ],
+    )[0]
+    return x
+
+
 def _match_moduli_and_scaling(x, y):
     # Mod switch to the smaller modulus of the two.
-    while x._context.level > y._context.level:
-        x = mod_reduce_tensor64(x)
-    while x._context.level < y._context.level:
-        y = mod_reduce_tensor64(y)
+    x = _match_moduli_x_to_y(x, y._context.level)
+    y = _match_moduli_x_to_y(y, x._context.level)
+    # while x._context.level > y._context.level:
+    #     x = mod_reduce_tensor64(x)
+    # while x._context.level < y._context.level:
+    #     y = mod_reduce_tensor64(y)
 
     # Match the scaling factors.
     # First make sure the scaling factors are compatible.
@@ -514,30 +545,18 @@ def to_shell_plaintext(tensor, context):
         scaled_tensor = _encode_scaling(tensor, context.scaling_factor)
 
         # Pad the tensor to the correct number of slots.
-        if tf.executing_eagerly():
-            # In eager mode, we know the number of slots at graph construction
-            # time and can check the tensor is the correct size.
-            if scaled_tensor.shape[0] > context.num_slots:
-                raise ValueError(
-                    f"Tensor first dimension is too large. Maximum is {context.num_slots}, got {scaled_tensor.shape[0]}."
-                )
-            elif scaled_tensor.shape[0] < context.num_slots:
-                padding = [[0, context.num_slots - scaled_tensor.shape[0]]] + [
-                    [0, 0] for _ in range(len(scaled_tensor.shape) - 1)
-                ]
-                scaled_tensor = tf.pad(scaled_tensor, padding)
-        else:
-            # In graph mode, we may not know the number of slots until runtime.
-            # Try the padding, but if it fails (e.g. the batching dimension is
-            # too large), the user will see the error when the tensor is used in
-            # a SHELL operation at runtime.
-            try:
-                padding = [[0, context.num_slots - scaled_tensor.shape[0]]] + [
-                    [0, 0] for _ in range(len(scaled_tensor.shape) - 1)
-                ]
-                scaled_tensor = tf.pad(scaled_tensor, padding)
-            except:
-                pass
+        first_dim = tf.cast(tf.shape(scaled_tensor)[0], dtype=tf.int64)
+        tf.Assert(
+            context.num_slots >= first_dim,
+            [f"First dimension must be <= {context.num_slots}. Got {first_dim}"],
+        )
+        padding = [[0, 0] for _ in range(len(scaled_tensor.shape))]
+        padding[0][1] = tf.cond(
+            context.num_slots > first_dim,
+            lambda: context.num_slots - first_dim,
+            lambda: tf.constant(0, dtype=tf.int64),
+        )
+        scaled_tensor = tf.pad(scaled_tensor, padding)
 
         return ShellTensor64(
             _raw_tensor=shell_ops.polynomial_import64(
@@ -685,6 +704,7 @@ def roll(x, shift, rotation_key):
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=True,
+            _is_fast_rotated=x._is_fast_rotated,
         )
     elif isinstance(x, tf.Tensor):
         return tf.roll(x, shift)
@@ -718,6 +738,7 @@ def reduce_sum(x, axis, rotation_key=None):
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
                 _is_enc=True,
+                _is_fast_rotated=x._is_fast_rotated,
             )
 
         else:
@@ -729,6 +750,7 @@ def reduce_sum(x, axis, rotation_key=None):
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
                 _is_enc=True,
+                _is_fast_rotated=x._is_fast_rotated,
             )
     elif isinstance(x, tf.Tensor):
         return tf.reduce_sum(x, axis)
@@ -748,6 +770,8 @@ def fast_reduce_sum(x):
         raise ValueError("Input must be ShellTensor.")
     if not x._is_enc:
         raise ValueError("Unencrypted fast_reduce_sum not supported yet.")
+    if x._is_fast_rotated:
+        raise ValueError("Cannot fast_reduce_sum a fast_rotated ShellTensor.")
 
     return ShellTensor64(
         _raw_tensor=shell_ops.fast_reduce_sum_by_rotation64(
@@ -796,6 +820,7 @@ def matmul(x, y, rotation_key=None, fast=False):
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor**2,
             _is_enc=True,
+            _is_fast_rotated=x._is_fast_rotated,
         )
 
     elif isinstance(x, tf.Tensor) and isinstance(y, ShellTensor64):
@@ -808,6 +833,10 @@ def matmul(x, y, rotation_key=None, fast=False):
         scaled_x = _encode_scaling(x, y._scaling_factor)
 
         if fast:
+            if y._is_fast_rotated:
+                raise ValueError(
+                    "A ShellTensor which has been fast-reduced-summed cannot be fast-reduced-summed again."
+                )
             return ShellTensor64(
                 _raw_tensor=shell_ops.fast_mat_mul_pt_ct64(
                     y._context._raw_context,
@@ -841,6 +870,7 @@ def matmul(x, y, rotation_key=None, fast=False):
                 _underlying_dtype=y._underlying_dtype,
                 _scaling_factor=y._scaling_factor**2,
                 _is_enc=True,
+                _is_fast_rotated=y._is_fast_rotated,
             )
 
     elif isinstance(x, ShellTensor64) and isinstance(y, ShellTensor64):
@@ -868,6 +898,7 @@ def expand_dims(x, axis=-1):
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=x._is_enc,
+            _is_fast_rotated=x._is_fast_rotated,
         )
     elif isinstance(x, tf.Tensor):
         return tf.expand_dims(x, axis)
@@ -888,6 +919,7 @@ def reshape(x, shape):
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=x._is_enc,
+            _is_fast_rotated=x._is_fast_rotated,
         )
     elif isinstance(x, tf.Tensor):
         return tf.reshape(x, shape)
@@ -923,6 +955,7 @@ def broadcast_to(x, shape):
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=x._is_enc,
+            _is_fast_rotated=x._is_fast_rotated,
         )
     elif isinstance(x, tf.Tensor):
         return tf.broadcast_to(x, shape)
@@ -956,6 +989,7 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
                 _is_enc=x._is_enc,
+                _is_fast_rotated=x._is_fast_rotated,
             ),
             reduction_count,
         )

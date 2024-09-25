@@ -88,12 +88,15 @@ class ModulusReduceKeyOp : public OpKernel {
     OP_REQUIRES_VALUE(SymmetricKeyVariant<T> const* secret_key_var, op_ctx,
                       GetVariant<SymmetricKeyVariant<T>>(op_ctx, 1));
     OP_REQUIRES(
-        op_ctx, secret_key_var->key != nullptr,
+        op_ctx, secret_key_var != nullptr,
         InvalidArgument("SymmetricKeyVariant did not unwrap successfully."));
     OP_REQUIRES_OK(op_ctx,
                    const_cast<SymmetricKeyVariant<T>*>(secret_key_var)
                        ->MaybeLazyDecode(shell_ctx_var->ct_context_,
                                          shell_ctx_var->noise_variance_));
+    OP_REQUIRES(op_ctx, secret_key_var->key != nullptr,
+                InvalidArgument(
+                    "SymmetricKeyVariant key did not unwrap successfully."));
     Key secret_key = *secret_key_var->key;  // Deep copy.
 
     // Allocate a scalar output tensor to store the reduced key.
@@ -102,9 +105,11 @@ class ModulusReduceKeyOp : public OpKernel {
 
     OP_REQUIRES_OK(op_ctx, secret_key.ModReduce());
 
-    // Store the reduced key in the output tensor.
+    // Store the reduced key in the output tensor. Keep a reference to the
+    // original context (even though it has the un-reduced moduli) to ensure
+    // the moduli held internally by the key are not deleted prematurely.
     SymmetricKeyVariant<T> reduced_key_variant(std::move(secret_key),
-                                               shell_ctx_var->ct_context_);
+                                               secret_key_var->ct_context);
     out->scalar<Variant>()() = std::move(reduced_key_variant);
   }
 };
@@ -169,10 +174,11 @@ class ModulusReduceCtOp : public OpKernel {
 
         OP_REQUIRES_OK(op_ctx, result_ct.ModReduce(t, ql_inv));
 
-        // Store in the output.
-        SymmetricCtVariant<T> result_var(std::move(result_ct),
-                                         shell_ctx_var->ct_context_,
-                                         shell_ctx_var->error_params_);
+        // Store in the output. Keep a reference to the original context to
+        // ensure the moduli held internally by the ciphertext are not deleted
+        // prematurely.
+        SymmetricCtVariant<T> result_var(
+            std::move(result_ct), ct_a_var->ct_context, ct_a_var->error_params);
         flat_output(i) = std::move(result_var);
       }
     };
