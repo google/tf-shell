@@ -40,7 +40,7 @@ val_dataset = val_dataset.batch(batch_size, drop_remainder=True)
 class TestModel(tf.test.TestCase):
     def test_model(self):
         # Turn on the shell optimizer to use autocontext.
-        shell_optimizers.enable_tf_shell_optimizer()
+        tf_shell.enable_optimization()
 
         m = tf_shell_ml.TfShellSequential(
             [

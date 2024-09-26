@@ -139,7 +139,7 @@ def optimize_shell_graph(func, optimizers=all_shell_optimizers):
 
 # Here is a method to enable custom optimizers described by
 # https://github.com/tensorflow/tensorflow/issues/55451#issuecomment-1147065792
-def enable_tf_shell_optimizer(optimizers=all_shell_optimizers):
+def enable_optimization(optimizers=all_shell_optimizers):
     rewriter_config = rewriter_config_pb2.RewriterConfig()
     rewriter_config.meta_optimizer_iterations = rewriter_config_pb2.RewriterConfig.ONE
     for optimizer in optimizers:

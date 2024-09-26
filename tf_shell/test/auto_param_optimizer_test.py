@@ -328,7 +328,7 @@ class TestAutoParamEnableOptimizer(tf.test.TestCase):
             maxval=127,
         )
 
-        shell_optimizers.enable_tf_shell_optimizer()
+        tf_shell.enable_optimization()
         c = ct_ct_add(a, b, True)
 
         # If the optimizer ran, the shape should be padded out to the

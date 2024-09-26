@@ -221,7 +221,7 @@ class TestCtPtAutoEnableOptimizer(tf.test.TestCase):
         # Turn on automatic optimization. Note there is no way to get the
         # optimized graph from the tf.function so we need to rely on timing info
         # to make sure it's turned on.
-        shell_optimizers.enable_tf_shell_optimizer(["CtPtOptimizer"])
+        tf_shell.enable_optimization(["CtPtOptimizer"])
 
         opt_time = timeit(lambda: ct_pt_pt_add(ct_a, pt_b, 10), number=10)
 
