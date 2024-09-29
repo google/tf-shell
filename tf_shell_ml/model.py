@@ -278,12 +278,11 @@ class TfShellSequential(keras.Sequential):
     def train_step_func(self, data):
         return self.train_step(data)
 
-    def fit(self, train_dataset, **kwargs):
+    def set_dataset_batching(self, train_dataset):
         # Run the training loop once on dummy data to figure out the batch size.
         tf.config.run_functions_eagerly(False)
         metrics = self.train_step_func(next(iter(train_dataset)))
         train_dataset = train_dataset.rebatch(
             metrics["num_slots"].numpy(), drop_remainder=True
         )
-
-        return super().fit(train_dataset, **kwargs)
+        return train_dataset

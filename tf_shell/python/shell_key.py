@@ -15,7 +15,6 @@
 # limitations under the License.
 import tf_shell.python.shell_ops as shell_ops
 from tf_shell.python.shell_context import ShellContext64
-from tf_shell.python.shell_context import mod_reduce_context64
 import tensorflow as tf
 import typing
 
@@ -40,35 +39,28 @@ def create_key64(context):
     keys = tf.TensorArray(tf.variant, size=context.level, clear_after_read=False)
 
     # Generate and store the first key in the last index.
-    keys = keys.write(context.level - 1, shell_ops.key_gen64(context._raw_context))
-
-    # Mod reduce to compute the remaining keys.
-    keys, context = tf.while_loop(
-        lambda ks, c: c.level > 2,
-        lambda ks, c: (
-            ks.write(
-                c.level - 2,
-                shell_ops.modulus_reduce_key64(c._raw_context, ks.read(c.level - 1)),
-            ),
-            mod_reduce_context64(c),
-        ),
-        loop_vars=[keys, context],
-        shape_invariants=[
-            tf.TensorSpec(None, dtype=tf.variant),
-            context._get_generic_context_spec(),
-        ],
+    keys = keys.write(
+        num_keys - 1, shell_ops.key_gen64(context._get_context_at_level(num_keys))
     )
 
-    # Store the first key for level 1.
-    keys = tf.cond(
-        context.level == 2,
-        lambda: keys.write(
-            context.level - 2,
-            shell_ops.modulus_reduce_key64(
-                context._raw_context, keys.read(context.level - 1)
+    # Mod reduce to compute the remaining keys.
+    keys, _ = tf.while_loop(
+        lambda ks, l: l > 1,
+        lambda ks, l: (
+            ks.write(
+                l - 2,
+                shell_ops.modulus_reduce_key64(
+                    context._get_context_at_level(l), ks.read(l - 1)
+                ),
             ),
+            l - 1,
         ),
-        lambda: keys,
+        loop_vars=[keys, num_keys],
+        shape_invariants=[
+            tf.TensorSpec(None, dtype=tf.variant),
+            tf.TensorSpec([], dtype=tf.int32),
+        ],
+        parallel_iterations=1,
     )
 
     return ShellKey64(_raw_keys_at_level=keys.gather(tf.range(0, num_keys)))
@@ -102,41 +94,30 @@ def create_rotation_key64(context, key):
     num_keys = context.level
     rot_keys = tf.TensorArray(
         tf.variant,
-        size=context.level,
+        size=num_keys,
         clear_after_read=False,
         infer_shape=False,
         element_shape=(),
     )
 
     # Generate rotation keys starting from the highest level.
-    rot_keys, context = tf.while_loop(
-        lambda ks, c: c.level > 1,
-        lambda ks, c: (
+    rot_keys, _ = tf.while_loop(
+        lambda ks, l: l > 0,
+        lambda ks, l: (
             ks.write(
-                c.level - 1,
+                l - 1,
                 shell_ops.rotation_key_gen64(
-                    c._raw_context, key._get_key_at_level(c.level)
+                    context._get_context_at_level(l), key._get_key_at_level(l)
                 ),
             ),
-            mod_reduce_context64(c),
+            l - 1,
         ),
-        loop_vars=[rot_keys, context],
+        loop_vars=[rot_keys, num_keys],
         shape_invariants=[
             tf.TensorSpec(None, dtype=tf.variant),
-            context._get_generic_context_spec(),
+            tf.TensorSpec([], dtype=tf.int32),
         ],
-    )
-
-    # Store the first key for level 1.
-    rot_keys = tf.cond(
-        context.level == 1,
-        lambda: rot_keys.write(
-            context.level - 1,
-            shell_ops.rotation_key_gen64(
-                context._raw_context, key._get_key_at_level(context.level)
-            ),
-        ),
-        lambda: rot_keys,
+        parallel_iterations=1,
     )
 
     return ShellRotationKey64(_raw_keys_at_level=rot_keys.gather(tf.range(0, num_keys)))
@@ -171,41 +152,30 @@ def create_fast_rotation_key64(context, key):
     num_keys = context.level
     rot_keys = tf.TensorArray(
         tf.variant,
-        size=context.level,
+        size=num_keys,
         clear_after_read=False,
         infer_shape=False,
         element_shape=(),
     )
 
     # Generate rotation keys starting from the highest level.
-    rot_keys, context = tf.while_loop(
-        lambda ks, c: c.level > 1,
-        lambda ks, c: (
+    rot_keys, _ = tf.while_loop(
+        lambda ks, l: l > 0,
+        lambda ks, l: (
             ks.write(
-                c.level - 1,
+                l - 1,
                 shell_ops.fast_rotation_key_gen64(
-                    c._raw_context, key._get_key_at_level(c.level)
+                    context._get_context_at_level(l), key._get_key_at_level(l)
                 ),
             ),
-            mod_reduce_context64(c),
+            l - 1,
         ),
-        loop_vars=[rot_keys, context],
+        loop_vars=[rot_keys, num_keys],
         shape_invariants=[
             tf.TensorSpec(None, dtype=tf.variant),
-            context._get_generic_context_spec(),
+            tf.TensorSpec([], dtype=tf.int32),
         ],
-    )
-
-    # Store the first key for level 1.
-    rot_keys = tf.cond(
-        context.level == 1,
-        lambda: rot_keys.write(
-            context.level - 1,
-            shell_ops.fast_rotation_key_gen64(
-                context._raw_context, key._get_key_at_level(context.level)
-            ),
-        ),
-        lambda: rot_keys,
+        parallel_iterations=1,
     )
 
     return ShellFastRotationKey64(

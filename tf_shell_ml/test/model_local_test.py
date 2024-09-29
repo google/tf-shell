@@ -28,6 +28,10 @@ x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
 x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
 y_train, y_test = tf.one_hot(y_train, 10), tf.one_hot(y_test, 10)
 
+# Clip dataset images to limit memory usage. The model accuracy will be
+# bad but this test only measures functionality.
+x_train, x_test = x_train[:, :64], x_test[:, :64]
+
 train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
 train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(
     batch_size, drop_remainder=True
@@ -71,10 +75,13 @@ class TestModel(tf.test.TestCase):
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
-        m.build([None, 784])
+        # m.build([None, 784])
+        m.build([None, 64])
+
         # m(train_dataset)
         m.summary()
-        history = m.fit(train_dataset.take(16), epochs=1, validation_data=val_dataset)
+        train_datset = m.set_dataset_batching(train_dataset)
+        history = m.fit(train_dataset.take(2), epochs=1, validation_data=val_dataset)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@
 import tensorflow as tf
 import tf_shell.python.shell_ops as shell_ops
 from tf_shell.python.shell_context import ShellContext64
-from tf_shell.python.shell_context import mod_reduce_context64
 from tf_shell.python.shell_key import ShellKey64
 from tf_shell.python.shell_key import ShellRotationKey64
 from tf_shell.python.shell_key import ShellFastRotationKey64
@@ -25,6 +24,8 @@ from tf_shell.python.shell_key import ShellFastRotationKey64
 class ShellTensor64(tf.experimental.ExtensionType):
     _raw_tensor: tf.Tensor
     _context: ShellContext64
+    _level: tf.Tensor
+    _num_mod_reductions: int
     _underlying_dtype: tf.DType
     _scaling_factor: int
     _is_enc: bool
@@ -61,7 +62,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
     @property
     def level(self):
-        return self._context.level
+        return self.level
 
     def __getitem__(self, slice):
         slots = slice[0]
@@ -72,6 +73,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
         return ShellTensor64(
             _raw_tensor=self._raw_tensor[slice[1:]],
             _context=self._context,
+            _level=self._level,
+            _num_mod_reductions=self._num_mod_reductions,
             _underlying_dtype=self._underlying_dtype,
             _scaling_factor=self._scaling_factor,
             _is_enc=self.is_encrypted,
@@ -84,25 +87,25 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
             if self.is_encrypted and other.is_encrypted:
                 result_raw_tensor = shell_ops.add_ct_ct64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
             elif self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.add_ct_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
             elif not self.is_encrypted and other.is_encrypted:
                 result_raw_tensor = shell_ops.add_ct_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_other._raw_tensor,
                     matched_self._raw_tensor,
                 )
             elif not self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.add_pt_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
@@ -112,6 +115,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
             return ShellTensor64(
                 _raw_tensor=result_raw_tensor,
                 _context=matched_self._context,
+                _level=matched_self._level,
+                _num_mod_reductions=matched_self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=self._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
@@ -162,26 +167,26 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
             if self.is_encrypted and other.is_encrypted:
                 result_raw_tensor = shell_ops.sub_ct_ct64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
             elif self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.sub_ct_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
             elif not self.is_encrypted and other.is_encrypted:
                 negative_other = -matched_other
                 result_raw_tensor = shell_ops.add_ct_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     negative_other._raw_tensor,
                     matched_self._raw_tensor,
                 )
             elif not self.is_encrypted and not other.is_encrypted:
                 result_raw_tensor = shell_ops.sub_pt_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
@@ -191,6 +196,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
             return ShellTensor64(
                 _raw_tensor=result_raw_tensor,
                 _context=matched_self._context,
+                _level=matched_self._level,
+                _num_mod_reductions=matched_self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=self._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
@@ -259,13 +266,13 @@ class ShellTensor64(tf.experimental.ExtensionType):
             if self.is_encrypted:
                 negative_self = -self
                 raw_result = shell_ops.add_ct_pt64(
-                    self._context._raw_context,
+                    self._context._get_context_at_level(self._level),
                     negative_self._raw_tensor,
                     shell_other._raw_tensor,
                 )
             else:
                 raw_result = shell_ops.sub_pt_pt64(
-                    self._context._raw_context,
+                    self._context._get_context_at_level(self._level),
                     shell_other._raw_tensor,
                     self._raw_tensor,
                 )
@@ -273,6 +280,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
             return ShellTensor64(
                 _raw_tensor=raw_result,
                 _context=self._context,
+                _level=self._level,
+                _num_mod_reductions=self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=self._scaling_factor,
                 _is_enc=self._is_enc,
@@ -292,16 +301,18 @@ class ShellTensor64(tf.experimental.ExtensionType):
     def __neg__(self):
         if self.is_encrypted:
             raw_result = shell_ops.neg_ct64(
-                self._context._raw_context, self._raw_tensor
+                self._context._get_context_at_level(self._level), self._raw_tensor
             )
         else:
             raw_result = shell_ops.neg_pt64(
-                self._context._raw_context, self._raw_tensor
+                self._context._get_context_at_level(self._level), self._raw_tensor
             )
 
         return ShellTensor64(
             _raw_tensor=raw_result,
             _context=self._context,
+            _level=self._level,
+            _num_mod_reductions=self._num_mod_reductions,
             _underlying_dtype=self._underlying_dtype,
             _scaling_factor=self._scaling_factor,
             _is_enc=self._is_enc,
@@ -318,25 +329,25 @@ class ShellTensor64(tf.experimental.ExtensionType):
                         "A ShellTensor which has been fast-rotated or fast-reduced-summed cannot be multiplied with another ciphertext."
                     )
                 raw_result = shell_ops.mul_ct_ct64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
             elif self.is_encrypted and not other.is_encrypted:
                 raw_result = shell_ops.mul_ct_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
             elif not self.is_encrypted and other.is_encrypted:
                 raw_result = shell_ops.mul_ct_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_other._raw_tensor,
                     matched_self._raw_tensor,
                 )
             elif not self.is_encrypted and not other.is_encrypted:
                 raw_result = shell_ops.mul_pt_pt64(
-                    matched_self._context._raw_context,
+                    matched_self._context._get_context_at_level(matched_self._level),
                     matched_self._raw_tensor,
                     matched_other._raw_tensor,
                 )
@@ -346,6 +357,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
             return ShellTensor64(
                 _raw_tensor=raw_result,
                 _context=matched_self._context,
+                _level=matched_self._level,
+                _num_mod_reductions=matched_self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
                 _scaling_factor=matched_self._scaling_factor**2,
                 _is_enc=self._is_enc or other._is_enc,
@@ -368,16 +381,22 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
                 if self.is_encrypted:
                     raw_result = shell_ops.mul_ct_tf_scalar64(
-                        self._context._raw_context, self._raw_tensor, other
+                        self._context._get_context_at_level(self._level),
+                        self._raw_tensor,
+                        other,
                     )
                 else:
                     raw_result = shell_ops.mul_pt_tf_scalar64(
-                        self._context._raw_context, self._raw_tensor, other
+                        self._context._get_context_at_level(self._level),
+                        self._raw_tensor,
+                        other,
                     )
 
                 return ShellTensor64(
                     _raw_tensor=raw_result,
                     _context=self._context,
+                    _level=self._level,
+                    _num_mod_reductions=self._num_mod_reductions,
                     _underlying_dtype=self._underlying_dtype,
                     _scaling_factor=self._scaling_factor**2,
                     _is_enc=self._is_enc,
@@ -409,6 +428,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
         return ShellTensor64.Spec(
             _raw_tensor=tf.TensorSpec(self._raw_tensor.shape, dtype=tf.variant),
             _context=self._context._get_generic_context_spec(),
+            _level=self._level,
+            _num_mod_reductions=self._num_mod_reductions,
             _underlying_dtype=self._underlying_dtype,
             _scaling_factor=self._scaling_factor,
             _is_enc=self._is_enc,
@@ -433,13 +454,15 @@ def mod_reduce_tensor64(shell_tensor):
         op = shell_ops.modulus_reduce_pt64
 
     raw_result = op(
-        shell_tensor._context._raw_context,
+        shell_tensor._context._get_context_at_level(shell_tensor._level),
         shell_tensor._raw_tensor,
     )
 
     reduced_self = ShellTensor64(
         _raw_tensor=raw_result,
-        _context=mod_reduce_context64(shell_tensor._context),
+        _context=shell_tensor._context,
+        _level=shell_tensor._level - 1,
+        _num_mod_reductions=shell_tensor._num_mod_reductions + 1,
         _underlying_dtype=shell_tensor._underlying_dtype,
         _scaling_factor=shell_tensor._scaling_factor,
         _is_enc=shell_tensor._is_enc,
@@ -449,22 +472,28 @@ def mod_reduce_tensor64(shell_tensor):
     return reduced_self
 
 
-def _match_moduli_x_to_y(x, target_level):
-    x = tf.while_loop(
-        lambda x_red: x_red._context.level > target_level,
-        lambda x_red: mod_reduce_tensor64(x_red),
-        loop_vars=[x],
-        shape_invariants=[
-            x._get_generic_shell_tensor_spec(),
-        ],
-    )[0]
-    return x
+# def _match_moduli_x_to_y(x, target_level):
+#     x = tf.while_loop(
+#         lambda x_red: x_red._context.level > target_level,
+#         lambda x_red: mod_reduce_tensor64(x_red),
+#         loop_vars=[x],
+#         shape_invariants=[
+#             x._get_generic_shell_tensor_spec(),
+#         ],
+#         parallel_iterations=1,
+#         name="TfShellModulusMatcher",
+#     )[0]
+#     return x
 
 
 def _match_moduli_and_scaling(x, y):
     # Mod switch to the smaller modulus of the two.
-    x = _match_moduli_x_to_y(x, y._context.level)
-    y = _match_moduli_x_to_y(y, x._context.level)
+    while x._num_mod_reductions < y._num_mod_reductions:
+        x = mod_reduce_tensor64(x)
+    while x._num_mod_reductions > y._num_mod_reductions:
+        y = mod_reduce_tensor64(y)
+    # x = _match_moduli_x_to_y(x, y._context.level)
+    # y = _match_moduli_x_to_y(y, x._context.level)
     # while x._context.level > y._context.level:
     #     x = mod_reduce_tensor64(x)
     # while x._context.level < y._context.level:
@@ -560,9 +589,11 @@ def to_shell_plaintext(tensor, context):
 
         return ShellTensor64(
             _raw_tensor=shell_ops.polynomial_import64(
-                context._raw_context, scaled_tensor
+                context._get_context_at_level(context.level), scaled_tensor
             ),
             _context=context,
+            _level=context.level,
+            _num_mod_reductions=0,
             _underlying_dtype=tensor.dtype,
             _scaling_factor=context.scaling_factor,
             _is_enc=False,
@@ -588,11 +619,13 @@ def to_encrypted(x, key, context=None):
         else:
             return ShellTensor64(
                 _raw_tensor=shell_ops.encrypt64(
-                    x._context._raw_context,
-                    key._get_key_at_level(x._context.level),
+                    x._context._get_context_at_level(x._level),
+                    key._get_key_at_level(x._level),
                     x._raw_tensor,
                 ),
                 _context=x._context,
+                _level=x._level,
+                _num_mod_reductions=x._num_mod_reductions,
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
                 _is_enc=True,
@@ -631,11 +664,11 @@ def to_tensorflow(s_tensor, key=None):
             )
 
         # Get the correct rotation key for the level of this ciphertext.
-        raw_rotation_key = key._get_key_at_level(s_tensor._context.level)
+        raw_rotation_key = key._get_key_at_level(s_tensor._level)
 
         # Decrypt op returns a tf Tensor.
         tf_tensor = shell_ops.decrypt_fast_rotated64(
-            context=s_tensor._context._raw_context,
+            context=s_tensor._context._get_context_at_level(s_tensor._level),
             fast_rotation_key=raw_rotation_key,
             val=s_tensor._raw_tensor,
             runtime_batching_dim=s_tensor._context.num_slots,
@@ -651,8 +684,8 @@ def to_tensorflow(s_tensor, key=None):
 
         # Decrypt op returns a tf Tensor.
         tf_tensor = shell_ops.decrypt64(
-            context=s_tensor._context._raw_context,
-            key=key._get_key_at_level(s_tensor._context.level),
+            context=s_tensor._context._get_context_at_level(s_tensor._level),
+            key=key._get_key_at_level(s_tensor._level),
             val=s_tensor._raw_tensor,
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
@@ -663,7 +696,7 @@ def to_tensorflow(s_tensor, key=None):
         # Convert from polynomial representation to plaintext tensorflow tensor.
         # Always convert to int64, then handle the fixed point as appropriate.
         tf_tensor = shell_ops.polynomial_export64(
-            shell_context=s_tensor._context._raw_context,
+            shell_context=s_tensor._context._get_context_at_level(s_tensor._level),
             val=s_tensor._raw_tensor,
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
@@ -692,15 +725,20 @@ def roll(x, shift, rotation_key):
             raise ValueError("Unencrypted ShellTensor rotation not supported yet.")
 
         # Get the correct rotation key for the level of this ciphertext.
-        raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
+        raw_rotation_key = rotation_key._get_key_at_level(x._level)
 
         shift = tf.cast(shift, tf.int64)
 
         return ShellTensor64(
             _raw_tensor=shell_ops.roll64(
-                x._context._raw_context, raw_rotation_key, x._raw_tensor, shift
+                x._context._get_context_at_level(x._level),
+                raw_rotation_key,
+                x._raw_tensor,
+                shift,
             ),
             _context=x._context,
+            _level=x._level,
+            _num_mod_reductions=x._num_mod_reductions,
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=True,
@@ -728,13 +766,17 @@ def reduce_sum(x, axis, rotation_key=None):
                 )
 
             # Get the correct rotation key for the level of this ciphertext.
-            raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
+            raw_rotation_key = rotation_key._get_key_at_level(x._level)
 
             return ShellTensor64(
                 _raw_tensor=shell_ops.reduce_sum_by_rotation64(
-                    x._context._raw_context, raw_rotation_key, x._raw_tensor
+                    x._context._get_context_at_level(x._level),
+                    raw_rotation_key,
+                    x._raw_tensor,
                 ),
                 _context=x._context,
+                _level=x._level,
+                _num_mod_reductions=x._num_mod_reductions,
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
                 _is_enc=True,
@@ -744,9 +786,11 @@ def reduce_sum(x, axis, rotation_key=None):
         else:
             return ShellTensor64(
                 _raw_tensor=shell_ops.reduce_sum64(
-                    x._context._raw_context, x._raw_tensor, axis=axis
+                    x._context._get_context_at_level(x._level), x._raw_tensor, axis=axis
                 ),
                 _context=x._context,
+                _level=x._level,
+                _num_mod_reductions=x._num_mod_reductions,
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
                 _is_enc=True,
@@ -775,9 +819,11 @@ def fast_reduce_sum(x):
 
     return ShellTensor64(
         _raw_tensor=shell_ops.fast_reduce_sum_by_rotation64(
-            x._context._raw_context, x._raw_tensor
+            x._context._get_context_at_level(x._level), x._raw_tensor
         ),
         _context=x._context,
+        _level=x._level,
+        _num_mod_reductions=x._num_mod_reductions,
         _underlying_dtype=x._underlying_dtype,
         _scaling_factor=x._scaling_factor,
         _is_enc=True,
@@ -812,11 +858,13 @@ def matmul(x, y, rotation_key=None, fast=False):
 
         return ShellTensor64(
             _raw_tensor=shell_ops.mat_mul_ct_pt64(
-                x._context._raw_context,
+                x._context._get_context_at_level(x._level),
                 x._raw_tensor,
                 scaled_y,
             ),
             _context=x._context,
+            _level=x._level,
+            _num_mod_reductions=x._num_mod_reductions,
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor**2,
             _is_enc=True,
@@ -839,12 +887,14 @@ def matmul(x, y, rotation_key=None, fast=False):
                 )
             return ShellTensor64(
                 _raw_tensor=shell_ops.fast_mat_mul_pt_ct64(
-                    y._context._raw_context,
+                    y._context._get_context_at_level(y._level),
                     scaled_x,
                     y._raw_tensor,
                     # no rotation key
                 ),
                 _context=y._context,
+                _level=y._level,
+                _num_mod_reductions=y._num_mod_reductions,
                 _underlying_dtype=y._underlying_dtype,
                 _scaling_factor=y._scaling_factor**2,
                 _is_enc=True,
@@ -857,16 +907,18 @@ def matmul(x, y, rotation_key=None, fast=False):
                 )
 
             # Get the correct rotation key for the level of y.
-            raw_rotation_key = rotation_key._get_key_at_level(y._context.level)
+            raw_rotation_key = rotation_key._get_key_at_level(y._level)
 
             return ShellTensor64(
                 _raw_tensor=shell_ops.mat_mul_pt_ct64(
-                    y._context._raw_context,
+                    y._context._get_context_at_level(y._level),
                     scaled_x,
                     y._raw_tensor,
                     raw_rotation_key,
                 ),
                 _context=y._context,
+                _level=y._level,
+                _num_mod_reductions=y._num_mod_reductions,
                 _underlying_dtype=y._underlying_dtype,
                 _scaling_factor=y._scaling_factor**2,
                 _is_enc=True,
@@ -895,6 +947,8 @@ def expand_dims(x, axis=-1):
         return ShellTensor64(
             _raw_tensor=shell_ops.expand_dims_variant(x._raw_tensor, axis=axis),
             _context=x._context,
+            _level=x._level,
+            _num_mod_reductions=x._num_mod_reductions,
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=x._is_enc,
@@ -916,6 +970,8 @@ def reshape(x, shape):
         return ShellTensor64(
             _raw_tensor=tf.reshape(x._raw_tensor, shape[1:]),
             _context=x._context,
+            _level=x._level,
+            _num_mod_reductions=x._num_mod_reductions,
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=x._is_enc,
@@ -952,6 +1008,8 @@ def broadcast_to(x, shape):
         return ShellTensor64(
             _raw_tensor=tf.broadcast_to(x._raw_tensor, shape[1:]),
             _context=x._context,
+            _level=x._level,
+            _num_mod_reductions=x._num_mod_reductions,
             _underlying_dtype=x._underlying_dtype,
             _scaling_factor=x._scaling_factor,
             _is_enc=x._is_enc,
@@ -972,10 +1030,10 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
             raise ValueError(
                 f"Rotation key must be provided. Instead saw {rotation_key}."
             )
-        raw_rotation_key = rotation_key._get_key_at_level(x._context.level)
+        raw_rotation_key = rotation_key._get_key_at_level(x._level)
 
         raw_result, reduction_count = shell_ops.segment_sum_ct(
-            x._context._raw_context,
+            x._context._get_context_at_level(x._level),
             x._raw_tensor,
             segments,
             num_segments,
@@ -986,6 +1044,8 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
             ShellTensor64(
                 _raw_tensor=raw_result,
                 _context=x._context,
+                _level=x._level,
+                _num_mod_reductions=x._num_mod_reductions,
                 _underlying_dtype=x._underlying_dtype,
                 _scaling_factor=x._scaling_factor,
                 _is_enc=x._is_enc,

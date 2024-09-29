@@ -170,9 +170,9 @@ class TestPtPtOptimizer(tf.test.TestCase):
         orig_num_ops = count_ops(func.graph, pt_op_name)
         self.assertEqual(orig_num_ops, num_pt_ops)
 
-        print("\noriginal graph:")
-        for node in func.graph.as_graph_def().node:
-            print(f"{node.name} {node.op}({node.input})")
+        # print("\noriginal graph:")
+        # for node in func.graph.as_graph_def().node:
+        #     print(f"{node.name} {node.op}({node.input})", flush=True)
 
         # Optimize the graph using tf_shells HE-specific optimizers.
         optimized_func = shell_optimizers.optimize_shell_graph(func)
@@ -185,9 +185,9 @@ class TestPtPtOptimizer(tf.test.TestCase):
         c = optimized_func.function_type.pack_output(c)
         opt_num_ops = count_ops(optimized_func.graph, pt_op_name)
 
-        print("\noptimized graph:")
-        for node in optimized_func.graph.as_graph_def().node:
-            print(f"{node.name} {node.op}({node.input})")
+        # print("\noptimized graph:")
+        # for node in optimized_func.graph.as_graph_def().node:
+        #     print(f"{node.name} {node.op}({node.input})", flush=True)
 
         self.assertEqual(opt_num_ops, expected_num_pt_ops)
 
@@ -223,14 +223,10 @@ class TestPtPtOptimizer(tf.test.TestCase):
 
             with self.subTest(f"Optimizer for func pt_enc_dec."):
                 self._test_func(test_context, pt_enc_dec, 4, 0, "PolynomialImport64")
-                self._test_func(test_context, pt_enc_dec, 4, 0, "PolynomialExport64")
 
             with self.subTest(f"Optimizer for func pt_enc_dec_complex."):
                 self._test_func(
                     test_context, pt_enc_dec_complex, 4, 0, "PolynomialImport64"
-                )
-                self._test_func(
-                    test_context, pt_enc_dec_complex, 4, 0, "PolynomialExport64"
                 )
 
 

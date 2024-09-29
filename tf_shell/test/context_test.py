@@ -18,54 +18,42 @@ import tf_shell
 
 
 class TestShellContext(tf.test.TestCase):
-    def test_create_context(self):
-        # Num plaintext bits: 48, noise bits: 65
-        # Max plaintext value: 1, est error: 0.003%
-        context = tf_shell.create_context64(
-            log_n=11,
-            main_moduli=[288230376151748609, 18014398509506561, 8404993, 8380417],
-            plaintext_modulus=281474976768001,
-            scaling_factor=8392705,
-        )
+    def _test_mod_reduce_context(self, eager_mode):
+        tf.config.run_functions_eagerly(eager_mode)
 
-        ql = context.main_moduli[-1]
-        ql2 = context.main_moduli[-2]
+        @tf.function
+        def test_fn():
+            # Num plaintext bits: 48, noise bits: 65
+            # Max plaintext value: 127, est error: 3.840%
+            context = tf_shell.create_context64(
+                log_n=11,
+                main_moduli=[288230376151748609, 18014398509506561, 1073153, 1032193],
+                plaintext_modulus=281474976768001,
+                scaling_factor=1052673,
+            )
+            key = tf_shell.create_key64(context)
 
-        # The ratio between the smaller and the larger context should be
-        # the last modulus in the chain.
-        smaller_context = tf_shell.mod_reduce_context64(context)
-        self.assertAllClose(context.main_moduli[:-1], smaller_context.main_moduli)
+            a = tf.ones([2**11, 2, 3], dtype=tf.float32) * 10
+            sa = tf_shell.to_shell_plaintext(a, context)
+            ea = tf_shell.to_encrypted(sa, key)
 
-        # The ratio between the smaller and the larger context should be the
-        # scaling factor.
-        even_smaller_context = tf_shell.mod_reduce_context64(smaller_context)
-        self.assertAllClose(context.main_moduli[:-2], even_smaller_context.main_moduli)
+            # Mod reducing should not affect the plaintext value.
+            smaller_sa = tf_shell.mod_reduce_tensor64(sa)
+            self.assertAllClose(a, tf_shell.to_tensorflow(smaller_sa))
+
+            smaller_ea = tf_shell.mod_reduce_tensor64(ea)
+            self.assertAllClose(a, tf_shell.to_tensorflow(smaller_ea, key))
+
+            # Check the arguments were not modified
+            self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+            self.assertAllClose(a, tf_shell.to_tensorflow(ea, key))
+
+        test_fn()
 
     def test_mod_reduce_context(self):
-        # Num plaintext bits: 48, noise bits: 65
-        # Max plaintext value: 127, est error: 3.840%
-        context = tf_shell.create_context64(
-            log_n=11,
-            main_moduli=[288230376151748609, 18014398509506561, 1073153, 1032193],
-            plaintext_modulus=281474976768001,
-            scaling_factor=1052673,
-        )
-        key = tf_shell.create_key64(context)
-
-        a = tf.ones([2**11, 2, 3], dtype=tf.float32) * 10
-        sa = tf_shell.to_shell_plaintext(a, context)
-        ea = tf_shell.to_encrypted(sa, key)
-
-        # Mod reducing should not affect the plaintext value.
-        smaller_sa = tf_shell.mod_reduce_tensor64(sa)
-        self.assertAllClose(a, tf_shell.to_tensorflow(smaller_sa))
-
-        smaller_ea = tf_shell.mod_reduce_tensor64(ea)
-        self.assertAllClose(a, tf_shell.to_tensorflow(smaller_ea, key))
-
-        # Check the arguments were not modified
-        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
-        self.assertAllClose(a, tf_shell.to_tensorflow(ea, key))
+        for eager_mode in [False, True]:
+            with self.subTest(f"{self._testMethodName} with eager_mode={eager_mode}."):
+                self._test_mod_reduce_context(eager_mode)
 
 
 if __name__ == "__main__":

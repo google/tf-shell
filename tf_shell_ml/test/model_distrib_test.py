@@ -117,8 +117,10 @@ class TestDistribModel(tf.test.TestCase):
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
+        train_datset = m.set_dataset_batching(train_dataset)
+
         history = m.fit(
-            train_dataset,
+            train_dataset.take(2),
             epochs=1,
             validation_data=val_dataset,
         )

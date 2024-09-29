@@ -63,10 +63,10 @@ constexpr char kReduceSum[] = "ReduceSum64";
 
 constexpr char kUnsortedCtSegmentSum[] = "UnsortedCtSegmentSum";
 
+// TensorFlow names
 constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
 constexpr char kBroadcastToShape[] = "BroadcastToShape";  // TODO check name
 constexpr char kReshape[] = "Reshape";                    // TODO check name
-
 constexpr char kConstOpName[] = "Const";
 
 bool IsShellContext(NodeDef const& node);

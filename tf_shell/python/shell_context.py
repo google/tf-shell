@@ -19,7 +19,7 @@ import typing
 
 
 class ShellContext64(tf.experimental.ExtensionType):
-    _raw_context: tf.Tensor
+    _raw_contexts: tf.Tensor
     is_autocontext: bool
     log_n: tf.Tensor
     num_slots: tf.Tensor
@@ -34,7 +34,7 @@ class ShellContext64(tf.experimental.ExtensionType):
 
     def __init__(
         self,
-        _raw_context,
+        _raw_contexts,
         is_autocontext,
         log_n,
         main_moduli,
@@ -44,7 +44,7 @@ class ShellContext64(tf.experimental.ExtensionType):
         scaling_factor,
         seed,
     ):
-        self._raw_context = _raw_context
+        self._raw_contexts = _raw_contexts
         self.is_autocontext = is_autocontext
         self.log_n = tf.convert_to_tensor(log_n, dtype=tf.uint64)
         self.num_slots = 2 ** tf.cast(log_n, dtype=tf.int64)
@@ -63,9 +63,18 @@ class ShellContext64(tf.experimental.ExtensionType):
         self.scaling_factor = scaling_factor
         self.seed = seed
 
+    def _get_context_at_level(self, level):
+        level -= 1  # Context tensor start at level 1.
+        tf.Assert(level >= 0, [f"level must be >= 0. Got {level}"])
+        tf.Assert(
+            level < tf.shape(self._raw_contexts)[0],
+            [f"level must be < {tf.shape(self._raw_contexts)[0]}. Got {level}"],
+        )
+        return self._raw_contexts[level]
+
     def _get_generic_context_spec(self):
         return ShellContext64.Spec(
-            _raw_context=tf.TensorSpec([], dtype=tf.variant),
+            _raw_contexts=tf.TensorSpec([], dtype=tf.variant),
             is_autocontext=self.is_autocontext,
             log_n=tf.TensorSpec([], dtype=tf.uint64),
             num_slots=tf.TensorSpec([], dtype=tf.int64),
@@ -78,27 +87,6 @@ class ShellContext64(tf.experimental.ExtensionType):
             scaling_factor=self.scaling_factor,
             seed=self.seed,
         )
-
-
-def mod_reduce_context64(context):
-    if not isinstance(context, ShellContext64):
-        raise ValueError("context must be a ShellContext64.")
-
-    smaller_context = shell_ops.modulus_reduce_context64(context._raw_context)
-
-    mod_reduced = ShellContext64(
-        _raw_context=smaller_context,
-        is_autocontext=context.is_autocontext,
-        log_n=context.log_n,
-        main_moduli=context.main_moduli[:-1],
-        aux_moduli=context.aux_moduli,
-        plaintext_modulus=context.plaintext_modulus,
-        noise_variance=context.noise_variance,
-        scaling_factor=context.scaling_factor,
-        seed=context.seed,
-    )
-
-    return mod_reduced
 
 
 def create_context64(
@@ -115,7 +103,11 @@ def create_context64(
     elif len(seed) < 64 and seed != "":
         seed = seed.ljust(64)
 
-    shell_context, _, _, _, _ = shell_ops.context_import64(
+    context_sz = tf.shape(main_moduli)[0]
+    raw_contexts = tf.TensorArray(tf.variant, size=context_sz, clear_after_read=False)
+
+    # Generate and store the first context in the last index.
+    first_context, _, _, _, _ = shell_ops.context_import64(
         log_n=log_n,
         main_moduli=main_moduli,
         aux_moduli=aux_moduli,
@@ -123,9 +115,25 @@ def create_context64(
         noise_variance=noise_variance,
         seed=seed,
     )
+    raw_contexts = raw_contexts.write(context_sz - 1, first_context)
+
+    # Mod reduce to compute the remaining contexts.
+    raw_contexts, _ = tf.while_loop(
+        lambda cs, l: l > 0,
+        lambda cs, l: (
+            cs.write(l - 1, shell_ops.modulus_reduce_context64(cs.read(l))),
+            l - 1,
+        ),
+        loop_vars=[raw_contexts, context_sz - 1],
+        shape_invariants=[
+            tf.TensorSpec(None, dtype=tf.variant),
+            tf.TensorSpec([], dtype=tf.int32),
+        ],
+        parallel_iterations=1,
+    )
 
     return ShellContext64(
-        _raw_context=shell_context,
+        _raw_contexts=raw_contexts.gather(tf.range(0, context_sz)),
         is_autocontext=False,
         log_n=log_n,
         main_moduli=main_moduli,
@@ -146,17 +154,36 @@ def create_autocontext64(
 ):
     if len(seed) > 64:
         raise ValueError("Seed must be at most 64 characters long.")
-    seed = seed.ljust(64)
+    elif len(seed) < 64 and seed != "":
+        seed = seed.ljust(64)
 
-    shell_context, new_log_n, new_qs, new_ps, new_t = shell_ops.auto_shell_context64(
+    first_context, new_log_n, new_qs, new_ps, new_t = shell_ops.auto_shell_context64(
         log2_cleartext_sz=log2_cleartext_sz,
         scaling_factor=scaling_factor,
         log2_noise_offset=noise_offset_log2,
         noise_variance=noise_variance,
     )
+    context_sz = tf.shape(new_qs)[0]
+    raw_contexts = tf.TensorArray(tf.variant, size=context_sz, clear_after_read=False)
+    raw_contexts = raw_contexts.write(context_sz - 1, first_context)
+
+    # Mod reduce to compute the remaining contexts.
+    raw_contexts, _ = tf.while_loop(
+        lambda cs, l: l > 0,
+        lambda cs, l: (
+            cs.write(l - 1, shell_ops.modulus_reduce_context64(cs.read(l))),
+            l - 1,
+        ),
+        loop_vars=[raw_contexts, context_sz - 1],
+        shape_invariants=[
+            tf.TensorSpec(None, dtype=tf.variant),
+            tf.TensorSpec([], dtype=tf.int32),
+        ],
+        parallel_iterations=1,
+    )
 
     return ShellContext64(
-        _raw_context=shell_context,
+        _raw_contexts=raw_contexts.gather(tf.range(0, context_sz)),
         is_autocontext=True,
         log_n=new_log_n,
         main_moduli=new_qs,
