@@ -87,6 +87,14 @@ class FastRotationKeyVariant {
   };
 
   bool Decode(VariantTensorData const& data) {
+    static bool warning_printed = false;
+    if (!warning_printed) {
+      std::cout
+          << "WARNING: Deserializing secret fast rotation key. This should "
+             "only happen on the appropriate party."
+          << std::endl;
+      warning_printed = true;
+    }
     if (data.tensors_.size() < 1) {
       std::cout << "ERROR: Not enough tensors to deserialize fast rotation key."
                 << std::endl;

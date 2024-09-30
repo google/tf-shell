@@ -62,10 +62,8 @@ class TestDistribModel(tf.test.TestCase):
         import keras
         import tf_shell_ml
         import numpy as np
-        import tf_shell.python.shell_optimizers as shell_optimizers
 
         # Prepare the dataset. (Note this must be after forking)
-        batch_size = 2**10
         (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
         x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
         x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
@@ -76,17 +74,15 @@ class TestDistribModel(tf.test.TestCase):
         x_train, x_test = x_train[:, :64], x_test[:, :64]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-        train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(
-            batch_size, drop_remainder=True
-        )
+        train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(4)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
-        val_dataset = val_dataset.batch(batch_size, drop_remainder=True)
+        val_dataset = val_dataset.batch(32)
 
         # Turn on the shell optimizer to use autocontext.
         tf_shell.enable_optimization()
 
-        m = tf_shell_ml.TfShellSequential(
+        m = tf_shell_ml.DpSgdSequential(
             [
                 tf_shell_ml.ShellDense(
                     64,
@@ -117,10 +113,8 @@ class TestDistribModel(tf.test.TestCase):
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
-        train_datset = m.set_dataset_batching(train_dataset)
-
         history = m.fit(
-            train_dataset.take(2),
+            train_dataset.take(2**13),
             epochs=1,
             validation_data=val_dataset,
         )

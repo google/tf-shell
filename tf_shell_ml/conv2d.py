@@ -121,4 +121,7 @@ class Conv2D(keras.layers.Layer):
     @staticmethod
     def unpack(plaintext_packed_dx):
         batch_size = tf.shape(plaintext_packed_dx)[0] // 2
-        return plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]
+        return [plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]]
+
+    def unpacking_funcs(self):
+        return [Conv2D.unpack]

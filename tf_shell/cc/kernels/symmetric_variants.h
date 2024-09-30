@@ -57,6 +57,13 @@ class SymmetricKeyVariant {
   };
 
   bool Decode(VariantTensorData const& data) {
+    static bool warning_printed = false;
+    if (!warning_printed) {
+      std::cout << "WARNING: Deserializing secret key. This should only happen "
+                   "on the appropriate party."
+                << std::endl;
+      warning_printed = true;
+    }
     if (data.tensors_.size() != 1) {
       std::cout << "ERROR: Decode SymmetricKeyVariant expected 1 tensor, got "
                 << data.tensors_.size() << std::endl;

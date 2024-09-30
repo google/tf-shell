@@ -1,6 +1,5 @@
 import tensorflow as tf
 import tf_shell
-import tf_shell.python.shell_optimizers as shell_optimizers
 import test_utils
 
 
@@ -139,7 +138,7 @@ class TestCtPtOptimizer(tf.test.TestCase):
         #     print(f'{node.name} {node.op}({node.input})')
 
         # Optimize the graph using tf_shells HE-specific optimizers.
-        optimized_func = shell_optimizers.optimize_shell_graph(func)
+        optimized_func = tf_shell.optimize_shell_graph(func)
         # Call the optimized function.
         enc_c = optimized_func(ct_a, pt_b, num_pt_ops)
         # Can remove pack_output above if

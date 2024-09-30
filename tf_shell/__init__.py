@@ -45,3 +45,4 @@ from tf_shell.python.shell_ops import clip_and_noise_features_party
 from tf_shell.python.shell_ops import clip_and_noise_labels_party
 
 from tf_shell.python.shell_optimizers import enable_optimization
+from tf_shell.python.shell_optimizers import optimize_shell_graph

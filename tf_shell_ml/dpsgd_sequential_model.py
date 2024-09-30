@@ -19,7 +19,7 @@ import tf_shell
 import tf_shell_ml
 
 
-class TfShellSequential(keras.Sequential):
+class DpSgdSequential(keras.Sequential):
     def __init__(
         self,
         layers,
@@ -28,7 +28,7 @@ class TfShellSequential(keras.Sequential):
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(layers, *args, **kwargs)
 
@@ -48,7 +48,9 @@ class TfShellSequential(keras.Sequential):
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
         self.clipping_threshold = 10000000
-        self.mpc_bit_width = 16
+        self.mask_bit_width = 16
+        self.context_prepped = False
+        self.needs_public_rotation_key = False
 
     def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
         super().compile(optimizer=optimizer, loss=loss, metrics=metrics, **kwargs)
@@ -67,30 +69,32 @@ class TfShellSequential(keras.Sequential):
             x = l(x, training=training)
         return x
 
-    def train_step(self, data):
-        x, y = data
+    def build(self, input_shape):
+        super().build(input_shape)
+        self.unpacking_funcs = []
+        for l in self.layers:
+            if hasattr(l, "unpacking_funcs"):
+                self.unpacking_funcs.extend(l.unpacking_funcs())
 
-        filtered_layers = [l for l in self.layers if hasattr(l, "unpack")]
-        unpacking_funcs = [l.unpack for l in filtered_layers]
+    def raw_train_step(self, data, shell_context):
+        x, y = data
 
         with tf.device(self.labels_party_dev):
             if self.use_encryption:
-                # Generate the shell context and secret keys. TensorFlow's graph
-                # compiler ensures these are only generated once and stored in
-                # the graph vs. being regenerated on each call.
-                shell_context = self.shell_context_fn()
                 secret_key = tf_shell.create_key64(shell_context)
                 secret_fast_rotation_key = tf_shell.create_fast_rotation_key64(
                     shell_context, secret_key
                 )
-                public_rotation_key = tf_shell.create_rotation_key64(
-                    shell_context, secret_key
-                )
+                if self.needs_public_rotation_key:
+                    public_rotation_key = tf_shell.create_rotation_key64(
+                        shell_context, secret_key
+                    )
+                else:
+                    public_rotation_key = None
                 # Encrypt the batch of secret labels y.
                 enc_y = tf_shell.to_encrypted(y, secret_key, shell_context)
             else:
                 enc_y = y
-                public_rotation_key = None
 
         with tf.device(self.features_party_dev):
             # Forward pass in plaintext.
@@ -110,14 +114,16 @@ class TfShellSequential(keras.Sequential):
 
             # Mask the encrypted grads to prepare for decryption.
             mask = [
-                tf.random.uniform(
-                    tf_shell.shape(g)[1:],
-                    dtype=tf.int64,
-                    minval=0,
-                    maxval=2**self.mpc_bit_width,
-                )
+                # tf.random.uniform(
+                #     tf_shell.shape(g),
+                #     dtype=tf.int64,
+                #     minval=0,
+                #     maxval=2**self.mask_bit_width,
+                # )
+                tf.zeros_like(tf_shell.shape(g), dtype=tf.int64)
                 for g in dJ_dw
             ]
+
             # Mask the encrypted gradients and reverse the order to match the
             # order of the layers.
             masked_enc_grads = [
@@ -141,101 +147,25 @@ class TfShellSequential(keras.Sequential):
                 # themselves just for unpacking. The weights should not be
                 # shared with the labels party.
                 masked_grads = [
-                    f(g) for f, g in zip(unpacking_funcs, packed_masked_grads)
+                    f(g) for f, g in zip(self.unpacking_funcs, packed_masked_grads)
                 ]
             else:
                 masked_grads = masked_enc_grads
 
-            # Flatten the masked gradients from a list of tensors for each layer
-            # to a single tensor.
-            grad_shapes = [tf.shape(mg) for mg in masked_grads]
-            flattened_grad_shapes = [tf.reduce_prod(s) for s in grad_shapes]
-
-            masked_grads = [tf.reshape(mg, [-1]) for mg in masked_grads]
-            masked_grads = tf.concat(masked_grads, axis=0)
-
-            # Sample the noise for differential privacy.
-            # TODO: set stddev based on clipping threshold.
-            noise = tf.random.normal(tf.shape(masked_grads), stddev=1)
-
-            # After decryption, the mask has dtype float. Encode it back to int
-            # with shells scaling factor for use in the clip and noise protocol.
-            # Do the same for the noise.
-            masked_grads = tf.cast(
-                tf.round(masked_grads * shell_context.scaling_factor), tf.int64
-            )
-            noise = tf.cast(tf.round(noise * shell_context.scaling_factor), tf.int64)
-
-            # If running features party and labels party on the same node,
-            # skip the MPC protocol.
-            # if self.labels_party_dev != self.features_party_dev:
-            #     # Start labels party MPC protocol.
-            #     tf_shell.clip_and_noise_labels_party(
-            #         masked_grads,
-            #         self.clipping_threshold,
-            #         noise,
-            #         Bitwidth=self.mpc_bit_width,
-            #         StartPort=5555,
-            #         FeaturePartyHost="127.0.0.1",
-            #     )
-
         with tf.device(self.features_party_dev):
-            # Encode the mask with the scaling factor for use in the clip and
-            # noise protocol.
-            mask = [tf.reshape(m, [-1]) for m in mask]
-            mask = tf.concat(mask, axis=0)
-            # mask = tf.cast(tf.round(mask * shell_context.scaling_factor, tf.int64)
+            # Unmask the gradients using the mask.
+            unpacked_mask = [f(m) for f, m in zip(self.unpacking_funcs, reversed(mask))]
+            unpacked_mask = [tf.cast(m, dtype=float)[0] for m in zip(unpacked_mask)]
+            grads = [mg - m for mg, m in zip(masked_grads, unpacked_mask)]
 
-            # If running features party and labels party on the same node,
-            # skip the MPC protocol and clip and noise the gradients directly.
-            # if self.labels_party_dev != self.features_party_dev:
-            #     clipped_noised_grads = tf_shell.clip_and_noise_features_party(
-            #         mask,
-            #         Bitwidth=self.mpc_bit_width,
-            #         StartPort=5555,
-            #         LabelPartyHost="127.0.0.1",
-            #     )
-            # else:
-            unmasked_grads = masked_grads - mask
-            # clipped_noised_grads = tf.cond(
-            #     tf.reduce_sum(unmasked_grads * unmasked_grads)
-            #     > self.clipping_threshold,
-            #     lambda: self.clipping_threshold + noise,
-            #     lambda: unmasked_grads + noise,
-            # )
-            # clipped_noised_grads = unmasked_grads + noise
-            clipped_noised_grads = unmasked_grads
-
-            # Emulate overflow of 2's complement addition between `Bitwidth`
-            # integers from when grad + noise is computed under the MPC
-            # protocol. Note any overflow in the masking / unmasking cancels
-            # out.
-            # min_val = -(2 ** (self.mpc_bit_width - 1))
-            # max_val = 2 ** (self.mpc_bit_width - 1) - 1
-            # clipped_noised_grads = tf.where(
-            #     clipped_noised_grads > max_val,
-            #     min_val + (clipped_noised_grads - max_val),
-            #     clipped_noised_grads,
-            # )
-            # end else
-
-            # Decode the clipped and noised gradients.
-            clipped_noised_grads = (
-                tf.cast(clipped_noised_grads, float) / shell_context.scaling_factor
-            )
-
-            # Reover the original shapes of the inputs
-            clipped_noised_grads = tf.split(clipped_noised_grads, flattened_grad_shapes)
-            clipped_noised_grads = [
-                tf.reshape(g, s) for g, s in zip(clipped_noised_grads, grad_shapes)
+            # TODO: set stddev based on clipping threshold.
+            noise = [
+                tf.random.normal(tf.shape(g), stddev=1, dtype=float) for g in grads
             ]
-
-            weights = []
-            for l in filtered_layers:
-                weights += l.weights
+            noised_grads = [g + n for g, n in zip(grads, noise)]
 
             # Apply the gradients to the model.
-            self.optimizer.apply_gradients(zip(clipped_noised_grads, weights))
+            self.optimizer.apply_gradients(zip(noised_grads, self.weights))
 
         # Do not update metrics during secure training.
         if not self.use_encryption:
@@ -251,8 +181,6 @@ class TfShellSequential(keras.Sequential):
         else:
             metric_results = {}
 
-        # Add the number of slots to the metric results for auto-parameter
-        # optimizer.
         metric_results["num_slots"] = shell_context.num_slots
         return metric_results
 
@@ -275,14 +203,93 @@ class TfShellSequential(keras.Sequential):
         return {m.name: m.result() for m in self.val_metrics}
 
     @tf.function
-    def train_step_func(self, data):
-        return self.train_step(data)
+    def train_step_with_context(self, data):
+        shell_context = self.shell_context_fn()
+        return self.raw_train_step(
+            data,
+            shell_context,
+        )
 
-    def set_dataset_batching(self, train_dataset):
-        # Run the training loop once on dummy data to figure out the batch size.
-        tf.config.run_functions_eagerly(False)
-        metrics = self.train_step_func(next(iter(train_dataset)))
+    def train_step(self, data):
+        return self.raw_train_step(
+            data,
+            self.shell_context,
+        )
+
+    def prep_dataset_for_model(self, train_dataset):
+        if not self.use_encryption:
+            return
+
+        def find_node_by_op(f, name):
+            for node in f.graph.as_graph_def().node:
+                if node.op == name:
+                    return node
+            raise ValueError(f"Node {name} not found in graph.")
+
+        # Call the training step with keygen to trace the graph. Use a copy
+        # of the function to avoid caching the trace.
+        traceable_copy = self.train_step_with_context
+        func = traceable_copy.get_concrete_function(next(iter(train_dataset)))
+
+        # Optimize the graph using tf_shells HE-specific optimizers.
+        optimized_func = tf_shell.optimize_shell_graph(
+            func, skip_convert_to_constants=True
+        )
+
+        # Using parameters in the optimized graph, create the context and
+        # keys for use during training. The parameters are pulled from the
+        # graph because if autocontext is used, these parameters are not
+        # known until the graph optimization pass is finished.
+        context_node = find_node_by_op(optimized_func, "ContextImport64")
+
+        def get_tensor_by_name(f, name):
+            for node in f.graph.as_graph_def().node:
+                if node.name == name:
+                    return tf.make_ndarray(node.attr["value"].tensor)
+            raise ValueError(f"Node {name} not found in graph.")
+
+        log_n = get_tensor_by_name(optimized_func, context_node.input[0]).tolist()
+        main_moduli = get_tensor_by_name(optimized_func, context_node.input[1]).tolist()
+        aux_moduli = get_tensor_by_name(optimized_func, context_node.input[2]).tolist()
+        plaintext_modulus = get_tensor_by_name(
+            optimized_func, context_node.input[3]
+        ).tolist()
+        noise_variance = get_tensor_by_name(
+            optimized_func, context_node.input[4]
+        ).tolist()
+        seed = (
+            get_tensor_by_name(optimized_func, context_node.input[5])
+            .tolist()
+            .decode("utf-8")
+        )
+
+        # Try to get the scaling factor from the original graph. If it is not
+        # found (likely because autoparam is used), then get it directly from
+        # the shell context function.
+        try:
+            scaling_factor = get_tensor_by_name(
+                func, "AutoShellContext64/scaling_factor"
+            ).tolist()
+        except ValueError:
+            scaling_factor = self.shell_context_fn().scaling_factor
+
+        self.shell_context = tf_shell.create_context64(
+            log_n=log_n,
+            main_moduli=main_moduli,
+            aux_moduli=aux_moduli,
+            plaintext_modulus=plaintext_modulus,
+            scaling_factor=scaling_factor,
+            seed=seed,
+        )
+
+        self.context_prepped = True
         train_dataset = train_dataset.rebatch(
-            metrics["num_slots"].numpy(), drop_remainder=True
+            self.shell_context.num_slots, drop_remainder=True
         )
         return train_dataset
+
+    def fit(self, train_dataset, **kwargs):
+        if not self.context_prepped:
+            train_dataset = self.prep_dataset_for_model(train_dataset)
+
+        return super().fit(train_dataset, **kwargs)

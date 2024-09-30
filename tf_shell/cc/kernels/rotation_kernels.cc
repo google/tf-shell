@@ -58,6 +58,7 @@ class RotationKeyGenOp : public OpKernel {
   explicit RotationKeyGenOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    std::cout << "INFO: Generating rotation key" << std::endl;
     // Get the input tensors.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));

@@ -52,7 +52,10 @@ class ShellContext64(tf.experimental.ExtensionType):
         if isinstance(main_moduli, list):
             main_moduli = tf.convert_to_tensor(main_moduli, dtype=tf.uint64)
         self.main_moduli = main_moduli
-        self.level = tf.shape(main_moduli)[0]
+        if isinstance(main_moduli, list):
+            self.level = len(main_moduli)
+        else:
+            self.level = tf.shape(main_moduli)[0]
         if isinstance(aux_moduli, list):
             aux_moduli = tf.convert_to_tensor(aux_moduli, dtype=tf.uint64)
         self.aux_moduli = aux_moduli

@@ -1,6 +1,5 @@
 import tensorflow as tf
 import tf_shell
-import tf_shell.python.shell_optimizers as shell_optimizers
 
 
 # These test cases are for the PtPtOptimizer, which optimizes the tf graph by
@@ -232,7 +231,7 @@ class TestAutoParamOptimizer(tf.test.TestCase):
         self.assertEqual(orig_num_auto_ops, 1)
 
         # Optimize the graph using tf_shells HE-specific optimizers.
-        optimized_func = shell_optimizers.optimize_shell_graph(
+        optimized_func = tf_shell.optimize_shell_graph(
             func, ["ModuliAutotuneOptimizer"]
         )
 

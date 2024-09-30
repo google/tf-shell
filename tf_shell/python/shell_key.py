@@ -35,35 +35,54 @@ class ShellKey64(tf.experimental.ExtensionType):
 def create_key64(context):
     if not isinstance(context, ShellContext64):
         raise ValueError("context must be a ShellContext64")
-    num_keys = context.level
-    keys = tf.TensorArray(tf.variant, size=context.level, clear_after_read=False)
 
-    # Generate and store the first key in the last index.
-    keys = keys.write(
-        num_keys - 1, shell_ops.key_gen64(context._get_context_at_level(num_keys))
-    )
+    try:
+        num_keys = context.level.numpy()
+    except:
+        num_keys = context.level
 
-    # Mod reduce to compute the remaining keys.
-    keys, _ = tf.while_loop(
-        lambda ks, l: l > 1,
-        lambda ks, l: (
-            ks.write(
-                l - 2,
-                shell_ops.modulus_reduce_key64(
-                    context._get_context_at_level(l), ks.read(l - 1)
+    if isinstance(num_keys, tf.Tensor):
+        keys = tf.TensorArray(tf.variant, size=context.level, clear_after_read=False)
+
+        # Generate and store the first key in the last index.
+        keys = keys.write(
+            num_keys - 1, shell_ops.key_gen64(context._get_context_at_level(num_keys))
+        )
+
+        # Mod reduce to compute the remaining keys.
+        keys, _ = tf.while_loop(
+            lambda ks, l: l > 1,
+            lambda ks, l: (
+                ks.write(
+                    l - 2,
+                    shell_ops.modulus_reduce_key64(
+                        context._get_context_at_level(l), ks.read(l - 1)
+                    ),
                 ),
+                l - 1,
             ),
-            l - 1,
-        ),
-        loop_vars=[keys, num_keys],
-        shape_invariants=[
-            tf.TensorSpec(None, dtype=tf.variant),
-            tf.TensorSpec([], dtype=tf.int32),
-        ],
-        parallel_iterations=1,
-    )
+            loop_vars=[keys, num_keys],
+            shape_invariants=[
+                tf.TensorSpec(None, dtype=tf.variant),
+                tf.TensorSpec([], dtype=tf.int32),
+            ],
+            parallel_iterations=1,
+        )
 
-    return ShellKey64(_raw_keys_at_level=keys.gather(tf.range(0, num_keys)))
+        return ShellKey64(_raw_keys_at_level=keys.gather(tf.range(0, num_keys)))
+
+    else:
+        # Compared to the approach above, this code embeds the looping logic for
+        # key generation in the tf graph. This is slightly faster, but should
+        # also allow TensorFlow to optimize the graph better, e.g. pruning
+        # unused keys from the graph. Note, the fact that these are stored as
+        # a tensor vs. python list may inhibit this.
+        keys = [shell_ops.key_gen64(context._get_context_at_level(num_keys))]
+        for i in range(num_keys, 1, -1):
+            keys.insert(
+                0, shell_ops.modulus_reduce_key64(context._raw_contexts[i - 1], keys[0])
+            )
+        return ShellKey64(_raw_keys_at_level=keys)
 
 
 class ShellRotationKey64(tf.experimental.ExtensionType):
@@ -91,36 +110,58 @@ def create_rotation_key64(context, key):
     if not isinstance(key, ShellKey64):
         raise ValueError("key must be a ShellKey64.")
 
-    num_keys = context.level
-    rot_keys = tf.TensorArray(
-        tf.variant,
-        size=num_keys,
-        clear_after_read=False,
-        infer_shape=False,
-        element_shape=(),
-    )
+    try:
+        num_keys = context.level.numpy()
+    except:
+        num_keys = context.level
 
-    # Generate rotation keys starting from the highest level.
-    rot_keys, _ = tf.while_loop(
-        lambda ks, l: l > 0,
-        lambda ks, l: (
-            ks.write(
-                l - 1,
-                shell_ops.rotation_key_gen64(
-                    context._get_context_at_level(l), key._get_key_at_level(l)
+    if isinstance(num_keys, tf.Tensor):
+        rot_keys = tf.TensorArray(
+            tf.variant,
+            size=num_keys,
+            clear_after_read=False,
+            infer_shape=False,
+            element_shape=(),
+        )
+
+        # Generate rotation keys starting from the highest level.
+        rot_keys, _ = tf.while_loop(
+            lambda ks, l: l > 0,
+            lambda ks, l: (
+                ks.write(
+                    l - 1,
+                    shell_ops.rotation_key_gen64(
+                        context._get_context_at_level(l), key._get_key_at_level(l)
+                    ),
                 ),
+                l - 1,
             ),
-            l - 1,
-        ),
-        loop_vars=[rot_keys, num_keys],
-        shape_invariants=[
-            tf.TensorSpec(None, dtype=tf.variant),
-            tf.TensorSpec([], dtype=tf.int32),
-        ],
-        parallel_iterations=1,
-    )
+            loop_vars=[rot_keys, num_keys],
+            shape_invariants=[
+                tf.TensorSpec(None, dtype=tf.variant),
+                tf.TensorSpec([], dtype=tf.int32),
+            ],
+            parallel_iterations=1,
+        )
 
-    return ShellRotationKey64(_raw_keys_at_level=rot_keys.gather(tf.range(0, num_keys)))
+        return ShellRotationKey64(
+            _raw_keys_at_level=rot_keys.gather(tf.range(0, num_keys))
+        )
+    else:
+        # Compared to the approach above, this code embeds the looping logic for
+        # key generation in the tf graph. This is slightly faster, but should
+        # also allow TensorFlow to optimize the graph better, e.g. pruning
+        # unused keys from the graph. Note, the fact that these are stored as
+        # a tensor vs. python list may inhibit this.
+        rot_keys = []
+        for i in range(num_keys, 0, -1):
+            rot_keys.insert(
+                0,
+                shell_ops.rotation_key_gen64(
+                    context._raw_contexts[i - 1], key._raw_keys_at_level[i - 1]
+                ),
+            )
+        return ShellRotationKey64(_raw_keys_at_level=rot_keys)
 
 
 class ShellFastRotationKey64(tf.experimental.ExtensionType):
@@ -149,35 +190,56 @@ def create_fast_rotation_key64(context, key):
     if not isinstance(key, ShellKey64):
         raise ValueError("key must be a ShellKey64.")
 
-    num_keys = context.level
-    rot_keys = tf.TensorArray(
-        tf.variant,
-        size=num_keys,
-        clear_after_read=False,
-        infer_shape=False,
-        element_shape=(),
-    )
+    try:
+        num_keys = context.level.numpy()
+    except:
+        num_keys = context.level
 
-    # Generate rotation keys starting from the highest level.
-    rot_keys, _ = tf.while_loop(
-        lambda ks, l: l > 0,
-        lambda ks, l: (
-            ks.write(
-                l - 1,
-                shell_ops.fast_rotation_key_gen64(
-                    context._get_context_at_level(l), key._get_key_at_level(l)
+    if isinstance(num_keys, tf.Tensor):
+        num_keys = context.level
+        rot_keys = tf.TensorArray(
+            tf.variant,
+            size=num_keys,
+            clear_after_read=False,
+            infer_shape=False,
+            element_shape=(),
+        )
+
+        # Generate rotation keys starting from the highest level.
+        rot_keys, _ = tf.while_loop(
+            lambda ks, l: l > 0,
+            lambda ks, l: (
+                ks.write(
+                    l - 1,
+                    shell_ops.fast_rotation_key_gen64(
+                        context._get_context_at_level(l), key._get_key_at_level(l)
+                    ),
                 ),
+                l - 1,
             ),
-            l - 1,
-        ),
-        loop_vars=[rot_keys, num_keys],
-        shape_invariants=[
-            tf.TensorSpec(None, dtype=tf.variant),
-            tf.TensorSpec([], dtype=tf.int32),
-        ],
-        parallel_iterations=1,
-    )
+            loop_vars=[rot_keys, num_keys],
+            shape_invariants=[
+                tf.TensorSpec(None, dtype=tf.variant),
+                tf.TensorSpec([], dtype=tf.int32),
+            ],
+            parallel_iterations=1,
+        )
 
-    return ShellFastRotationKey64(
-        _raw_keys_at_level=rot_keys.gather(tf.range(0, num_keys))
-    )
+        return ShellFastRotationKey64(
+            _raw_keys_at_level=rot_keys.gather(tf.range(0, num_keys))
+        )
+    else:
+        # Compared to the approach above, this code embeds the looping logic for
+        # key generation in the tf graph. This is slightly faster, but should
+        # also allow TensorFlow to optimize the graph better, e.g. pruning
+        # unused keys from the graph. Note, the fact that these are stored as
+        # a tensor vs. python list may inhibit this.
+        rot_keys = []
+        for i in range(num_keys, 0, -1):
+            rot_keys.insert(
+                0,
+                shell_ops.fast_rotation_key_gen64(
+                    context._raw_contexts[i - 1], key._raw_keys_at_level[i - 1]
+                ),
+            )
+        return ShellFastRotationKey64(_raw_keys_at_level=rot_keys)

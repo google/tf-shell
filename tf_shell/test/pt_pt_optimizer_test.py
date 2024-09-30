@@ -1,6 +1,5 @@
 import tensorflow as tf
 import tf_shell
-import tf_shell.python.shell_optimizers as shell_optimizers
 import test_utils
 
 
@@ -175,7 +174,7 @@ class TestPtPtOptimizer(tf.test.TestCase):
         #     print(f"{node.name} {node.op}({node.input})", flush=True)
 
         # Optimize the graph using tf_shells HE-specific optimizers.
-        optimized_func = shell_optimizers.optimize_shell_graph(func)
+        optimized_func = tf_shell.optimize_shell_graph(func)
         # Call the optimized function.
         c = optimized_func(
             a, b, num_pt_ops, test_context.shell_context, test_context.key

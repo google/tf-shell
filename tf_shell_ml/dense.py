@@ -145,3 +145,9 @@ class ShellDense(keras.layers.Layer):
     def unpack(plaintext_packed_dx):
         batch_size = tf.shape(plaintext_packed_dx)[0] // 2
         return plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]
+
+    def unpacking_funcs(self):
+        fs = [ShellDense.unpack]
+        if self.use_bias:
+            fs.append(ShellDense.unpack)
+        return fs

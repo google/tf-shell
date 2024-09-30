@@ -120,3 +120,6 @@ class ShellEmbedding(keras.layers.Layer):
     def unpack(plaintext_packed_dx):
         batch_size = tf.shape(plaintext_packed_dx)[0] // 2
         return plaintext_packed_dx[0, 0] + plaintext_packed_dx[batch_size, 1]
+
+    def unpacking_funcs(self):
+        return [ShellEmbedding.unpack]

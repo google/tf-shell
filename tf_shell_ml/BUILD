@@ -1,16 +1,21 @@
 load("@rules_python//python:packaging.bzl", "py_package")
 
+filegroup(
+    name = "tf_shell_ml_files",
+    srcs = glob(
+        [
+            "*.py",
+        ],
+        exclude = [
+            "test",
+        ],
+    ),
+)
+
 py_library(
     name = "tf_shell_ml",
     srcs = [
-        "__init__.py",
-        "activation.py",
-        "dense.py",
-        "dropout.py",
-        "embedding.py",
-        "globalaveragepool1d.py",
-        "loss.py",
-        "model.py",
+        ":tf_shell_ml_files",
     ],
     visibility = ["//visibility:public"],
     deps = [

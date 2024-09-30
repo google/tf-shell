@@ -54,6 +54,7 @@ class KeyGenOp : public OpKernel {
   explicit KeyGenOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
+    std::cout << "INFO: Generating key" << std::endl;
     // Get the context variant from the input which holds all the shell objects
     // needed to sample a secret key.
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,

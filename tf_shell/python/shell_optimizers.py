@@ -45,7 +45,9 @@ all_shell_optimizers = [
 ]
 
 
-def optimize_shell_graph(func, optimizers=all_shell_optimizers):
+def optimize_shell_graph(
+    func, optimizers=all_shell_optimizers, skip_convert_to_constants=False
+):
     rewriter_config = rewriter_config_pb2.RewriterConfig()
     rewriter_config.meta_optimizer_iterations = rewriter_config_pb2.RewriterConfig.ONE
     for optimizer in optimizers:
@@ -53,9 +55,12 @@ def optimize_shell_graph(func, optimizers=all_shell_optimizers):
         custom_optimizer.name = optimizer
 
     # Converting var2consts for larger models might take a long time
-    frozen_func = convert_to_constants.convert_variables_to_constants_v2(
-        func, lower_control_flow=False, aggressive_inlining=True
-    )
+    if not skip_convert_to_constants:
+        frozen_func = convert_to_constants.convert_variables_to_constants_v2(
+            func, lower_control_flow=False, aggressive_inlining=True
+        )
+    else:
+        frozen_func = func
 
     meta_graph_def = saver.export_meta_graph(
         graph_def=frozen_func.graph.as_graph_def(add_shapes=True),
