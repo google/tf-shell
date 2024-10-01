@@ -45,13 +45,13 @@ struct ReorderArith {
   int pt_op_node_index;
 };
 
-void PrintReorderArith(RemapperContext& ctx, ReorderArith const& reorder) {
-  auto const* pt_op_node =
-      ctx.graph_view.GetNode(reorder.pt_op_node_index)->node();
+void PrintReorderArith(utils::MutableGraphView& graph_view,
+                       ReorderArith const& reorder) {
+  auto const* pt_op_node = graph_view.GetNode(reorder.pt_op_node_index)->node();
   auto const* encode_a_input_node =
-      ctx.graph_view.GetNode(reorder.encode_a_input_node)->node();
+      graph_view.GetNode(reorder.encode_a_input_node)->node();
   auto const* encode_a_node =
-      ctx.graph_view.GetNode(reorder.encode_a_node_index)->node();
+      graph_view.GetNode(reorder.encode_a_node_index)->node();
 
   std::cout << pt_op_node->name() << "( " << encode_a_node->name() << "("
             << encode_a_input_node->name() << ")";
@@ -60,9 +60,9 @@ void PrintReorderArith(RemapperContext& ctx, ReorderArith const& reorder) {
     std::cout << " )" << std::endl;
   } else {
     auto const* encode_b_input_node =
-        ctx.graph_view.GetNode(reorder.encode_b_input_node)->node();
+        graph_view.GetNode(reorder.encode_b_input_node)->node();
     auto const* encode_b_node =
-        ctx.graph_view.GetNode(reorder.encode_b_node_index)->node();
+        graph_view.GetNode(reorder.encode_b_node_index)->node();
     std::cout << ", " << encode_b_node->name() << "("
               << encode_b_input_node->name() << ") )" << std::endl;
   }
@@ -71,8 +71,9 @@ void PrintReorderArith(RemapperContext& ctx, ReorderArith const& reorder) {
 // Returns true if the node_index points to the outermost op of the pattern
 // outer_plaintext_op(encode(a), encode(b)) and fills the ReorderArith struct
 // accordingly.
-bool FindPtPt(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
-  auto const* outer_node_view = ctx.graph_view.GetNode(node_index);
+bool FindPtPt(utils::MutableGraphView& graph_view, int node_index,
+              ReorderArith* reorder) {
+  auto const* outer_node_view = graph_view.GetNode(node_index);
   auto const* outer_node_def = outer_node_view->node();
 
   if (!IsReplaceableOp(*outer_node_def)) {
@@ -134,7 +135,7 @@ bool FindPtPt(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
 
   if constexpr (debug) {
     std::cout << "Found pattern: ";
-    PrintReorderArith(ctx, *reorder);
+    PrintReorderArith(graph_view, *reorder);
   }
 
   return true;
@@ -144,10 +145,11 @@ bool FindPtPt(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
 // encode( op(a, <b>) ) where <> indicate optional arguments. One might wonder
 // why single arg ops are re-arranged in this way, since there is no performance
 // gain. The reason is so subsequent ops can be optimized.
-Status ApplyReorderArith(RemapperContext* ctx, ReorderArith const& reorder,
+Status ApplyReorderArith(utils::MutableGraphView& graph_view,
+                         ReorderArith const& reorder,
                          std::vector<bool>* nodes_to_delete) {
-  GraphDef const* graph = ctx->graph_view.graph();
-  utils::Mutation* mutation = ctx->graph_view.GetMutationBuilder();
+  GraphDef const* graph = graph_view.graph();
+  utils::Mutation* mutation = graph_view.GetMutationBuilder();
   Status status;
 
   // First, replace the outer PtPt node with the TensorFlow equivalent and set
@@ -167,7 +169,7 @@ Status ApplyReorderArith(RemapperContext* ctx, ReorderArith const& reorder,
 
   // Set the dtype of the new tf node to the same as the input.
   auto const* encode_a_node_view =
-      ctx->graph_view.GetNode(reorder.encode_a_node_index);
+      graph_view.GetNode(reorder.encode_a_node_index);
   auto const* encode_a_node_def = encode_a_node_view->node();
   auto dtype = encode_a_node_def->attr().at("Dtype");
   new_tf_op_def.mutable_attr()->insert({"T", dtype});
@@ -214,7 +216,7 @@ Status ApplyReorderArith(RemapperContext* ctx, ReorderArith const& reorder,
   (*nodes_to_delete)[reorder.pt_op_node_index] = true;
 
   // auto const* encode_a_node_view =
-  //     ctx->graph_view.GetNode(reorder.encode_a_node_index);
+  //     graph_view.GetNode(reorder.encode_a_node_index);
 
   if (encode_a_node_view->NumRegularFanouts() == 1) {
     (*nodes_to_delete)[reorder.encode_a_node_index] = true;
@@ -232,7 +234,7 @@ Status ApplyReorderArith(RemapperContext* ctx, ReorderArith const& reorder,
 
   if (!reorder.single_arg_op) {
     auto const* encode_b_node_view =
-        ctx->graph_view.GetNode(reorder.encode_b_node_index);
+        graph_view.GetNode(reorder.encode_b_node_index);
 
     if (encode_b_node_view->NumRegularFanouts() == 1) {
       (*nodes_to_delete)[reorder.encode_b_node_index] = true;
@@ -255,9 +257,9 @@ Status ApplyReorderArith(RemapperContext* ctx, ReorderArith const& reorder,
 // Returns true if the node_index points to the outermost op of the pattern
 // decode(encode(a)) where a is a cleartext (tf datatype) and marks nodes to
 // delete accordingly.
-bool FindAndRemapEncDec(RemapperContext& ctx, int node_index,
+bool FindAndRemapEncDec(utils::MutableGraphView& graph_view, int node_index,
                         utils::Mutation* mutation) {
-  auto const* decode_node_view = ctx.graph_view.GetNode(node_index);
+  auto const* decode_node_view = graph_view.GetNode(node_index);
   auto const* decode_node_def = decode_node_view->node();
 
   if (!IsDecode(*decode_node_def)) {
@@ -281,16 +283,15 @@ bool FindAndRemapEncDec(RemapperContext& ctx, int node_index,
   // the decoder node is an output of the graph. Downstream nodes automatically
   // pick up on their new fanin inputs after the rename.
   utils::MutableNodeView* mutable_tf_input =
-      ctx.graph_view.GetNode(tf_input_node_view->node_index());
+      graph_view.GetNode(tf_input_node_view->node_index());
   mutation->UpdateNodeName(mutable_tf_input, decode_node_def->name());
 
   // Delete the decode node.
-  mutation->RemoveNode(ctx.graph_view.GetNode(node_index));
+  mutation->RemoveNode(graph_view.GetNode(node_index));
 
   // Only delete the encode node if it is not used elsewhere.
   if (encode_node_view->NumRegularFanouts() == 1) {
-    mutation->RemoveNode(
-        ctx.graph_view.GetNode(encode_node_view->node_index()));
+    mutation->RemoveNode(graph_view.GetNode(encode_node_view->node_index()));
   }
 
   return true;
@@ -307,14 +308,13 @@ Status PtPtOptimizer::Init(
 
 Status PtPtOptimizer::Optimize(Cluster* cluster, GrapplerItem const& item,
                                GraphDef* optimized_graph) {
-  GrapplerItem mutable_item = item;
+  GrapplerItem mutable_item(item);
   Status status;
-  RemapperContext ctx(&mutable_item, &status);
+  utils::MutableGraphView graph_view(&mutable_item.graph, &status);
   TF_RETURN_IF_ERROR(status);
 
   // Topological sort and process the nodes in order.
-  TF_RETURN_IF_ERROR(
-      ctx.graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
+  TF_RETURN_IF_ERROR(graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
 
   bool finished = false;
   while (!finished) {
@@ -331,17 +331,18 @@ Status PtPtOptimizer::Optimize(Cluster* cluster, GrapplerItem const& item,
       // indicate optional arguments. E.g. op=add has two arguments while
       // op=negate has only one.
       ReorderArith reorder;
-      if (FindPtPt(ctx, i, &reorder)) {
-        TF_RETURN_IF_ERROR(ApplyReorderArith(&ctx, reorder, &nodes_to_delete));
+      if (FindPtPt(graph_view, i, &reorder)) {
+        TF_RETURN_IF_ERROR(
+            ApplyReorderArith(graph_view, reorder, &nodes_to_delete));
         finished = false;
       }
     }
 
     // Remove nodes.
-    utils::Mutation* mutation = ctx.graph_view.GetMutationBuilder();
+    utils::Mutation* mutation = graph_view.GetMutationBuilder();
     for (int i = 0; i < num_nodes; ++i) {
       if (nodes_to_delete[i]) {
-        mutation->RemoveNode(ctx.graph_view.GetNode(i));
+        mutation->RemoveNode(graph_view.GetNode(i));
       }
     }
     TF_RETURN_IF_ERROR(mutation->Apply());
@@ -351,10 +352,10 @@ Status PtPtOptimizer::Optimize(Cluster* cluster, GrapplerItem const& item,
   // Since encode-decode pairs will never be nested, i.e.
   // decode(decode(encode(encode(...))), only one pass is necessary.
   {
-    utils::Mutation* mutation = ctx.graph_view.GetMutationBuilder();
+    utils::Mutation* mutation = graph_view.GetMutationBuilder();
     int const num_nodes = mutable_item.graph.node_size();
     for (int i = num_nodes - 1; i >= 0; --i) {
-      FindAndRemapEncDec(ctx, i, mutation);
+      FindAndRemapEncDec(graph_view, i, mutation);
     }
     TF_RETURN_IF_ERROR(mutation->Apply());
   }

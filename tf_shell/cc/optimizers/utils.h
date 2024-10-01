@@ -12,19 +12,7 @@
 #include "tensorflow/core/grappler/utils/topological_sort.h"
 
 using tensorflow::NodeDef;
-using tensorflow::Status;
-using tensorflow::grappler::GraphProperties;
-using tensorflow::grappler::GrapplerItem;
-using tensorflow::grappler::utils::MutableGraphView;
-using TopMutableGraphView = tensorflow::grappler::MutableGraphView;
 
-struct RemapperContext {
-  explicit RemapperContext(GrapplerItem* item, Status* status)
-      : graph_view(&item->graph, status), graph_properties(*item) {}
-
-  MutableGraphView graph_view;
-  GraphProperties graph_properties;
-};
 constexpr char kShellContext[] = "ContextImport64";
 constexpr char kShellAutoContext[] = "AutoShellContext64";
 

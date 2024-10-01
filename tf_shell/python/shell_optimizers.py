@@ -25,6 +25,8 @@ shell_ops = load_library.load_op_library(
 )
 
 # Based on https://github.com/openvinotoolkit/openvino_tensorflow/blob/d9dcb9d4c5932d0a8e9a3633d4134ae5841af6c1/python/openvino_tensorflow/__init__.in.py
+# Anther approach using higher level APIs can be found here:
+# https://stackoverflow.com/questions/74219568/optimize-and-resave-saved-model-with-grappler
 
 from tensorflow.python.framework import ops
 from tensorflow.core.protobuf import rewriter_config_pb2

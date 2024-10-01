@@ -120,10 +120,10 @@ Status AddScalarConstNode(T value, utils::Mutation* mutation,
   return status;
 }
 
-Status GetAutoShellContextParams(RemapperContext& ctx,
+Status GetAutoShellContextParams(utils::MutableGraphView& graph_view,
                                  ShellAutoParams& params) {
   // Get the plaintext modulus t.
-  auto const* autocontext_node_view = ctx.graph_view.GetNode(kShellAutoContext);
+  auto const* autocontext_node_view = graph_view.GetNode(kShellAutoContext);
   // auto const* autocontext_node_def = autocontext_node_view->node();
 
   auto const* cleartext_bits_node =
@@ -156,14 +156,14 @@ Status GetAutoShellContextParams(RemapperContext& ctx,
   return OkStatus();
 }
 
-int GetMulDepth(RemapperContext& ctx) {
+int GetMulDepth(utils::MutableGraphView& graph_view) {
   // Traverse the graph and return the maximum multiplicative depth.
-  int const num_nodes = ctx.graph_view.NumNodes();
+  int const num_nodes = graph_view.NumNodes();
   std::vector<uint64_t> node_mul_depth(num_nodes);
 
   uint64_t max_noise = 0;
   for (int i = 0; i < num_nodes; ++i) {
-    auto const* this_node_view = ctx.graph_view.GetNode(i);
+    auto const* this_node_view = graph_view.GetNode(i);
     auto const* this_node_def = this_node_view->node();
 
     if (IsArithmetic(*this_node_def) || IsMatMul(*this_node_def) ||
@@ -369,11 +369,11 @@ Status ChooseShellParams(ShellParams& params, uint64_t const total_pt_bits,
 // Returns the noise budget of the current node.
 template <typename T>
 Status EstimateNodeNoise(
-    RemapperContext& ctx, int node_index, std::vector<uint64_t>& node_noise,
-    ShellParams const& params,
+    utils::MutableGraphView& graph_view, int node_index,
+    std::vector<uint64_t>& node_noise, ShellParams const& params,
     rlwe::RnsErrorParams<rlwe::MontgomeryInt<T>>& error_params) {
   // Get the current node and its fanin nodes.
-  auto const* node_view = ctx.graph_view.GetNode(node_index);
+  auto const* node_view = graph_view.GetNode(node_index);
   auto const* node_def = node_view->node();
 
   uint64_t* this_noise = &node_noise[node_index];
@@ -491,10 +491,11 @@ Status EstimateNodeNoise(
 }
 
 template <typename T>
-Status EstimateNoiseGrowth(RemapperContext& ctx, ShellParams const& params,
+Status EstimateNoiseGrowth(utils::MutableGraphView& graph_view,
+                           ShellParams const& params,
                            uint64_t const noise_varaince, uint64_t* log_noise) {
   // Estimate the ciphertext noise growth by traversing the graph.
-  int const num_nodes = ctx.graph_view.NumNodes();
+  int const num_nodes = graph_view.NumNodes();
   std::vector<uint64_t> node_noise(num_nodes);
 
   // Create RnsErrorParams.
@@ -527,7 +528,7 @@ Status EstimateNoiseGrowth(RemapperContext& ctx, ShellParams const& params,
   for (int i = 0; i < num_nodes; ++i) {
     // Estimate the noise budget of this node.
     TF_RETURN_IF_ERROR(
-        EstimateNodeNoise<T>(ctx, i, node_noise, params, error_params));
+        EstimateNodeNoise<T>(graph_view, i, node_noise, params, error_params));
 
     // Update the maximum noise budget.
     log_max_noise = std::max(log_max_noise, node_noise[i]);
@@ -544,11 +545,11 @@ Status EstimateNoiseGrowth(RemapperContext& ctx, ShellParams const& params,
 // Returns true if the node_index points to the outermost op of the pattern
 // decode(encode(a)) where a is a cleartext (tf datatype) and marks nodes to
 // delete accordingly.
-Status ReplaceAutoparamWithContext(RemapperContext& ctx,
+Status ReplaceAutoparamWithContext(utils::MutableGraphView& graph_view,
                                    ShellParams const& params,
                                    ShellAutoParams const& auto_params) {
   utils::MutableNodeView* autocontext_node_view =
-      ctx.graph_view.GetNode(kShellAutoContext);
+      graph_view.GetNode(kShellAutoContext);
   int autocontext_node_index = autocontext_node_view->node_index();
 
   if constexpr (debug_graph) {
@@ -564,7 +565,7 @@ Status ReplaceAutoparamWithContext(RemapperContext& ctx,
   std::string noise_var_name = "ContextImport64/noise_variance";
   std::string seed_str_name = "ContextImport64/seed";
 
-  utils::Mutation* mutation = ctx.graph_view.GetMutationBuilder();
+  utils::Mutation* mutation = graph_view.GetMutationBuilder();
   std::string device = autocontext_node_view->GetDevice();
   TF_RETURN_IF_ERROR(
       AddScalarConstNode<uint64_t>(params.log_n, mutation, log_n_name, device));
@@ -615,7 +616,7 @@ Status ReplaceAutoparamWithContext(RemapperContext& ctx,
     }
   }
 
-  mutation->RemoveNode(ctx.graph_view.GetNode(autocontext_node_index));
+  mutation->RemoveNode(graph_view.GetNode(autocontext_node_index));
   for (auto const& fanin : autocontext_node_view->GetRegularFanins()) {
     mutation->RemoveNode(fanin.node_view());
   }
@@ -637,14 +638,14 @@ Status ModuliAutotuneOptimizer::Init(
 Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
                                          GrapplerItem const& item,
                                          GraphDef* optimized_graph) {
-  GrapplerItem mutable_item = item;
+  GrapplerItem mutable_item(item);
   Status status;
-  RemapperContext ctx(&mutable_item, &status);
+  utils::MutableGraphView graph_view(&mutable_item.graph, &status);
   TF_RETURN_IF_ERROR(status);
 
   // See if an autocontext node exists in the graph. If not, there is nothing
   // to do.
-  auto const* autocontext_view = ctx.graph_view.GetNode(kShellAutoContext);
+  auto const* autocontext_view = graph_view.GetNode(kShellAutoContext);
   if (autocontext_view == nullptr) {
     *optimized_graph = std::move(mutable_item.graph);
     return OkStatus();
@@ -654,7 +655,7 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
   std::string duplicate_autocontext = kShellAutoContext;
   duplicate_autocontext += "_1";
   auto const* duplicate_autocontext_view =
-      ctx.graph_view.GetNode(duplicate_autocontext);
+      graph_view.GetNode(duplicate_autocontext);
   if (duplicate_autocontext_view != nullptr) {
     return errors::FailedPrecondition("Multiple autocontext nodes found.");
   }
@@ -662,17 +663,16 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
   // Use GetScalarConstValue to get value of plaintext modulus,
   // etc.
   ShellAutoParams auto_params;
-  TF_RETURN_IF_ERROR(GetAutoShellContextParams(ctx, auto_params));
+  TF_RETURN_IF_ERROR(GetAutoShellContextParams(graph_view, auto_params));
 
   // Topological sort so all subsequent traversals are in order.
-  TF_RETURN_IF_ERROR(
-      ctx.graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
+  TF_RETURN_IF_ERROR(graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
 
   // Find the maximum multiplicative depth of the graph and use this to set
   // the plaintext modulus t, based on the scaling factor and depth.
   // Note the mul_depth + 1 accounts for the first multiplication by the
   // scaling factor during encoding.
-  int mul_depth = GetMulDepth(ctx);
+  int mul_depth = GetMulDepth(graph_view);
   uint64_t total_plaintext_bits =
       auto_params.cleartext_bits +
       std::ceil(std::log2(
@@ -713,7 +713,7 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
 
     uint64_t log_max_noise = 0;
     TF_RETURN_IF_ERROR(EstimateNoiseGrowth<uint64_t>(
-        ctx, params, auto_params.noise_variance, &log_max_noise));
+        graph_view, params, auto_params.noise_variance, &log_max_noise));
 
     if (log_max_noise == 0) {
       // No encryption in this graph. Smallest parameters will do.
@@ -756,14 +756,14 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
     std::cout << std::endl;
   }
 
-  TF_RETURN_IF_ERROR(ReplaceAutoparamWithContext(ctx, params, auto_params));
+  TF_RETURN_IF_ERROR(
+      ReplaceAutoparamWithContext(graph_view, params, auto_params));
 
   if constexpr (debug_graph) {
     std::cout << "Optimized graph: " << std::endl;
-    int const num_nodes = ctx.graph_view.NumNodes();
+    int const num_nodes = graph_view.NumNodes();
     for (int i = 0; i < num_nodes; ++i) {
-      std::cout << ctx.graph_view.GetNode(i)->node()->DebugString()
-                << std::endl;
+      std::cout << graph_view.GetNode(i)->node()->DebugString() << std::endl;
     }
   }
 

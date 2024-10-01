@@ -38,17 +38,16 @@ struct ReorderArith {
   int inner_pt_node_index;
 };
 
-void PrintReorderArith(RemapperContext& ctx, ReorderArith const& reorder) {
-  auto const* outer_node =
-      ctx.graph_view.GetNode(reorder.outer_node_index)->node();
-  auto const* inner_node =
-      ctx.graph_view.GetNode(reorder.inner_node_index)->node();
+void PrintReorderArith(utils::MutableGraphView& graph_view,
+                       ReorderArith const& reorder) {
+  auto const* outer_node = graph_view.GetNode(reorder.outer_node_index)->node();
+  auto const* inner_node = graph_view.GetNode(reorder.inner_node_index)->node();
   auto const* outer_pt_node =
-      ctx.graph_view.GetNode(reorder.outer_pt_node_index)->node();
+      graph_view.GetNode(reorder.outer_pt_node_index)->node();
   auto const* inner_ct_node =
-      ctx.graph_view.GetNode(reorder.inner_ct_node_index)->node();
+      graph_view.GetNode(reorder.inner_ct_node_index)->node();
   auto const* inner_pt_node =
-      ctx.graph_view.GetNode(reorder.inner_pt_node_index)->node();
+      graph_view.GetNode(reorder.inner_pt_node_index)->node();
 
   std::cout << outer_node->name() << " ( " << inner_node->name() << " ( "
             << inner_ct_node->name() << " , " << inner_pt_node->name() << " ), "
@@ -60,9 +59,10 @@ void PrintReorderArith(RemapperContext& ctx, ReorderArith const& reorder) {
 // If the outer_op is add or sub, the inner_op must be add or sub.
 // If instead the outer_op is mul, the inner_op must be mul.
 // If the inner op is used elsewhere (has fanout>1), the pattern is not matched.
-bool FindAddOrSub(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
+bool FindAddOrSub(utils::MutableGraphView& graph_view, int node_index,
+                  ReorderArith* reorder) {
   // Check given node is op(ct, pt).
-  auto const* outer_node_view = ctx.graph_view.GetNode(node_index);
+  auto const* outer_node_view = graph_view.GetNode(node_index);
   auto const* outer_node_def = outer_node_view->node();
 
   if (!IsAddCtPt(*outer_node_def) && !IsSubCtPt(*outer_node_def) &&
@@ -123,7 +123,7 @@ bool FindAddOrSub(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
 
   if constexpr (debug) {
     std::cout << "Found pattern:";
-    PrintReorderArith(ctx, new_reorder);
+    PrintReorderArith(graph_view, new_reorder);
   }
 
   *reorder = new_reorder;
@@ -133,10 +133,11 @@ bool FindAddOrSub(RemapperContext& ctx, int node_index, ReorderArith* reorder) {
 
 // This function replaces the pattern outer_op(inner_op(ct, pt), pt) with
 // outer_op(ct, inner_op(pt, pt)).
-Status ApplyReorderArith(RemapperContext* ctx, ReorderArith const& reorder,
+Status ApplyReorderArith(utils::MutableGraphView& graph_view,
+                         ReorderArith const& reorder,
                          std::vector<bool>* nodes_to_delete) {
-  GraphDef const* graph = ctx->graph_view.graph();
-  utils::Mutation* mutation = ctx->graph_view.GetMutationBuilder();
+  GraphDef const* graph = graph_view.graph();
+  utils::Mutation* mutation = graph_view.GetMutationBuilder();
   Status status;
 
   // First replace the inner node with a pt pt node.
@@ -210,14 +211,13 @@ Status CtPtOptimizer::Init(
 
 Status CtPtOptimizer::Optimize(Cluster* cluster, GrapplerItem const& item,
                                GraphDef* optimized_graph) {
-  GrapplerItem mutable_item = item;
+  GrapplerItem mutable_item(item);
   Status status;
-  RemapperContext ctx(&mutable_item, &status);
+  utils::MutableGraphView graph_view(&mutable_item.graph, &status);
   TF_RETURN_IF_ERROR(status);
 
   // Topological sort and process the nodes in reverse.
-  TF_RETURN_IF_ERROR(
-      ctx.graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
+  TF_RETURN_IF_ERROR(graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
 
   bool finished = false;
   while (!finished) {
@@ -232,17 +232,18 @@ Status CtPtOptimizer::Optimize(Cluster* cluster, GrapplerItem const& item,
 
       // Remap op( op(ct, pt), pt) to op(ct, op(pt, pt)).
       ReorderArith reorder;
-      if (FindAddOrSub(ctx, i, &reorder)) {
-        TF_RETURN_IF_ERROR(ApplyReorderArith(&ctx, reorder, &nodes_to_delete));
+      if (FindAddOrSub(graph_view, i, &reorder)) {
+        TF_RETURN_IF_ERROR(
+            ApplyReorderArith(graph_view, reorder, &nodes_to_delete));
         finished = false;
       }
     }
 
     // Remove nodes.
-    utils::Mutation* mutation = ctx.graph_view.GetMutationBuilder();
+    utils::Mutation* mutation = graph_view.GetMutationBuilder();
     for (int i = 0; i < num_nodes; ++i) {
       if (nodes_to_delete[i]) {
-        mutation->RemoveNode(ctx.graph_view.GetNode(i));
+        mutation->RemoveNode(graph_view.GetNode(i));
       }
     }
     TF_RETURN_IF_ERROR(mutation->Apply());
