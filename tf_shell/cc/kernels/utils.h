@@ -38,6 +38,18 @@ using tensorflow::errors::Unimplemented;
 // The substitution power for Galois rotation by one slot.
 constexpr int base_power = 5;
 
+// A mutex for use with variants with appropriate copy/assign.
+struct variant_mutex {
+  std::mutex mutex;
+  variant_mutex() : mutex() {}
+
+  variant_mutex(variant_mutex const& other) : mutex() {}
+  variant_mutex& operator=(variant_mutex const& other) { return *this; }
+
+  variant_mutex(variant_mutex&& other) : mutex() {}
+  variant_mutex& operator=(variant_mutex&& other) { return *this; }
+};
+
 constexpr uint64_t BitWidth(uint64_t n) {
   uint64_t bits = 0;
   while (n) {

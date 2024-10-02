@@ -43,7 +43,21 @@ class PolynomialVariant {
   std::string TypeName() const { return kTypeName; }
 
   void Encode(VariantTensorData* data) const {
-    auto serialized_poly_or = poly.Serialize(ct_context->MainPrimeModuli());
+    auto async_poly_str = poly_str;  // Make sure key string is not deallocated.
+    auto async_ct_context = ct_context;
+
+    if (async_ct_context == nullptr) {
+      // If the context is null, this may have been decoded but not lazy decoded
+      // yet. In this case, directly encode the polynomial string.
+      if (async_poly_str == nullptr) {
+        std::cout << "ERROR: Polynomial not set, cannot encode." << std::endl;
+        return;
+      }
+      data->tensors_.push_back(Tensor(*async_poly_str));
+      return;
+    }
+    auto serialized_poly_or =
+        poly.Serialize(async_ct_context->MainPrimeModuli());
     if (!serialized_poly_or.ok()) {
       std::cout << "ERROR: Failed to serialize polynomial: "
                 << serialized_poly_or.status();
@@ -61,24 +75,27 @@ class PolynomialVariant {
       return false;
     }
 
-    if (!poly_str.empty()) {
+    if (poly_str != nullptr) {
       std::cout << "ERROR: Polynomial already decoded";
       return false;
     }
 
-    poly_str = std::string(data.tensors_[0].scalar<tstring>()().begin(),
-                           data.tensors_[0].scalar<tstring>()().end());
+    poly_str = std::make_shared<std::string>(
+        data.tensors_[0].scalar<tstring>()().begin(),
+        data.tensors_[0].scalar<tstring>()().end());
 
     return true;
   };
 
   Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_) {
-    if (poly_str.empty()) {
+    std::lock_guard<std::mutex> lock(mutex.mutex);
+
+    if (ct_context != nullptr) {
       return OkStatus();
     }
 
     rlwe::SerializedRnsPolynomial serialized_poly;
-    bool ok = serialized_poly.ParseFromString(poly_str);
+    bool ok = serialized_poly.ParseFromString(*poly_str);
     if (!ok) {
       return InvalidArgument("Failed to parse polynomial.");
     }
@@ -91,14 +108,15 @@ class PolynomialVariant {
     ct_context = ct_context_;
 
     // Clear the serialized polynomial string.
-    poly_str.clear();
+    poly_str = nullptr;
 
     return OkStatus();
   };
 
   std::string DebugString() const { return "ShellPolynomialVariant"; }
 
+  variant_mutex mutex;
   Polynomial poly;
-  std::string poly_str;
+  std::shared_ptr<std::string> poly_str;
   std::shared_ptr<Context const> ct_context;
 };

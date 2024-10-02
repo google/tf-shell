@@ -71,10 +71,28 @@ class FastRotationKeyVariant {
   std::string TypeName() const { return kTypeName; }
 
   void Encode(VariantTensorData* data) const {
+    auto async_key_strs = key_strs;  // Make sure key string is not deallocated.
+    auto async_ct_context = ct_context;
+
+    if (async_ct_context == nullptr) {
+      // If the context is null, this may have been decoded but not lazy decoded
+      // yet. In this case, directly encode the key strings.
+      if (async_key_strs == nullptr) {
+        std::cout << "ERROR: Fast rotation key not set, cannot encode."
+                  << std::endl;
+        return;
+      }
+      data->tensors_.reserve(async_key_strs->size());
+      for (auto const& key_str : *async_key_strs) {
+        data->tensors_.push_back(Tensor(key_str));
+      }
+    }
+
     data->tensors_.reserve(keys.size());
 
     for (auto const& key : keys) {
-      auto serialized_key_or = key.Serialize(ct_context->MainPrimeModuli());
+      auto serialized_key_or =
+          key.Serialize(async_ct_context->MainPrimeModuli());
       if (!serialized_key_or.ok()) {
         std::cout << "ERROR: Failed to serialize key: "
                   << serialized_key_or.status();
@@ -101,32 +119,38 @@ class FastRotationKeyVariant {
       return false;
     }
 
-    if (!key_strs.empty()) {
+    if (key_strs != nullptr) {
       std::cout << "ERROR: Fast rotation key already decoded." << std::endl;
       return false;
     }
 
     size_t num_keys = data.tensors_.size();
-    key_strs.reserve(num_keys);
+    std::vector<std::string> building_key_strs;
+    building_key_strs.reserve(num_keys);
 
     for (size_t i = 0; i < data.tensors_.size(); ++i) {
       std::string const serialized_key(
           data.tensors_[i].scalar<tstring>()().begin(),
           data.tensors_[i].scalar<tstring>()().end());
 
-      key_strs.push_back(std::move(serialized_key));
+      building_key_strs.push_back(std::move(serialized_key));
     }
+
+    key_strs = std::make_shared<std::vector<std::string>>(
+        std::move(building_key_strs));
 
     return true;
   };
 
   Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_) {
+    std::lock_guard<std::mutex> lock(mutex.mutex);
+
     // If the keys have already been fully decoded, nothing to do.
-    if (key_strs.empty()) {
+    if (ct_context != nullptr) {
       return OkStatus();
     }
 
-    for (auto const& key_str : key_strs) {
+    for (auto const& key_str : *key_strs) {
       rlwe::SerializedRnsPolynomial serialized_key;
       bool ok = serialized_key.ParseFromString(key_str);
       if (!ok) {
@@ -145,14 +169,15 @@ class FastRotationKeyVariant {
     ct_context = ct_context_;
 
     // Clear the key strings.
-    key_strs.clear();
+    key_strs = nullptr;
 
     return OkStatus();
   };
 
   std::string DebugString() const { return "ShellFastRotationKeyVariant"; }
 
+  variant_mutex mutex;
   std::vector<RnsPolynomial> keys;
-  std::vector<std::string> key_strs;
+  std::shared_ptr<std::vector<std::string>> key_strs;
   std::shared_ptr<Context const> ct_context;
 };

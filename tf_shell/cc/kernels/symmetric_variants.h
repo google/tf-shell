@@ -45,6 +45,20 @@ class SymmetricKeyVariant {
   std::string TypeName() const { return kTypeName; }
 
   void Encode(VariantTensorData* data) const {
+    auto async_key_str = key_str;  // Make sure key string is not deallocated.
+    auto async_ct_context = ct_context;
+
+    if (async_ct_context == nullptr) {
+      // If the context is null, this may have been decoded but not lazy decoded
+      // yet. In this case, directly encode the key string.
+      if (async_key_str == nullptr) {
+        std::cout << "ERROR: Key not set, cannot encode." << std::endl;
+        return;
+      }
+      data->tensors_.push_back(Tensor(*async_key_str));
+      return;
+    }
+
     auto serialized_key_or = key->Key().Serialize(key->Moduli());
     if (!serialized_key_or.ok()) {
       std::cout << "ERROR: Failed to serialize key: "
@@ -70,27 +84,32 @@ class SymmetricKeyVariant {
       return false;
     }
 
-    if (!key_str.empty()) {
+    if (key_str != nullptr) {
       std::cout << "ERROR: Key already decoded." << std::endl;
       return false;
     }
 
     // Recover the key polynomial.
-    key_str = std::string(data.tensors_[0].scalar<tstring>()().begin(),
-                          data.tensors_[0].scalar<tstring>()().end());
+    // key_str =
+    // std::make_shared<std::string>(data.tensors_[0].scalar<tstring>()());
+    key_str = std::make_shared<std::string>(
+        data.tensors_[0].scalar<tstring>()().begin(),
+        data.tensors_[0].scalar<tstring>()().end());
 
     return true;
   };
 
   Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_,
                          int noise_variance) {
+    std::lock_guard<std::mutex> lock(mutex.mutex);
+
     // If this key has already been fully decoded, nothing to do.
-    if (key_str.empty()) {
+    if (ct_context != nullptr) {
       return OkStatus();
     }
 
     rlwe::SerializedRnsPolynomial serialized_key;
-    bool ok = serialized_key.ParseFromString(key_str);
+    bool ok = serialized_key.ParseFromString(*key_str);
     if (!ok) {
       return InvalidArgument("Failed to parse key polynomial.");
     }
@@ -116,15 +135,16 @@ class SymmetricKeyVariant {
     ct_context = ct_context_;
 
     // Clear the serialized key string.
-    key_str.clear();
+    key_str = nullptr;
 
     return OkStatus();
   }
 
   std::string DebugString() const { return "ShellSymmetricKeyVariant"; }
 
+  variant_mutex mutex;
   std::shared_ptr<Key> key;
-  std::string key_str;
+  std::shared_ptr<std::string> key_str;
   std::shared_ptr<Context const> ct_context;
 };
 
@@ -149,6 +169,20 @@ class SymmetricCtVariant {
   std::string TypeName() const { return kTypeName; }
 
   void Encode(VariantTensorData* data) const {
+    auto async_ct_str = ct_str;  // Make sure key string is not deallocated.
+    auto async_ct_context = ct_context;
+
+    if (async_ct_context == nullptr) {
+      // If the context is null, this may have been decoded but not lazy decoded
+      // yet. In this case, directly encode the ciphertext string.
+      if (async_ct_str == nullptr) {
+        std::cout << "ERROR: Ciphertext not set, cannot encode." << std::endl;
+        return;
+      }
+      data->tensors_.push_back(Tensor(*async_ct_str));
+      return;
+    }
+
     // Store the ciphertext.
     auto serialized_ct_or = ct.Serialize();
     if (!serialized_ct_or.ok()) {
@@ -174,27 +208,30 @@ class SymmetricCtVariant {
       return false;
     }
 
-    if (!ct_str.empty()) {
+    if (ct_str != nullptr) {
       std::cout << "ERROR: Ciphertext already decoded." << std::endl;
       return false;
     }
 
     // Recover the serialized ciphertext string.
-    ct_str = std::string(data.tensors_[0].scalar<tstring>()().begin(),
-                         data.tensors_[0].scalar<tstring>()().end());
+    ct_str = std::make_shared<std::string>(
+        data.tensors_[0].scalar<tstring>()().begin(),
+        data.tensors_[0].scalar<tstring>()().end());
 
     return true;
   };
 
   Status MaybeLazyDecode(std::shared_ptr<Context const> ct_context_,
                          std::shared_ptr<ErrorParams const> error_params_) {
+    std::lock_guard<std::mutex> lock(mutex.mutex);
+
     // If this ciphertext has already been fully decoded, nothing to do.
-    if (ct_str.empty()) {
+    if (ct_context != nullptr) {
       return OkStatus();
     }
 
     rlwe::SerializedRnsRlweCiphertext serialized_ct;
-    bool ok = serialized_ct.ParseFromString(ct_str);
+    bool ok = serialized_ct.ParseFromString(*ct_str);
     if (!ok) {
       return InvalidArgument("Failed to parse ciphertext.");
     }
@@ -211,15 +248,16 @@ class SymmetricCtVariant {
     error_params = error_params_;
 
     // Clear the serialized ciphertext string.
-    ct_str.clear();
+    ct_str = nullptr;
 
     return OkStatus();
   };
 
   std::string DebugString() const { return "ShellSymmetricCtVariant"; }
 
+  variant_mutex mutex;
   SymmetricCt ct;
-  std::string ct_str;
+  std::shared_ptr<std::string> ct_str;
   std::shared_ptr<Context const> ct_context;
   std::shared_ptr<ErrorParams const> error_params;
 };
