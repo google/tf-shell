@@ -31,7 +31,7 @@ class TestModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        # x_train, x_test = x_train[:, :64], x_test[:, :64]
+        x_train, x_test = x_train[:, :512], x_test[:, :512]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
         train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(4)
@@ -39,29 +39,17 @@ class TestModel(tf.test.TestCase):
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
-        # Turn on the shell optimizer to use autocontext.
-        tf_shell.enable_optimization()
-
-        m = tf_shell_ml.DpSgdSequential(
+        m = tf_shell_ml.PostScaleSequential(
             [
-                tf_shell_ml.ShellDense(
-                    64,
-                    activation=tf_shell_ml.relu,
-                    activation_deriv=tf_shell_ml.relu_deriv,
-                    use_fast_reduce_sum=True,
-                ),
-                tf_shell_ml.ShellDense(
-                    10,
-                    activation=tf.nn.softmax,
-                    use_fast_reduce_sum=True,
-                ),
+                tf.keras.layers.Dense(64, activation="relu"),
+                tf.keras.layers.Dense(10, activation="sigmoid"),
             ],
             lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=32,
                 scaling_factor=3,
-                noise_offset_log2=64,
+                noise_offset_log2=50,
             ),
-            True,
+            use_encryption=True,
         )
 
         m.compile(
@@ -71,11 +59,6 @@ class TestModel(tf.test.TestCase):
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
-        m.build([None, 784])
-        # m.build([None, 64])
-
-        # m(train_dataset)
-        m.summary()
         history = m.fit(
             train_dataset.take(2**13), epochs=1, validation_data=val_dataset
         )

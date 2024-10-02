@@ -53,9 +53,9 @@ py_test(
 )
 
 py_test(
-    name = "model_local_test",
+    name = "dpsgd_model_local_test",
     size = "large",
-    srcs = ["model_local_test.py"],
+    srcs = ["dpsgd_model_local_test.py"],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -64,9 +64,20 @@ py_test(
 )
 
 py_test(
-    name = "model_distrib_test",
+    name = "dpsgd_model_distrib_test",
     size = "large",
-    srcs = ["model_distrib_test.py"],
+    srcs = ["dpsgd_model_distrib_test.py"],
+    tags = ["exclusive"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
+    name = "postscale_model_local_test",
+    size = "large",
+    srcs = ["postscale_model_local_test.py"],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",

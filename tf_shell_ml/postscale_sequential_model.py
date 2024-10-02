@@ -16,12 +16,11 @@
 import tensorflow as tf
 import tensorflow.keras as keras
 import tf_shell
-import tf_shell_ml
 import tempfile
 from tf_shell_ml.model_base import SequentialBase
 
 
-class DpSgdSequential(SequentialBase):
+class PostScaleSequential(SequentialBase):
     def __init__(
         self,
         layers,
@@ -52,6 +51,7 @@ class DpSgdSequential(SequentialBase):
         self.features_party_dev = features_party_dev
         self.clipping_threshold = 10000000
         self.mask_bit_width = 16
+        self.context_prepped = False
         self.needs_public_rotation_key = needs_public_rotation_key
 
     def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
@@ -66,17 +66,9 @@ class DpSgdSequential(SequentialBase):
         # they can be recovered during validation.
         self.val_metrics = metrics
 
-    def call(self, x, training=False):
-        for l in self.layers:
-            x = l(x, training=training)
-        return x
-
-    def build(self, input_shape):
-        super().build(input_shape)
-        self.unpacking_funcs = []
-        for l in self.layers:
-            if hasattr(l, "unpacking_funcs"):
-                self.unpacking_funcs.extend(l.unpacking_funcs())
+    def _unpack(self, x_list):
+        batch_size = tf.shape(x_list[0])[0] // 2
+        return [x[0] + x[batch_size] for x in x_list]
 
     def train_step(self, data):
         x, y = data
@@ -102,23 +94,83 @@ class DpSgdSequential(SequentialBase):
                 enc_y = y
 
         with tf.device(self.features_party_dev):
-            # Forward pass in plaintext.
-            y_pred = self(x, training=True)
+            # Unset the activation function for the last layer so it is not used in
+            # computing the gradient. The effect of the last layer activation function
+            # is factored out of the gradient computation and accounted for below.
+            self.layers[-1].activation = tf.keras.activations.linear
 
-            # Backward pass.
-            dx = self.loss_fn.grad(enc_y, y_pred)
-            dJ_dw = []
-            dJ_dx = [dx]
-            for l in reversed(self.layers):
-                if isinstance(l, tf_shell_ml.GlobalAveragePooling1D):
-                    dw, dx = l.backward(dJ_dx[-1])
+            with tf.GradientTape() as tape:
+                y_pred = self(x, training=True)  # forward pass
+            grads = tape.jacobian(
+                y_pred,
+                self.trainable_variables,
+                parallel_iterations=1,
+                experimental_use_pfor=False,
+            )
+            # grads = tape.jacobian(y_pred, self.trainable_variables, experimental_use_pfor=True)
+            # ^  layers list x (batch size x num output classes x weights) matrix
+            # dy_pred_j/dW_sample_class
+
+            # Reset the activation function for the last layer and compute the real
+            # prediction.
+            self.layers[-1].activation = tf.keras.activations.sigmoid
+            y_pred = self(x, training=False)
+
+            # Compute y_pred - y (where y may be encrypted).
+            # scalars = y_pred - y  # dJ/dy_pred
+            scalars = enc_y.__rsub__(y_pred)  # dJ/dy_pred
+            # ^  batch_size x num output classes.
+
+            # Expand the last dim so that the subsequent multiplications are
+            # broadcasted.
+            scalars = tf_shell.expand_dims(scalars, axis=-1)
+            # ^ batch_size x num output classes x 1
+
+            # Scale each gradient. Since 'scalars' may be a vector of ciphertexts, this
+            # requires multiplying plaintext gradient for the specific layer (2d) by the
+            # ciphertext (scalar). To do so efficiently under encryption requires
+            # flattening and packing the weights, as shown below.
+            ps_grads = []
+            for layer_grad_full in grads:
+                # Remember the original shape of the gradient in order to unpack them
+                # after the multiplication so they can be applied to the model.
+                batch_sz = layer_grad_full.shape[0]
+                num_output_classes = layer_grad_full.shape[1]
+                grad_shape = layer_grad_full.shape[2:]
+
+                packable_grad = tf.reshape(
+                    layer_grad_full, [batch_sz, num_output_classes, -1]
+                )
+                # ^  batch_size x num output classes x flattened weights
+
+                # Scale the gradient precursors.
+                scaled_grad = scalars * packable_grad
+                # ^  dJ/dW = dJ/dy_pred * dy_pred/dW
+
+                # Sum over the output classes.
+                scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=1)
+                # ^  batch_size x flattened weights
+
+                # In the real world, this approach would also likely require clipping
+                # the gradient, and adding DP noise.
+
+                # Reshape to unflatten the weights.
+                scaled_grad = tf_shell.reshape(scaled_grad, [batch_sz] + grad_shape)
+                # ^  batch_size x weights
+
+                # Sum over the batch.
+                if self.use_encryption:
+                    if self.needs_public_rotation_key:
+                        scaled_grad = tf_shell.reduce_sum(
+                            scaled_grad, axis=0, rotation_key=public_rotation_key
+                        )
+                    else:
+                        scaled_grad = tf_shell.fast_reduce_sum(scaled_grad)
                 else:
-                    dw, dx = l.backward(
-                        dJ_dx[-1],
-                        public_rotation_key if self.needs_public_rotation_key else None,
-                    )
-                dJ_dw.extend(dw)
-                dJ_dx.append(dx)
+                    scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=0)
+                # ^  batch_size x flattened weights
+
+                ps_grads.append(scaled_grad)
 
             # Mask the encrypted grads to prepare for decryption.
             mask = [
@@ -129,14 +181,12 @@ class DpSgdSequential(SequentialBase):
                 #     maxval=2**self.mask_bit_width,
                 # )
                 tf.zeros_like(tf_shell.shape(g), dtype=tf.int64)
-                for g in dJ_dw
+                for g in ps_grads
             ]
 
             # Mask the encrypted gradients and reverse the order to match the
             # order of the layers.
-            masked_enc_grads = [
-                (g + m) for g, m in zip(reversed(dJ_dw), reversed(mask))
-            ]
+            masked_enc_grads = [g + m for g, m in zip(ps_grads, mask)]
 
         with tf.device(self.labels_party_dev):
             if self.use_encryption:
@@ -146,36 +196,33 @@ class DpSgdSequential(SequentialBase):
                         g,
                         secret_fast_rotation_key if g._is_fast_rotated else secret_key,
                     )
-                    for g in masked_enc_grads
+                    for g in ps_grads
                 ]
 
                 # Unpack the plaintext gradients using the corresponding layer's
                 # unpack function.
-                # TODO: Make sure this doesn't require sending the layers
-                # themselves just for unpacking. The weights should not be
-                # shared with the labels party.
-                masked_grads = [
-                    f(g) for f, g in zip(self.unpacking_funcs, packed_masked_grads)
-                ]
+                masked_grads = self._unpack(packed_masked_grads)
             else:
-                masked_grads = masked_enc_grads
+                masked_grads = ps_grads
 
         with tf.device(self.features_party_dev):
             # Unmask the gradients using the mask.
-            unpacked_mask = [f(m) for f, m in zip(self.unpacking_funcs, reversed(mask))]
-            unpacked_mask = [tf.cast(m, dtype=float)[0] for m in zip(unpacked_mask)]
-            grads = [mg - m for mg, m in zip(masked_grads, unpacked_mask)]
+            # unpacked_mask = self._unpack(mask)
+            # unpacked_mask = [tf.cast(m, dtype=float)[0] for m in zip(unpacked_mask)]
+            # grads = [mg - m for mg, m in zip(masked_grads, unpacked_mask)]
 
-            # TODO: set stddev based on clipping threshold.
-            noise = [
-                # tf.random.normal(tf.shape(g), stddev=1, dtype=float) for g in grads
-                tf.zeros(tf.shape(g))
-                for g in grads
-            ]
-            noised_grads = [g + n for g, n in zip(grads, noise)]
+            # # TODO: set stddev based on clipping threshold.
+            # # noise = [
+            # #     tf.random.normal(tf.shape(g), stddev=1, dtype=float) for g in grads
+            # # ]
+            # noise = [
+            #     tf.zeros_like(g, dtype=float) for g in grads
+            # ]
+            # noised_grads = [g + n for g, n in zip(grads, noise)]
 
-            # Apply the gradients to the model.
-            self.optimizer.apply_gradients(zip(noised_grads, self.weights))
+            # # Apply the gradients to the model.
+            # self.optimizer.apply_gradients(zip(noised_grads, self.weights))
+            self.optimizer.apply_gradients(zip(masked_grads, self.weights))
 
         # Do not update metrics during secure training.
         if not self.use_encryption:
@@ -190,24 +237,6 @@ class DpSgdSequential(SequentialBase):
             metric_results = {m.name: m.result() for m in self.metrics}
         else:
             metric_results = {}
+            metric_results["num_slots"] = shell_context.num_slots
 
-        metric_results["num_slots"] = shell_context.num_slots
         return metric_results
-
-    def test_step(self, data):
-        x, y = data
-
-        # Forward pass.
-        y_pred = self(x, training=False)
-
-        # Updates the metrics tracking the loss.
-        self.compute_loss(y=y, y_pred=y_pred)
-
-        # Update the other metrics.
-        for metric in self.val_metrics:
-            if metric.name != "loss" and metric.name != "num_slots":
-                metric.update_state(y, y_pred)
-
-        # Return a dict mapping metric names to current value.
-        # Note that it will include the loss (tracked in self.metrics).
-        return {m.name: m.result() for m in self.val_metrics}
