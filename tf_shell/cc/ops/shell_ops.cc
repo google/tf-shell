@@ -231,12 +231,61 @@ REGISTER_OP("Roll64")
     .Output("rotated_value: variant")
     .SetShapeFn(UnchangedArgShape<2>);
 
-REGISTER_OP("ReduceSumByRotation64")
+REGISTER_OP("ReduceSumByRotationCt64")
     .Input("context: variant")
     .Input("rotation_key: variant")
     .Input("value: variant")
     .Output("repeated_reduce_sum: variant")
     .SetShapeFn(UnchangedArgShape<2>);
+
+REGISTER_OP("ReduceSumWithModulusPt64")
+    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr("axis: int")
+    .Input("context: variant")
+    .Input("value: dtype")
+    .Output("reduced: dtype")
+    .SetShapeFn([](InferenceContext* c) {
+      tsl::int32 rank = c->Rank(c->input(1));
+
+      tsl::int32 axis;
+      TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
+
+      int clamped_axis = axis;
+      if (clamped_axis < 0) {
+        clamped_axis += rank;
+      }
+      if (clamped_axis < 0 || clamped_axis > rank) {
+        return InvalidArgument("axis must be in the range [0, rank], got ",
+                               clamped_axis);
+      }
+
+      ShapeHandle output;
+
+      // If this op ever supports keepdim=True, use the following shape.
+      //  DimensionHandle reduced_dim = c->MakeDim({1});
+      //  TF_RETURN_IF_ERROR(c->ReplaceDim(c->input(0), clamped_axis,
+      //  reduced_dim, &output));
+
+      // This op currently only supports keepdim=False whose shape is computed
+      // via the following.
+      ShapeHandle prefix;
+      TF_RETURN_IF_ERROR(c->Subshape(c->input(1), 0, clamped_axis, &prefix));
+
+      ShapeHandle postfix;
+      TF_RETURN_IF_ERROR(
+          c->Subshape(c->input(1), clamped_axis + 1, rank, &postfix));
+
+      if (clamped_axis == 0) {
+        output = postfix;
+      } else if (clamped_axis == rank - 1) {
+        output = prefix;
+      } else {
+        TF_RETURN_IF_ERROR(c->Concatenate(prefix, postfix, &output));
+      }
+
+      c->set_output(0, output);
+      return OkStatus();
+    });
 
 REGISTER_OP("FastRotationKeyGen64")
     .Input("context: variant")
@@ -260,7 +309,7 @@ REGISTER_OP("DecryptFastRotated64")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 
-REGISTER_OP("ReduceSum64")
+REGISTER_OP("ReduceSumCt64")
     .Input("context: variant")
     .Input("value: variant")
     .Attr("axis: int")

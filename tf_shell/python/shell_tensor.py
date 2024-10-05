@@ -769,7 +769,7 @@ def reduce_sum(x, axis, rotation_key=None):
             raw_rotation_key = rotation_key._get_key_at_level(x._level)
 
             return ShellTensor64(
-                _raw_tensor=shell_ops.reduce_sum_by_rotation64(
+                _raw_tensor=shell_ops.reduce_sum_by_rotation_ct64(
                     x._context._get_context_at_level(x._level),
                     raw_rotation_key,
                     x._raw_tensor,
@@ -785,7 +785,7 @@ def reduce_sum(x, axis, rotation_key=None):
 
         else:
             return ShellTensor64(
-                _raw_tensor=shell_ops.reduce_sum64(
+                _raw_tensor=shell_ops.reduce_sum_ct64(
                     x._context._get_context_at_level(x._level), x._raw_tensor, axis=axis
                 ),
                 _context=x._context,
@@ -800,6 +800,28 @@ def reduce_sum(x, axis, rotation_key=None):
         return tf.reduce_sum(x, axis)
     else:
         raise ValueError(f"Unsupported type for reduce_sum. Got {type(x)}.")
+
+
+def reduce_sum_with_mod(x, axis, context, scaling_factor=None):
+    if not isinstance(x, tf.Tensor):
+        raise ValueError(f"Input must be a TensorFlow tensor. Got {type(x)}.")
+
+    if not isinstance(context, ShellContext64):
+        raise ValueError(f"Context must be a ShellContext64. Got {type(context)}.")
+
+    if scaling_factor == None:
+        s = context.scaling_factor
+    else:
+        s = scaling_factor
+
+    # Shell tensor represents floats as integers * scaling_factor.
+    scaled_x = _encode_scaling(x, s)
+
+    # The context is only used to get the plaintext modulus, any level will do.
+    c = context._get_context_at_level(1)
+
+    reduced_x = shell_ops.reduce_sum_with_modulus_pt64(c, scaled_x, axis=axis)
+    return _decode_scaling(reduced_x, x.dtype, s)
 
 
 def fast_reduce_sum(x):
@@ -1028,17 +1050,22 @@ def split(x, num_or_size_splits, axis=0, num_splits=None):
                 "Cannot split over axis 0 for ShellTensor64, this is the batching dimension."
             )
 
-        split_raw_tensors = tf.split(x._raw_tensor, num_or_size_splits, axis - 1, num_splits)
-        return [ShellTensor64(
-            _raw_tensor=r,
-            _context=x._context,
-            _level=x._level,
-            _num_mod_reductions=x._num_mod_reductions,
-            _underlying_dtype=x._underlying_dtype,
-            _scaling_factor=x._scaling_factor,
-            _is_enc=x._is_enc,
-            _is_fast_rotated=x._is_fast_rotated,
-        ) for r in split_raw_tensors]
+        split_raw_tensors = tf.split(
+            x._raw_tensor, num_or_size_splits, axis - 1, num_splits
+        )
+        return [
+            ShellTensor64(
+                _raw_tensor=r,
+                _context=x._context,
+                _level=x._level,
+                _num_mod_reductions=x._num_mod_reductions,
+                _underlying_dtype=x._underlying_dtype,
+                _scaling_factor=x._scaling_factor,
+                _is_enc=x._is_enc,
+                _is_fast_rotated=x._is_fast_rotated,
+            )
+            for r in split_raw_tensors
+        ]
     elif isinstance(x, tf.Tensor):
         return tf.split(x, num_or_size_splits, axis, num_splits)
     else:

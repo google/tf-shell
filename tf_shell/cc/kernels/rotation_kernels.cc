@@ -37,6 +37,8 @@ using tensorflow::OpKernelConstruction;
 using tensorflow::OpKernelContext;
 using tensorflow::Tensor;
 using tensorflow::TensorShape;
+using tensorflow::uint16;
+using tensorflow::uint32;
 using tensorflow::uint64;
 using tensorflow::uint8;
 using tensorflow::Variant;
@@ -258,14 +260,14 @@ class RollOp : public OpKernel {
 // rotation. The rotation is performed using Galois key-switching keys and the
 // output ciphertext is valid under the original secret key.
 template <typename T>
-class ReduceSumByRotationOp : public OpKernel {
+class ReduceSumByRotationCtOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
 
  public:
-  explicit ReduceSumByRotationOp(OpKernelConstruction* op_ctx)
+  explicit ReduceSumByRotationCtOp(OpKernelConstruction* op_ctx)
       : OpKernel(op_ctx) {}
 
   void Compute(OpKernelContext* op_ctx) override {
@@ -363,11 +365,141 @@ class ReduceSumByRotationOp : public OpKernel {
   }
 };
 
+template <typename T, typename ModularIntT>
+class ReduceSumWithModulusPtOp : public OpKernel {
+ private:
+  using ModularInt = rlwe::MontgomeryInt<ModularIntT>;
+  int dim_to_reduce;
+
+ public:
+  explicit ReduceSumWithModulusPtOp(OpKernelConstruction* op_ctx)
+      : OpKernel(op_ctx) {
+    // Get the dimension to reduce over from the op attributes.
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("axis", &dim_to_reduce));
+  }
+
+  void Compute(OpKernelContext* op_ctx) override {
+    // Recover the inputs.
+    OP_REQUIRES_VALUE(ContextVariant<ModularIntT> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<ModularIntT>>(op_ctx, 0));
+    OP_REQUIRES(op_ctx, shell_ctx_var != nullptr,
+                InvalidArgument("ContextVariant did not unwrap successfully."));
+
+    Tensor const& value = op_ctx->input(1);
+    OP_REQUIRES(
+        op_ctx, value.dim_size(0) > 0,
+        InvalidArgument("Cannot reduce_sum_with_modulus an empty value."));
+
+    // We emulate numpy's interpretation of the dim axis when
+    // -input.dims() >= dim <= input.dims().
+    int clamped_dim = dim_to_reduce;
+    if (clamped_dim < 0) {
+      clamped_dim += value.dims();
+    }
+
+    // Check axis is within dim size.
+    OP_REQUIRES(
+        op_ctx, clamped_dim >= 0 && clamped_dim < value.dims(),
+        InvalidArgument("Cannot reduce_sum over polynomial_axis '", clamped_dim,
+                        "for input with shape ", value.shape().DebugString()));
+
+    int64_t dim_sz_to_reduce = value.dim_size(clamped_dim);
+
+    auto flat_value = value.flat_inner_outer_dims<T>(clamped_dim - 1);
+
+    // Setup a shape to access the output Tensor as a flat Tensor, with the
+    // same indexing as the input Tensor excluding the dimension to reduce.
+    int inner_shape = flat_value.dimension(0);
+    int outer_shape = flat_value.dimension(2);
+    // Allocate the output tensor to exclude the dimension to reduce.
+    Tensor* output;
+    TensorShape output_shape = value.shape();
+    output_shape.RemoveDim(clamped_dim);
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
+    auto flat_output = output->shaped<T, 2>({inner_shape, outer_shape});
+
+    auto const* mod_params_t =
+        shell_ctx_var->ct_context_->PlaintextModulusParams().ModParams();
+    T const t = shell_ctx_var->ct_context_->PlaintextModulus();
+
+    auto reduce_in_range = [&](int start, int end) {
+      int i_start = start / outer_shape;
+      int i_end = end / outer_shape;
+      int j_start = start % outer_shape;
+      int j_end = end % outer_shape;
+
+      int j_end_wrapped = j_end;
+      if (i_start != i_end) {  // Handle wrap around.
+        j_end = outer_shape;
+      }
+
+      for (int i = i_start; i <= i_end; ++i) {
+        if (i == i_end) {  // Last row needs special end column;
+          j_end = j_end_wrapped;
+        }
+
+        for (int j = j_start; j < j_end; ++j) {
+          auto import_signed = [mod_params_t](T value) {
+            using SignedInteger = std::make_signed_t<ModularIntT>;
+            SignedInteger signed_v = static_cast<SignedInteger>(value);
+            // Signed messages are converted to the range [0, modulus).
+            if (signed_v < 0) {
+              signed_v += mod_params_t->modulus;
+            }
+            return ModularInt::ImportInt(signed_v, mod_params_t);
+          };
+          auto import_unsigned = [mod_params_t](T value) {
+            T unsigned_v = static_cast<ModularIntT>(value);
+            return ModularInt::ImportInt(unsigned_v, mod_params_t);
+          };
+
+          // Start the sum.
+          OP_REQUIRES_VALUE(ModularInt sum, op_ctx,
+                            ModularInt::ImportInt(0, mod_params_t));
+
+          // Add the values in the chip.
+          for (int64_t chip_dim = 0; chip_dim < dim_sz_to_reduce; ++chip_dim) {
+            StatusOr<ModularInt> imported;
+            if constexpr (std::is_signed<T>::value) {
+              imported = import_signed(flat_value(i, chip_dim, j));
+            } else {
+              imported = import_unsigned(flat_value(i, chip_dim, j));
+            }
+            OP_REQUIRES_OK(op_ctx, imported.status());
+            sum.AddInPlace(imported.value(), mod_params_t);
+          }
+
+          // Export the sum back to the original type and store.
+          T sum_exported = sum.ExportInt(mod_params_t);
+
+          // If this was a signed type, convert the range back to [-t/2, t/2]
+          if constexpr (std::is_signed<T>::value) {
+            sum_exported =
+                (sum_exported > t / 2) ? sum_exported - t : sum_exported;
+          }
+
+          flat_output(i, j) = std::move(sum_exported);
+        }
+
+        // Reset the starting column for the next row.
+        j_start = 0;
+      }
+    };
+
+    auto thread_pool =
+        op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
+    int const cost_per_reduce =
+        200 * dim_sz_to_reduce;  // ns measured on log_n = 11
+    thread_pool->ParallelFor(inner_shape * outer_shape, cost_per_reduce,
+                             reduce_in_range);
+  }
+};
+
 // Performs a reduce sum operation on a ciphertext where the axis to reduce over
 // is not the ciphertext packing dimension. As such, this operation does not
 // require ciphertext rotations, just addition.
 template <typename T>
-class ReduceSumOp : public OpKernel {
+class ReduceSumCtOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
   using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
@@ -376,16 +508,16 @@ class ReduceSumOp : public OpKernel {
   int dim_to_reduce;
 
  public:
-  explicit ReduceSumOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
+  explicit ReduceSumCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
     // Get the dimension to reduce over from the op attributes.
     OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("axis", &dim_to_reduce));
 
     // Recall first dimension of a shell variant tensor is the packing
     // dimension. We don't allow expanding this dimension.
-    OP_REQUIRES(
-        op_ctx, dim_to_reduce != 0,
-        InvalidArgument("ReduceSumOp cannot reduce over packing axis (zero'th "
-                        "dimension). See ReduceSumByRotationOp."));
+    OP_REQUIRES(op_ctx, dim_to_reduce != 0,
+                InvalidArgument(
+                    "ReduceSumCtOp cannot reduce over packing axis (zero'th "
+                    "dimension). See ReduceSumByRotationCtOp."));
   }
 
   void Compute(OpKernelContext* op_ctx) override {
@@ -399,10 +531,10 @@ class ReduceSumOp : public OpKernel {
     OP_REQUIRES(op_ctx, value.dim_size(0) > 0,
                 InvalidArgument("Cannot reduce_sum an empty ciphertext."));
 
-    OP_REQUIRES(
-        op_ctx, dim_to_reduce != 0,
-        InvalidArgument("ReduceSumOp cannot reduce over packing axis (zero'th "
-                        "dimension). See ReduceSumByRotationOp."));
+    OP_REQUIRES(op_ctx, dim_to_reduce != 0,
+                InvalidArgument(
+                    "ReduceSumCtOp cannot reduce over packing axis (zero'th "
+                    "dimension). See ReduceSumByRotationCtOp."));
 
     // We emulate numpy's interpretation of the dim axis when
     // -input.dims() >= dim <= input.dims().
@@ -512,8 +644,41 @@ REGISTER_KERNEL_BUILDER(Name("RotationKeyGen64").Device(DEVICE_CPU),
 
 REGISTER_KERNEL_BUILDER(Name("Roll64").Device(DEVICE_CPU), RollOp<uint64>);
 
-REGISTER_KERNEL_BUILDER(Name("ReduceSumByRotation64").Device(DEVICE_CPU),
-                        ReduceSumByRotationOp<uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumByRotationCt64").Device(DEVICE_CPU),
+                        ReduceSumByRotationCtOp<uint64>);
 
-REGISTER_KERNEL_BUILDER(Name("ReduceSum64").Device(DEVICE_CPU),
-                        ReduceSumOp<uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint64>("dtype"),
+                        ReduceSumWithModulusPtOp<uint64, uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<int64>("dtype"),
+                        ReduceSumWithModulusPtOp<int64, uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint32>("dtype"),
+                        ReduceSumWithModulusPtOp<uint32, uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<int32>("dtype"),
+                        ReduceSumWithModulusPtOp<int32, uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint16>("dtype"),
+                        ReduceSumWithModulusPtOp<uint16, uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<int16>("dtype"),
+                        ReduceSumWithModulusPtOp<int16, uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<uint8>("dtype"),
+                        ReduceSumWithModulusPtOp<uint8, uint64>);
+REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<int8>("dtype"),
+                        ReduceSumWithModulusPtOp<int8, uint64>);
+
+REGISTER_KERNEL_BUILDER(Name("ReduceSumCt64").Device(DEVICE_CPU),
+                        ReduceSumCtOp<uint64>);

@@ -243,6 +243,114 @@ class TestShellTensorRotation(tf.test.TestCase):
                 ):
                     self._test_reduce_sum_axis_n(test_context, outer_axis)
 
+    def _test_reduce_sum_with_modulus_pt(self, test_context, axis):
+        t = tf.cast(
+            test_context.shell_context.plaintext_modulus, test_context.plaintext_dtype
+        )
+
+        shape = [test_context.shell_context.num_slots] + test_context.outer_shape
+
+        tftensor = tf.random.uniform(
+            shape, minval=-t // 2, maxval=t // 2, dtype=test_context.plaintext_dtype
+        )
+
+        reduced = tf_shell.reduce_sum_with_mod(
+            tftensor, axis, test_context.shell_context
+        )
+
+        # Manually compute the reduced sum with modulo after every addition to
+        # avoid overflow. This includes introducing a scaling factor manually.
+        unsigned = tf.where(tftensor < 0, t + tftensor, tftensor)
+        unsigned = tf.cast(unsigned, tf.uint64)
+        start_slice = [0] * len(unsigned.shape)
+        size_slice = [-1] * len(unsigned.shape)
+        size_slice[axis] = 1
+        accum = tf.slice(unsigned, start_slice, size_slice)
+        for i in range(1, shape[axis]):
+            start_slice[axis] = i
+            accum += tf.slice(unsigned, start_slice, size_slice)
+            accum = tf.math.mod(accum, test_context.shell_context.plaintext_modulus)
+        accum = tf.squeeze(accum)
+        accum = tf.cast(accum, test_context.plaintext_dtype)
+        accum = tf.where(accum > t // 2, accum - t, accum)
+
+        self.assertAllClose(reduced, accum, atol=1e-3)
+
+    def test_reduce_sum_with_modulus_pt(self):
+        for test_context in self.test_contexts:
+            for axis in range(len(test_context.outer_shape) + 1):
+                with self.subTest(
+                    f"{self._testMethodName} with context {test_context}, and axis {axis}"
+                ):
+                    self._test_reduce_sum_with_modulus_pt(test_context, axis)
+                break
+            break
+
+    def test_mask_with_reduce_sum_modulus(self):
+        context = tf_shell.create_context64(
+            log_n=10,
+            main_moduli=[8556589057, 8388812801],
+            plaintext_modulus=40961,
+            scaling_factor=3,
+            seed="test_seed",
+        )
+        secret_key = tf_shell.create_key64(context)
+
+        t = tf.cast(context.plaintext_modulus, tf.float32)
+        t_half = t // 2
+        s = tf.cast(context.scaling_factor, tf.float32)
+
+        # The plaintexts must be be small enough to avoid overflow during reduce_sum on
+        # axis 0, hence divide by the number of slots and scaling factor.
+        max_pt = t / s / tf.cast(context.num_slots, tf.float32)
+        tfdata = tf.random.uniform(
+            [context.num_slots, 2], dtype=tf.float32, minval=-max_pt, maxval=max_pt
+        )
+
+        # The masks may overflow during the reduce_sum. When the masks are
+        # operated on, they are multiplied by the scaling factor, so it is not
+        # necessary to mask the full range -t/2 to t/2. (Though it is possible,
+        # it unnecessarily introduces noise into the ciphertext.)
+        mask = tf.random.uniform(
+            tf_shell.shape(tfdata),
+            dtype=tf.float32,
+            minval=-t_half / s,
+            maxval=t_half / s,
+        )
+
+        # Encrypt the data and mask.
+        encdata = tf_shell.to_encrypted(tfdata, secret_key, context)
+        masked_encdata = encdata + mask
+        # Decrypt and reduce_sum the result.
+        masked_dec = tf_shell.to_tensorflow(masked_encdata, secret_key)
+        sum_masked_dec = tf_shell.reduce_sum_with_mod(masked_dec, 0, context)
+        sum_mask = tf_shell.reduce_sum_with_mod(mask, 0, context)
+        # Unmask and rebalance the result back into the range -t/2 to t/2
+        # in the floating point domain.
+        sum_dec = sum_masked_dec - sum_mask
+
+        def rebalance(x, t_half):
+            epsilon = tf.constant(1e-6, dtype=float)
+            t_half_over_s = tf.cast(t_half / s, dtype=float)
+            r_bound = t_half_over_s + epsilon
+            l_bound = -t_half_over_s - epsilon
+            t_over_s = tf.cast(t / s, dtype=float)
+            x = tf.where(x > r_bound, x - t_over_s, x)
+            x = tf.where(x < l_bound, x + t_over_s, x)
+            return x
+
+        sum_dec = rebalance(sum_dec, t_half)
+
+        # The correct result after unmasking is simply the sum of the plaintexts
+        # if the modulo operations were performed correctly.
+        check = tf.reduce_sum(tfdata, axis=0)
+
+        # The maximum error of this operation is the error of each individual
+        # slot encoded (1/s/2) times the number of slots due to the reduce sum.
+        atol = tf.cast(context.num_slots, dtype=float) * (1 / s / 2)
+
+        self.assertAllClose(sum_dec, check, atol=atol)
+
 
 if __name__ == "__main__":
     tf.test.main()
