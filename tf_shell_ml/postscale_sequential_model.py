@@ -29,6 +29,7 @@ class PostScaleSequential(SequentialBase):
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         needs_public_rotation_key=False,
+        noise_multiplier=1.0,
         *args,
         **kwargs,
     ):
@@ -50,9 +51,9 @@ class PostScaleSequential(SequentialBase):
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
         self.clipping_threshold = 10000000
-        self.mask_bit_width = 16
         self.context_prepped = False
         self.needs_public_rotation_key = needs_public_rotation_key
+        self.noise_multiplier = noise_multiplier
 
     def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
         super().compile(optimizer=optimizer, loss=loss, metrics=metrics, **kwargs)
@@ -126,62 +127,85 @@ class PostScaleSequential(SequentialBase):
             scalars = tf_shell.expand_dims(scalars, axis=-1)
             # ^ batch_size x num output classes x 1
 
-            # Scale each gradient. Since 'scalars' may be a vector of ciphertexts, this
-            # requires multiplying plaintext gradient for the specific layer (2d) by the
-            # ciphertext (scalar). To do so efficiently under encryption requires
-            # flattening and packing the weights, as shown below.
-            ps_grads = []
-            for layer_grad_full in grads:
-                # Remember the original shape of the gradient in order to unpack them
-                # after the multiplication so they can be applied to the model.
-                batch_sz = layer_grad_full.shape[0]
-                num_output_classes = layer_grad_full.shape[1]
-                grad_shape = layer_grad_full.shape[2:]
+            # Remember the original shape of the gradient in order to unpack them
+            # after the multiplication so they can be applied to the model.
+            if len(grads) == 0:
+                raise ValueError("No gradients found")
+            slot_size = grads[0].shape[0]
+            num_output_classes = grads[0].shape[1]
+            grad_shapes = [g.shape[2:] for g in grads]
+            flattened_grad_shapes = [s.num_elements() for s in grad_shapes]
 
-                packable_grad = tf.reshape(
-                    layer_grad_full, [batch_sz, num_output_classes, -1]
-                )
-                # ^  batch_size x num output classes x flattened weights
+            flat_grads = [
+                tf.reshape(g, [slot_size, num_output_classes, s])
+                for g, s in zip(grads, flattened_grad_shapes)
+            ]
+            # ^ layers list (batch_size x num output classes x flattened layer weights)
 
-                # Scale the gradient precursors.
-                scaled_grad = scalars * packable_grad
-                # ^  dJ/dW = dJ/dy_pred * dy_pred/dW
+            all_grads = tf.concat(flat_grads, axis=2)
+            # ^ batch_size x num output classes x all flattened weights
 
-                # Sum over the output classes.
-                scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=1)
-                # ^  batch_size x flattened weights
+            # The DP sensitivity of backprop when revealing the sum of gradients
+            # across a batch, is the maximum L2 norm of the gradient over every
+            # example in the batch, and over every class.
+            two_norms = tf.map_fn(lambda x: tf.norm(x, axis=0), all_grads)
+            # ^ batch_size x num output classes
+            max_two_norm = tf.reduce_max(two_norms)
+            # ^ scalar
 
-                # In the real world, this approach would also likely require clipping
-                # the gradient, and adding DP noise.
+            scaled_grads = scalars * all_grads
+            # ^ batch_size x num output classes x all flattened weights
 
-                # Reshape to unflatten the weights.
-                scaled_grad = tf_shell.reshape(scaled_grad, [batch_sz] + grad_shape)
-                # ^  batch_size x weights
+            # Sum over the output classes.
+            scaled_grads = tf_shell.reduce_sum(scaled_grads, axis=1)
 
-                # Sum over the batch.
-                if self.use_encryption:
-                    if self.needs_public_rotation_key:
-                        scaled_grad = tf_shell.reduce_sum(
-                            scaled_grad, axis=0, rotation_key=public_rotation_key
-                        )
-                    else:
-                        scaled_grad = tf_shell.fast_reduce_sum(scaled_grad)
+            # Sum over the batch.
+            if self.use_encryption:
+                if self.needs_public_rotation_key:
+                    scaled_grads = tf_shell.reduce_sum(
+                        scaled_grads, axis=0, rotation_key=public_rotation_key
+                    )
                 else:
-                    scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=0)
-                # ^  batch_size x flattened weights
+                    scaled_grads = tf_shell.fast_reduce_sum(scaled_grads)
+            else:
+                scaled_grads = tf_shell.reduce_sum(scaled_grads, axis=0)
+            # ^  batch_size x flattened weights
 
-                ps_grads.append(scaled_grad)
+            # Split to recover the gradients by layer.
+            ps_grads = tf_shell.split(scaled_grads, flattened_grad_shapes, axis=1)
+            # ^ layers list (batch_size x flat layer weights)
+
+            # Unflatten the gradients to the original layer shape.
+            ps_grads = [
+                tf_shell.reshape(
+                    g,
+                    tf.concat(
+                        [[shell_context.num_slots], tf.cast(s, dtype=tf.int64)], axis=0
+                    ),
+                )
+                for g, s in zip(ps_grads, grad_shapes)
+            ]
+
+            # This cast is safe because the plaintext modulus will always be
+            # less than 63 bits.
+            int_pt_modulus = tf.cast(shell_context.plaintext_modulus, dtype=tf.int64)
+
+            # Setup parameters for the masking.
+            t = tf.cast(shell_context.plaintext_modulus, tf.float32)
+            t_half = t // 2
+            mask_scaling_factors = [g._scaling_factor for g in ps_grads]
 
             # Mask the encrypted grads to prepare for decryption.
             mask = [
-                # tf.random.uniform(
-                #     tf_shell.shape(g),
-                #     dtype=tf.int64,
-                #     minval=0,
-                #     maxval=2**self.mask_bit_width,
-                # )
-                tf.zeros_like(tf_shell.shape(g), dtype=tf.int64)
-                for g in ps_grads
+                tf.random.uniform(
+                    tf_shell.shape(g),
+                    dtype=tf.float32,
+                    minval=-t_half / s,
+                    maxval=t_half / s,
+                )
+                for g, s in zip(ps_grads, mask_scaling_factors)
+                # tf.zeros_like(tf_shell.shape(g), dtype=tf.int64)
+                # for g in dJ_dw
             ]
 
             # Mask the encrypted gradients and reverse the order to match the
@@ -206,23 +230,41 @@ class PostScaleSequential(SequentialBase):
                 masked_grads = ps_grads
 
         with tf.device(self.features_party_dev):
-            # Unmask the gradients using the mask.
-            # unpacked_mask = self._unpack(mask)
-            # unpacked_mask = [tf.cast(m, dtype=float)[0] for m in zip(unpacked_mask)]
-            # grads = [mg - m for mg, m in zip(masked_grads, unpacked_mask)]
+            # SHELL represents floats as integers between [0, t) where t is the
+            # plaintext modulus. To mimic SHELL's modulo operations in
+            # TensorFlow, numbers which exceed the range [-t/2, t/2) are shifted
+            # back into the range.
+            def rebalance(x_list, t_half, scaling_factor_list):
+                x_list = [
+                    tf.where(x > t_half / s + (1 / s - 1e-6), x - t / s, x)
+                    for x, s in zip(x_list, scaling_factor_list)
+                ]
+                x_list = [
+                    tf.where(x < -t_half / s - (1 / s - 1e-6), x + t / s, x)
+                    for x, s in zip(x_list, scaling_factor_list)
+                ]
+                return x_list
 
-            # # TODO: set stddev based on clipping threshold.
-            # # noise = [
-            # #     tf.random.normal(tf.shape(g), stddev=1, dtype=float) for g in grads
-            # # ]
-            # noise = [
-            #     tf.zeros_like(g, dtype=float) for g in grads
-            # ]
-            # noised_grads = [g + n for g, n in zip(grads, noise)]
+            # Unmask the gradients using the mask. The mask must be unpacked,
+            # and modulo the plaintext modulus. This can be done with two
+            # subtractions.
+            unpacked_mask = self._unpack(mask)
+            unpacked_mask = rebalance(unpacked_mask, t_half, mask_scaling_factors)
+            dec_grads = [mg - m for mg, m in zip(masked_grads, unpacked_mask)]
+            dec_grads = rebalance(dec_grads, t_half, mask_scaling_factors)
 
-            # # Apply the gradients to the model.
-            # self.optimizer.apply_gradients(zip(noised_grads, self.weights))
-            self.optimizer.apply_gradients(zip(masked_grads, self.weights))
+            # Set the noise based on the maximum two norm of the gradient per
+            # example, per output.
+            noise = [
+                tf.random.normal(tf.shape(g), stddev=max_two_norm * self.noise_multiplier, dtype=float)
+                for g in dec_grads
+            ]
+            # ^ layers list (batch_size x weights)
+
+            noised_grads = [g + n for g, n in zip(dec_grads, noise)]
+
+            # Apply the gradients to the model.
+            self.optimizer.apply_gradients(zip(noised_grads, self.weights))
 
         # Do not update metrics during secure training.
         if not self.use_encryption:

@@ -1021,6 +1021,30 @@ def broadcast_to(x, shape):
         raise ValueError("Unsupported type for expand_dims")
 
 
+def split(x, num_or_size_splits, axis=0, num_splits=None):
+    if isinstance(x, ShellTensor64):
+        if axis == 0:
+            raise ValueError(
+                "Cannot split over axis 0 for ShellTensor64, this is the batching dimension."
+            )
+
+        split_raw_tensors = tf.split(x._raw_tensor, num_or_size_splits, axis - 1, num_splits)
+        return [ShellTensor64(
+            _raw_tensor=r,
+            _context=x._context,
+            _level=x._level,
+            _num_mod_reductions=x._num_mod_reductions,
+            _underlying_dtype=x._underlying_dtype,
+            _scaling_factor=x._scaling_factor,
+            _is_enc=x._is_enc,
+            _is_fast_rotated=x._is_fast_rotated,
+        ) for r in split_raw_tensors]
+    elif isinstance(x, tf.Tensor):
+        return tf.split(x, num_or_size_splits, axis, num_splits)
+    else:
+        raise ValueError("Unsupported type for expand_dims")
+
+
 def segment_sum(x, segments, num_segments, rotation_key=None):
     if not isinstance(segments, tf.Tensor):
         raise ValueError("`segments` must be a TensorFlow tensor.")

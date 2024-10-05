@@ -31,7 +31,7 @@ class TestModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :512], x_test[:, :512]
+        x_train, x_test = x_train[:, :256], x_test[:, :256]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
         train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(4)
@@ -44,6 +44,12 @@ class TestModel(tf.test.TestCase):
                 tf.keras.layers.Dense(64, activation="relu"),
                 tf.keras.layers.Dense(10, activation="sigmoid"),
             ],
+            # lambda: tf_shell.create_context64(
+            #     log_n=12,
+            #     main_moduli=[288230376151760897, 288230376152137729],
+            #     plaintext_modulus=4294991873,
+            #     scaling_factor=3,
+            # ),
             lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=32,
                 scaling_factor=3,

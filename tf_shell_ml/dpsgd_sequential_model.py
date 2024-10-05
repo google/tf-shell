@@ -30,6 +30,7 @@ class DpSgdSequential(SequentialBase):
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         needs_public_rotation_key=False,
+        noise_multiplier=1.0,
         *args,
         **kwargs,
     ):
@@ -51,7 +52,6 @@ class DpSgdSequential(SequentialBase):
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
         self.clipping_threshold = 10000000
-        self.mask_bit_width = 16
         self.needs_public_rotation_key = needs_public_rotation_key
 
     def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
@@ -120,23 +120,30 @@ class DpSgdSequential(SequentialBase):
                 dJ_dw.extend(dw)
                 dJ_dx.append(dx)
 
+            if len(dJ_dw) == 0:
+                raise ValueError("No gradients found.")
+
+            # Setup parameters for the masking.
+            t = tf.cast(shell_context.plaintext_modulus, tf.float32)
+            t_half = t // 2
+            mask_scaling_factors = [g._scaling_factor for g in reversed(dJ_dw)]
+
             # Mask the encrypted grads to prepare for decryption.
             mask = [
-                # tf.random.uniform(
-                #     tf_shell.shape(g),
-                #     dtype=tf.int64,
-                #     minval=0,
-                #     maxval=2**self.mask_bit_width,
-                # )
-                tf.zeros_like(tf_shell.shape(g), dtype=tf.int64)
-                for g in dJ_dw
+                tf.random.uniform(
+                    tf_shell.shape(g),
+                    dtype=tf.float32,
+                    minval=-t_half / s,
+                    maxval=t_half / s,
+                )
+                for g, s in zip(reversed(dJ_dw), mask_scaling_factors)
+                # tf.zeros_like(tf_shell.shape(g), dtype=tf.int64)
+                # for g in dJ_dw
             ]
 
             # Mask the encrypted gradients and reverse the order to match the
             # order of the layers.
-            masked_enc_grads = [
-                (g + m) for g, m in zip(reversed(dJ_dw), reversed(mask))
-            ]
+            masked_enc_grads = [(g + m) for g, m in zip(reversed(dJ_dw), mask)]
 
         with tf.device(self.labels_party_dev):
             if self.use_encryption:
@@ -161,10 +168,29 @@ class DpSgdSequential(SequentialBase):
                 masked_grads = masked_enc_grads
 
         with tf.device(self.features_party_dev):
-            # Unmask the gradients using the mask.
-            unpacked_mask = [f(m) for f, m in zip(self.unpacking_funcs, reversed(mask))]
-            unpacked_mask = [tf.cast(m, dtype=float)[0] for m in zip(unpacked_mask)]
+            # SHELL represents floats as integers between [0, t) where t is the
+            # plaintext modulus. To mimic the modulo operation without SHELL,
+            # numbers which exceed the range [-t/2, t/2) are shifted back into
+            # the range.
+            def rebalance(x_list, t_half, scaling_factor_list):
+                x_list = [
+                    tf.where(x > t_half / s + (1 / s - 1e-6), x - t / s, x)
+                    for x, s in zip(x_list, scaling_factor_list)
+                ]
+                x_list = [
+                    tf.where(x < -t_half / s - (1 / s - 1e-6), x + t / s, x)
+                    for x, s in zip(x_list, scaling_factor_list)
+                ]
+                return x_list
+
+            # Unmask the gradients using the mask. The unpacking function may
+            # sum the mask from two of the gradients (one from each batch), so
+            # the mask must be brought back into the range of [-t/2, t/2] before
+            # subtracting it from the gradient, and again after.
+            unpacked_mask = [f(m) for f, m in zip(self.unpacking_funcs, mask)]
+            unpacked_mask = rebalance(unpacked_mask, t_half, mask_scaling_factors)
             grads = [mg - m for mg, m in zip(masked_grads, unpacked_mask)]
+            grads = rebalance(grads, t_half, mask_scaling_factors)
 
             # TODO: set stddev based on clipping threshold.
             noise = [
