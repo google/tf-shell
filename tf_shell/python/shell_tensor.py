@@ -472,34 +472,13 @@ def mod_reduce_tensor64(shell_tensor):
     return reduced_self
 
 
-# def _match_moduli_x_to_y(x, target_level):
-#     x = tf.while_loop(
-#         lambda x_red: x_red._context.level > target_level,
-#         lambda x_red: mod_reduce_tensor64(x_red),
-#         loop_vars=[x],
-#         shape_invariants=[
-#             x._get_generic_shell_tensor_spec(),
-#         ],
-#         parallel_iterations=1,
-#         name="TfShellModulusMatcher",
-#     )[0]
-#     return x
-
-
 def _match_moduli_and_scaling(x, y):
     # Mod switch to the smaller modulus of the two.
     while x._num_mod_reductions < y._num_mod_reductions:
         x = mod_reduce_tensor64(x)
     while x._num_mod_reductions > y._num_mod_reductions:
         y = mod_reduce_tensor64(y)
-    # x = _match_moduli_x_to_y(x, y._context.level)
-    # y = _match_moduli_x_to_y(y, x._context.level)
-    # while x._context.level > y._context.level:
-    #     x = mod_reduce_tensor64(x)
-    # while x._context.level < y._context.level:
-    #     y = mod_reduce_tensor64(y)
 
-    # Match the scaling factors.
     # First make sure the scaling factors are compatible.
     frac = x._scaling_factor / y._scaling_factor
     if abs(frac - int(frac)) != 0:
@@ -507,6 +486,7 @@ def _match_moduli_and_scaling(x, y):
             f"Scaling factors must be compatible. Got {x._scaling_factor} and {y._scaling_factor}"
         )
 
+    # Match the scaling factors.
     while x._scaling_factor > y._scaling_factor:
         y = y.__mul__(x._scaling_factor)
     while x._scaling_factor < y._scaling_factor:
