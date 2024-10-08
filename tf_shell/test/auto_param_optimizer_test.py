@@ -32,7 +32,7 @@ def gen_context(scaling_factor=1):
 @tf.function
 def ct_ct_add(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits + 1, 32)
+        gen_autocontext(test_values_num_bits + 1, 0)
         if use_auto_context
         else gen_context()
     )
@@ -48,7 +48,7 @@ def ct_ct_add(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def ct_ct_mul(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 32)
+        gen_autocontext(test_values_num_bits * 2 + 1, 0)
         if use_auto_context
         else gen_context()
     )
@@ -64,7 +64,7 @@ def ct_ct_mul(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def ct_pt_add(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 32)
+        gen_autocontext(test_values_num_bits * 2 + 1, 0)
         if use_auto_context
         else gen_context()
     )
@@ -80,7 +80,7 @@ def ct_pt_add(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def ct_pt_mul(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 32)
+        gen_autocontext(test_values_num_bits * 2 + 1, 0)
         if use_auto_context
         else gen_context()
     )
@@ -96,7 +96,7 @@ def ct_pt_mul(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def long_arith(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 3, 32)
+        gen_autocontext(test_values_num_bits * 2 + 3, 0)
         if use_auto_context
         else gen_context()
     )
@@ -113,7 +113,7 @@ def long_arith(cleartext_a, cleartext_b, use_auto_context=False):
 def long_arith_with_scaling(cleartext_a, cleartext_b, use_auto_context=False):
     scaling_factor = 3
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 3, 52, scaling_factor)
+        gen_autocontext(test_values_num_bits * 2 + 3, 0, scaling_factor)
         if use_auto_context
         else gen_context(scaling_factor)
     )
@@ -129,7 +129,7 @@ def long_arith_with_scaling(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def reduce_sum_axis_1(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits + cleartext_a.shape[1].bit_length(), 52)
+        gen_autocontext(test_values_num_bits + cleartext_a.shape[1].bit_length(), 0)
         if use_auto_context
         else gen_context()
     )
@@ -145,7 +145,7 @@ def reduce_sum_axis_1(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits + cleartext_a.shape[0].bit_length(), 52)
+        gen_autocontext(test_values_num_bits + cleartext_a.shape[0].bit_length(), 5)
         if use_auto_context
         else gen_context()
     )
@@ -163,7 +163,7 @@ def reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
 def fast_reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
         gen_autocontext(
-            test_values_num_bits + cleartext_a.shape[0].bit_length() + 14, 52
+            test_values_num_bits + cleartext_a.shape[0].bit_length() + 14, 0
         )
         if use_auto_context
         else gen_context()
@@ -182,7 +182,7 @@ def fast_reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def ct_roll(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits, 52) if use_auto_context else gen_context()
+        gen_autocontext(test_values_num_bits, 0) if use_auto_context else gen_context()
     )
     key = tf_shell.create_key64(shell_context)
     public_rotation_key = tf_shell.create_rotation_key64(shell_context, key)

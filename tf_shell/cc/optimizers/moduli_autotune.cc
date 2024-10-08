@@ -27,9 +27,9 @@ namespace {
 constexpr bool const debug_moduli = false;
 constexpr bool const debug_graph = false;
 constexpr bool const debug_output_params = true;
-constexpr uint64_t const kNoiseMargin = 30;
-constexpr uint64_t const kMaxPrimeBits = 58;
-constexpr uint64_t const kMinPrimeBits = 12;
+constexpr uint64_t const kMaxPrimeBitsPlaintext = 58;
+constexpr uint64_t const kMaxPrimeBitsCiphertext = 60;
+constexpr uint64_t const kMinPrimeBits = 3;
 
 struct ShellParams {
   uint64_t log_n;
@@ -242,20 +242,50 @@ bool CheckPrime(uint64_t const n, uint64_t const k, std::mt19937& engine) {
 
 uint64_t FindPrimeMod2n(uint64_t const two_n, uint64_t const bits_start,
                         uint64_t const bits_end,
-                        std::vector<uint64_t> const not_in = {}) {
+                        std::vector<uint64_t> const& qs = {},
+                        uint64_t const t = 0) {
   // Prepare for random number generation.
   std::mt19937 engine(static_cast<long unsigned int>(std::time(nullptr)));
 
-  uint64_t start = uint64_t(1) << bits_start;
-  uint64_t end = uint64_t(1) << bits_end;
-  for (uint64_t i = start; i < end; ++i) {
-    if (CheckPrime(i, 10, engine)) {
-      if (i % two_n == 1) {
-        if (std::find(not_in.begin(), not_in.end(), i) == not_in.end()) {
-          return i;
+  uint64_t const start = uint64_t(1) << bits_start;
+  uint64_t const end = uint64_t(1) << bits_end;
+
+  // Handle the case when end is larger than start, iterate in reverse.
+  bool const reverse = start > end;
+
+  // std::cout << "Finding prime between " << bits_start << " and " << bits_end
+  //           << " bits which is congruent to 1 mod 2n (" << two_n << ")."
+  //           << std::endl;
+
+  for (uint64_t i = start; reverse ? i > end : i < end; reverse ? --i : ++i) {
+    // Check i mod t is 1.
+    if (t != 0) {
+      uint64_t i_mod_t = i % t;
+      // if (bits_start == 60)
+      //   std::cout << "i: " << i << " i mod t: " << i_mod_t << std::endl;
+      if (i_mod_t != 1) {
+        // Given i mod t is not 1, skip ahead.
+        if (i_mod_t != 0 && i > t) {
+          if (reverse) {
+            i -= (i_mod_t - 2);
+          } else {
+            i += t - i_mod_t;
+          }
         }
+        continue;
       }
     }
+
+    // Check if i is congruent to 1 mod 2n.
+    if (i % two_n != 1) continue;
+
+    // Check if i is in the qs list.
+    if (std::find(qs.begin(), qs.end(), i) != qs.end()) continue;
+
+    // Check if i is prime. This is the most computationally expensive test so
+    // perform it last.
+    if (!CheckPrime(i, 10, engine)) continue;
+    return i;
   }
   return 0;
 }
@@ -269,57 +299,102 @@ constexpr uint64_t BitWidth(uint64_t n) {
   return bits;
 }
 
-std::vector<uint64_t> ChooseRnsCtModuli(uint64_t const two_n,
-                                        uint64_t const log_t,
+std::vector<uint64_t> ChooseRnsCtModuli(uint64_t const two_n, uint64_t const t,
                                         uint64_t const log_q) {
   std::vector<uint64_t> qs;
   int64_t needed_bits_of_primes = log_q;
+  bool is_first_prime = true;
 
-  // The first RNS prime is special and must be larger than the plaintext
-  // modulus. This is because decryption ModReduces to the first RNS prime, then
-  // to the plaintext modulus.
-  uint64_t first_prime_num_bits =
-      std::max(log_t + 1, static_cast<uint64_t>(needed_bits_of_primes));
-  first_prime_num_bits = std::min(first_prime_num_bits, kMaxPrimeBits);
-  uint64_t first_prime =
-      FindPrimeMod2n(two_n, first_prime_num_bits, first_prime_num_bits + 2);
-  if (first_prime == 0) {
-    return {};
-  }
-  qs.push_back(first_prime);
-  needed_bits_of_primes -= BitWidth(first_prime);
-
-  // Find the remaining RNS primes.
+  // Find prime numbers for the RNS chain of ciphertext moduli.
   while (needed_bits_of_primes > 0) {
-    uint64_t prime_num_bits =
-        std::min(static_cast<uint64_t>(needed_bits_of_primes), kMaxPrimeBits);
-    prime_num_bits = std::max(prime_num_bits, kMinPrimeBits);
-    uint64_t prime =
-        FindPrimeMod2n(two_n, prime_num_bits, prime_num_bits + 2, qs);
+    uint64_t prime;
+    uint64_t smallest_prime;
+
+    // Check how many 64-bit primes are left to find.
+    if (needed_bits_of_primes >
+        2 * static_cast<int64_t>(kMaxPrimeBitsCiphertext) - 4) {
+      // More than two primes are left to find. The goal is to find the largest
+      // prime possible.
+      //
+      // The first prime is special and must be larger than the plaintext
+      // modulus. This is because decryption ModReduces to the first RNS prime,
+      // then to the plaintext modulus. For remaining moduli, this restriction
+      // is not necessary and the full range may be searched.
+      smallest_prime = is_first_prime ? BitWidth(t) + 1 : kMinPrimeBits;
+
+      // Since subsequent primes are needed after this one, start the search
+      // from the end of the range to find the largest one.
+      prime =
+          FindPrimeMod2n(two_n, kMaxPrimeBitsCiphertext, smallest_prime, qs, t);
+    } else if (needed_bits_of_primes >
+               static_cast<int64_t>(kMaxPrimeBitsCiphertext) - 4) {
+      // Only two primes are left to find. Instead of finding the largest prime
+      // possible for this second to last position, leaving potentially too few
+      // bits for the next prime, try to balance the bits between the two
+      // primes. To perfectly balance the primes, the goal is for each to have
+      // half the number of required bits, i.e. needed_bits_of_primes / 2.
+      // This is not likely to be possible, so instead aim for the smallest
+      // prime possible and search upwards. This reduces the risk of
+      // overprovisioning bits for the last prime.
+      //
+      // Again, the first prime is special and must be larger than the plaintext
+      // modulus.
+      smallest_prime = is_first_prime ? BitWidth(t) + 1 : kMinPrimeBits;
+
+      // Search from the beginning of the range to find the smallest prime.
+      prime =
+          FindPrimeMod2n(two_n, smallest_prime, kMaxPrimeBitsCiphertext, qs, t);
+
+    } else {
+      // If only one prime more prime is needed, start the search from the
+      // begining of the range to find the smallest one.
+      smallest_prime = needed_bits_of_primes;
+
+      prime =
+          FindPrimeMod2n(two_n, smallest_prime, kMaxPrimeBitsCiphertext, qs, t);
+    }
+
     if (prime == 0) {
+      std::cout << "ERROR: Could not find a prime for RNS ct prime between "
+                << smallest_prime << " and " << kMaxPrimeBitsCiphertext
+                << " bits which is congruent to 1 mod 2n (" << two_n
+                << ") and congruent to 1 mod t (" << t << ")." << std::endl;
       return {};
     }
     qs.push_back(prime);
     needed_bits_of_primes -= BitWidth(prime);
+    is_first_prime = false;
   }
 
   return qs;
 }
 
-uint64_t EstimateLogN(uint64_t sz) {
-  // TODO: lattice-estimator.
-  // return 13;
-  if (sz <= 50) return 10;
-  if (sz <= 70) return 11;
-  if (sz <= 128) return 12;
-  if (sz <= 180) return 13;
-  if (sz <= 210) return 14;
+uint64_t EstimateLogN(uint64_t log_q) {
+  // Values from standard v1.1 table 1 for 128 bits of security.
+  // @techreport{HomomorphicEncryptionSecurityStandard,
+  // author = {Martin Albrecht and Melissa Chase and Hao Chen and Jintai Ding
+  // and Shafi Goldwasser and Sergey Gorbunov and Shai Halevi and Jeffrey
+  // Hoffstein and Kim Laine and Kristin Lauter and Satya Lokam and Daniele
+  // Micciancio and Dustin Moody and Travis Morrison and Amit Sahai and Vinod
+  // Vaikuntanathan}, title = {Homomorphic Encryption Security Standard},
+  // institution= {HomomorphicEncryption.org},
+  // publisher = {HomomorphicEncryption.org},
+  // address = {Toronto, Canada},
+  // year = {2018},
+  // month = {November}
+  // }
+  if (log_q <= 29) return 10;
+  if (log_q <= 56) return 11;
+  if (log_q <= 111) return 12;
+  if (log_q <= 220) return 13;
+  if (log_q <= 440) return 14;
+  if (log_q <= 880) return 15;
   return 0;
 }
 
 Status ChooseShellParams(ShellParams& params, uint64_t const total_pt_bits,
                          uint64_t total_ct_bits) {
-  // Select log_n and ciphertext moduli.
+  // Estimate log_n from the needed number of ct bits.
   uint64_t log_n = EstimateLogN(total_ct_bits);
   if (log_n == 0) {
     return errors::FailedPrecondition("Could not estimate log_n.");
@@ -329,24 +404,36 @@ Status ChooseShellParams(ShellParams& params, uint64_t const total_pt_bits,
   uint64_t bounded_total_pt_bits = std::max(total_pt_bits, kMinPrimeBits);
 
   uint64_t t =
-      FindPrimeMod2n(two_n, bounded_total_pt_bits, bounded_total_pt_bits + 4);
+      FindPrimeMod2n(two_n, bounded_total_pt_bits, kMaxPrimeBitsPlaintext);
   if (t == 0) {
-    if constexpr (debug_moduli) {
-      std::cout << "Could not find a prime for plaintext modulus." << std::endl;
-    }
+    std::cout << "ERROR: Could not find a prime for plaintext modulus."
+              << std::endl;
     return errors::FailedPrecondition(
         "Could not find a prime for plaintext modulus.");
   }
-  int log_t = BitWidth(t);
 
-  std::vector<uint64_t> qs = ChooseRnsCtModuli(two_n, log_t, total_ct_bits);
+  std::vector<uint64_t> qs = ChooseRnsCtModuli(two_n, t, total_ct_bits);
   if (qs.empty()) {
-    if constexpr (debug_moduli) {
-      std::cout << "Could not find prime(s) for ciphertext modulus."
-                << std::endl;
-    }
+    std::cout << "ERROR: Could not find prime(s) for ciphertext modulus."
+              << std::endl;
     return errors::FailedPrecondition(
         "Could not find prime(s) for ciphertext modulus.");
+  }
+
+  // Since the ciphertext bits may be larger than the minimum, update logn.
+  // This estimation counts the number of bits conservatively.
+  uint64_t found_ct_bits = 0;
+  for (auto const& q : qs) {
+    found_ct_bits += BitWidth(q) - 1;
+  }
+  uint64_t new_log_n = EstimateLogN(found_ct_bits);
+  if (new_log_n == 0) {
+    return errors::FailedPrecondition("Could not estimate log_n.");
+  }
+  if (new_log_n != log_n) {
+    // log_n has changed, all parameters must be updated.
+    log_n = new_log_n;
+    return ChooseShellParams(params, total_pt_bits, found_ct_bits);
   }
 
   params.log_n = log_n;
@@ -355,9 +442,9 @@ Status ChooseShellParams(ShellParams& params, uint64_t const total_pt_bits,
 
   if constexpr (debug_moduli) {
     std::cout << "Choosing parameters:" << std::endl;
-    std::cout << "log_n: " << params.log_n << std::endl;
-    std::cout << "t: " << params.t << std::endl;
-    std::cout << "qs: ";
+    std::cout << "  log_n: " << params.log_n << std::endl;
+    std::cout << "  t: " << params.t << std::endl;
+    std::cout << "  qs: ";
     for (auto const& q : params.qs) {
       std::cout << q << " ";
     }
@@ -429,10 +516,10 @@ Status EstimateNodeNoise(
       int64_t scalar_value = 0;
       Status s = GetScalarConstValue<int64_t, DT_INT64>(*scalar_node_def,
                                                         &scalar_value);
-      int64_t abs_scalar_value = std::abs(scalar_value);
       if (!s.ok()) {
         return s;
       }
+      int64_t abs_scalar_value = std::abs(scalar_value);
       *this_noise = noise_a + BitWidth(abs_scalar_value);
     }
   }
@@ -457,25 +544,46 @@ Status EstimateNodeNoise(
     uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
         kNumComponents, kLogGadgetBase, gadget_dimension));
     rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
-    *this_noise = std::max(noise_b, rot_noise);
+    *this_noise = std::max(noise_b, rot_noise) + 1;
   } else if (IsFastReduceSumByRotation(*node_def)) {
     uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
         kNumComponents, kLogGadgetBase, gadget_dimension));
     rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
-    *this_noise = std::max(noise_a, rot_noise);
+    *this_noise = std::max(noise_a, rot_noise) + 1;
   } else if (IsReduceSum(*node_def)) {
-    // auto const* axis_node_def =
-    //     node_view->GetRegularFanin(2).node_view()->node();
+    int32 axis = 0;
+    if (!TryGetNodeAttr(*node_def, "axis", &axis)) {
+      std::cout
+          << "WARNING: Could not determine axis in reduce sum (ciphertext)."
+          << std::endl;
+      *this_noise = noise_a;
+    } else {
+      // TODO: Infer the shape of the input tensor and using the axis, determine
+      // the noise. Below is an example of shape inference during graph
+      // optimization. It doesn't appear to work very well, so it is ignored for
+      // now.
+      // GraphProperties graph_properties(mutable_item);
+      // TF_RETURN_IF_ERROR(graph_properties.InferStatically(false, true, false,
+      // false)); auto props =
+      // graph_properties.GetInputProperties("ReduceSumCt64"); for (auto const&
+      // prop : props) {
+      //   std::cout << "JIM: " << prop.DebugString() << std::endl;
+      // }
 
-    // uint64_t axis = 0;
-    // TF_RETURN_IF_ERROR(
-    //     GetScalarConstValue<uint64_t, DT_UINT64>(*axis_node_def, &axis));
-    *this_noise = noise_a;  // TODO depends on axis attribute and shape.
+      *this_noise = noise_a;
+    }
   }
 
   // Segment operations.
   else if (IsUnsortedCtSegmentSum(*node_def)) {
-    *this_noise = noise_a + 60;  // TODO noise is data dependent + O(slot dim).
+    uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
+        kNumComponents, kLogGadgetBase, gadget_dimension));
+    rot_noise += BitWidth(params.log_n);  // There are at most log_n rotations.
+    // The number of additions required is data dependent, so it cannot be
+    // accounted for during graph optimization here. Instead add a margin of
+    // 8 bits to support a small number of additions. For more, the user may use
+    // the noise offset parameter.
+    *this_noise = std::max(noise_a, rot_noise) + 1 + 8;
   }
 
   else if (IsDecrypt(*node_def)) {
@@ -681,9 +789,12 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
     std::cout << "Multiplicative Depth: " << mul_depth << std::endl;
     std::cout << "Total Cleartext Bits: " << total_plaintext_bits << std::endl;
   }
-  if (total_plaintext_bits > kMaxPrimeBits) {
+  if (total_plaintext_bits >= kMaxPrimeBitsCiphertext) {
+    std::cout << "ERROR: Total plaintext size exceeds "
+              << kMaxPrimeBitsCiphertext << ". This is not supported."
+              << std::endl;
     return errors::FailedPrecondition("Total plaintext size exceeds ",
-                                      kMaxPrimeBits,
+                                      kMaxPrimeBitsCiphertext,
                                       ". This is not supported.");
   }
 
@@ -693,6 +804,7 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
   uint64_t log_q_l = total_plaintext_bits + 2;
   uint64_t log_q_r = total_plaintext_bits + 210;
   uint64_t log_q = (log_q_r + log_q_l) / 2;
+  uint64_t log_max_noise = 0;
   ShellParams params;
 
   while (log_q_l <= log_q_r && log_q < log_q_r + 10) {
@@ -711,49 +823,63 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
       continue;
     }
 
-    uint64_t log_max_noise = 0;
     TF_RETURN_IF_ERROR(EstimateNoiseGrowth<uint64_t>(
         graph_view, params, auto_params.noise_variance, &log_max_noise));
 
-    if (log_max_noise == 0) {
-      // No encryption in this graph. Smallest parameters will do.
-      log_q = log_q_l;
-      break;
-    }
+    uint64_t total_ct_bits =
+        BitWidth(params.t) + log_max_noise + auto_params.noise_offset_bits;
 
     // Adjust the noise budget to account for the encryption noise.
-    if (log_max_noise + auto_params.noise_offset_bits > log_q) {
+    if (total_ct_bits > log_q) {
       if constexpr (debug_moduli) {
-        std::cout << "Noise budget exceeded (max noise bits: " << log_max_noise
+        std::cout << "Noise budget exceeded "
+                  << "(plaintext bits: " << BitWidth(params.t)
+                  << " + max noise bits: " << log_max_noise
                   << " + noise offset: " << auto_params.noise_offset_bits
-                  << " > Q bits: " << log_q << ")." << std::endl;
+                  << " = " << total_ct_bits << " > Q bits: " << log_q << ")."
+                  << std::endl;
       }
       log_q_l = log_q + 1;
     } else {
       if constexpr (debug_moduli) {
-        std::cout << "Noise budget too large (max noise bits: " << log_max_noise
+        std::cout << "Noise budget over provisioned "
+                  << "(plaintext bits: " << BitWidth(params.t)
+                  << " + max noise bits: " << log_max_noise
                   << " + noise offset: " << auto_params.noise_offset_bits
-                  << " < Q bits: " << log_q << ")." << std::endl;
+                  << " = " << total_ct_bits << " < Q bits: " << log_q << ")."
+                  << std::endl;
       }
       log_q_r = std::min(log_q_r - 1, log_q - 1);
     }
     log_q = (log_q_r + log_q_l) / 2;
+    if constexpr (debug_moduli) {
+      std::cout << "New log_q: " << log_q << std::endl;
+    }
   }
 
   if (log_q >= total_plaintext_bits + 210) {
+    std::cout << "ERROR: Could not find suitable parameters." << std::endl;
     return errors::FailedPrecondition("Could not find suitable parameters.");
   }
 
   TF_RETURN_IF_ERROR(ChooseShellParams(params, total_plaintext_bits, log_q));
   if constexpr (debug_output_params) {
-    std::cout << "Final parameters:" << std::endl;
+    std::cout << "Selected BGV parameters:" << std::endl;
     std::cout << "log_n: " << params.log_n << std::endl;
-    std::cout << "t: " << params.t << std::endl;
+    std::cout << "t: " << params.t << " (" << BitWidth(params.t)
+              << " bits, min:" << total_plaintext_bits << ")" << std::endl;
     std::cout << "qs: ";
+    uint64_t total_ct_bits = 0;
     for (auto const& q : params.qs) {
       std::cout << q << " ";
+      total_ct_bits += BitWidth(q);
     }
-    std::cout << std::endl;
+    std::cout << " (" << total_ct_bits << " bits, min:"
+              << BitWidth(params.t) + log_max_noise +
+                     auto_params.noise_offset_bits
+              << " = t:" << BitWidth(params.t) << " + noise:" << log_max_noise
+              << " + offset:" << auto_params.noise_offset_bits << ")"
+              << std::endl;
   }
 
   TF_RETURN_IF_ERROR(

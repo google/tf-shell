@@ -46,8 +46,8 @@ constexpr char kFastMatMulPtCt[] = "FastMatMulPtCt64";
 
 constexpr char kRoll[] = "Roll64";
 constexpr char kReduceSumByRotation[] = "ReduceSumByRotation64";
-constexpr char kFastReduceSumByRotation[] = "FastReduceSumByRotation64";
-constexpr char kReduceSum[] = "ReduceSum64";
+constexpr char kFastReduceSumByRotation[] = "FastReduceSumByRotationCt64";
+constexpr char kReduceSum[] = "ReduceSumCt64";
 
 constexpr char kUnsortedCtSegmentSum[] = "UnsortedCtSegmentSum";
 
