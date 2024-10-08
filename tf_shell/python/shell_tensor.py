@@ -118,7 +118,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _level=matched_self._level,
                 _num_mod_reductions=matched_self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
-                _scaling_factor=self._scaling_factor,
+                _scaling_factor=matched_self._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
                 _is_fast_rotated=self._is_fast_rotated or other._is_fast_rotated,
             )
@@ -199,7 +199,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _level=matched_self._level,
                 _num_mod_reductions=matched_self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
-                _scaling_factor=self._scaling_factor,
+                _scaling_factor=matched_self._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
                 _is_fast_rotated=self._is_fast_rotated or other._is_fast_rotated,
             )
@@ -488,9 +488,9 @@ def _match_moduli_and_scaling(x, y):
 
     # Match the scaling factors.
     while x._scaling_factor > y._scaling_factor:
-        y = y.__mul__(x._scaling_factor)
+        y = y.__mul__(y._scaling_factor)
     while x._scaling_factor < y._scaling_factor:
-        x = x.__mul__(y._scaling_factor)
+        x = x.__mul__(x._scaling_factor)
 
     return x, y
 
