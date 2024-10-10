@@ -74,7 +74,7 @@ class TestDistribModel(tf.test.TestCase):
         x_train, x_test = x_train[:, :120], x_test[:, :120]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-        train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(4)
+        train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(2**12)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
@@ -102,9 +102,8 @@ class TestDistribModel(tf.test.TestCase):
             lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=32,
                 scaling_factor=3,
-                noise_offset_log2=57,
+                noise_offset_log2=25,
             ),
-            True,
             labels_party_dev=labels_party_dev,
             features_party_dev=features_party_dev,
         )
@@ -117,10 +116,12 @@ class TestDistribModel(tf.test.TestCase):
         )
 
         history = m.fit(
-            train_dataset.take(2**13),
+            train_dataset.take(4),
             epochs=1,
             validation_data=val_dataset,
         )
+
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.3)
 
 
 if __name__ == "__main__":

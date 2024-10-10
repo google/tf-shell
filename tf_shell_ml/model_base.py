@@ -37,13 +37,24 @@ class SequentialBase(keras.Sequential):
     # to the same value as the encryption ring degree. Run the training loop once
     # on dummy data to figure out the batch size.
     def prep_dataset_for_model(self, train_dataset):
-        if not self.use_encryption:
+        if self.disable_encryption:
             self.dataset_prepped = True
-            return
+            return train_dataset
 
         # Run the training loop once on dummy data to figure out the batch size.
         tf.config.run_functions_eagerly(False)
         metrics = self.train_step_tf_func(next(iter(train_dataset)))
+
+        if not isinstance(metrics, dict):
+            raise ValueError(
+                f"Expected train_step to return a dict, got {type(metrics)}."
+            )
+
+        if "num_slots" not in metrics:
+            raise ValueError(
+                f"Expected train_step to return a dict with key 'num_slots', got {metrics.keys()}."
+            )
+
         train_dataset = train_dataset.rebatch(
             metrics["num_slots"].numpy(), drop_remainder=True
         )
@@ -56,8 +67,8 @@ class SequentialBase(keras.Sequential):
     # `prep_dataset_for_model` because it does not execute the graph, instead
     # tracing and optimizing the graph and extracting the required parameters.
     def fast_prep_dataset_for_model(self, train_dataset):
-        if not self.use_encryption:
-            return
+        if not self.disable_encryption:
+            return train_dataset
 
         # Call the training step with keygen to trace the graph. Use a copy
         # of the function to avoid caching the trace.
