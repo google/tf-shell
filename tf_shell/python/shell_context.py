@@ -31,6 +31,7 @@ class ShellContext64(tf.experimental.ExtensionType):
     noise_variance: int
     scaling_factor: int
     seed: str
+    id_str: str
 
     def __init__(
         self,
@@ -43,6 +44,7 @@ class ShellContext64(tf.experimental.ExtensionType):
         noise_variance,
         scaling_factor,
         seed,
+        id_str,
     ):
         self._raw_contexts = _raw_contexts
         self.is_autocontext = is_autocontext
@@ -65,15 +67,10 @@ class ShellContext64(tf.experimental.ExtensionType):
         self.noise_variance = noise_variance
         self.scaling_factor = scaling_factor
         self.seed = seed
+        self.id_str = id_str
 
     def _get_context_at_level(self, level):
-        level -= 1  # Context tensor start at level 1.
-        tf.Assert(level >= 0, [f"level must be >= 0. Got {level}"])
-        tf.Assert(
-            level < tf.shape(self._raw_contexts)[0],
-            [f"level must be < {tf.shape(self._raw_contexts)[0]}. Got {level}"],
-        )
-        return self._raw_contexts[level]
+        return self._raw_contexts[level - 1]  # 0th level does not exist.
 
     def _get_generic_context_spec(self):
         return ShellContext64.Spec(
@@ -106,46 +103,65 @@ def create_context64(
     elif len(seed) < 64 and seed != "":
         seed = seed.ljust(64)
 
-    context_sz = tf.shape(main_moduli)[0]
-    raw_contexts = tf.TensorArray(tf.variant, size=context_sz, clear_after_read=False)
-
-    # Generate and store the first context in the last index.
-    first_context, _, _, _, _ = shell_ops.context_import64(
-        log_n=log_n,
-        main_moduli=main_moduli,
-        aux_moduli=aux_moduli,
-        plaintext_modulus=plaintext_modulus,
-        noise_variance=noise_variance,
-        seed=seed,
-    )
-    raw_contexts = raw_contexts.write(context_sz - 1, first_context)
-
-    # Mod reduce to compute the remaining contexts.
-    raw_contexts, _ = tf.while_loop(
-        lambda cs, l: l > 0,
-        lambda cs, l: (
-            cs.write(l - 1, shell_ops.modulus_reduce_context64(cs.read(l))),
-            l - 1,
-        ),
-        loop_vars=[raw_contexts, context_sz - 1],
-        shape_invariants=[
-            tf.TensorSpec(None, dtype=tf.variant),
-            tf.TensorSpec([], dtype=tf.int32),
-        ],
-        parallel_iterations=1,
+    id_str = str(
+        hash(
+            (
+                log_n,
+                tuple(main_moduli),
+                plaintext_modulus,
+                tuple(aux_moduli),
+                noise_variance,
+                scaling_factor,
+                seed,
+            )
+        )
     )
 
-    return ShellContext64(
-        _raw_contexts=raw_contexts.gather(tf.range(0, context_sz)),
-        is_autocontext=False,
-        log_n=log_n,
-        main_moduli=main_moduli,
-        aux_moduli=aux_moduli,
-        plaintext_modulus=plaintext_modulus,
-        noise_variance=noise_variance,
-        scaling_factor=scaling_factor,
-        seed=seed,
-    )
+    with tf.name_scope("create_context64"):
+        context_sz = tf.shape(main_moduli)[0]
+        raw_contexts = tf.TensorArray(
+            tf.variant, size=context_sz, clear_after_read=False
+        )
+
+        # Generate and store the first context in the last index.
+        first_context, _, _, _, _ = shell_ops.context_import64(
+            log_n=log_n,
+            main_moduli=main_moduli,
+            aux_moduli=aux_moduli,
+            plaintext_modulus=plaintext_modulus,
+            noise_variance=noise_variance,
+            seed=seed,
+        )
+        raw_contexts = raw_contexts.write(context_sz - 1, first_context)
+
+        # Mod reduce to compute the remaining contexts.
+        raw_contexts, _ = tf.while_loop(
+            lambda cs, l: l > 0,
+            lambda cs, l: (
+                cs.write(l - 1, shell_ops.modulus_reduce_context64(cs.read(l))),
+                l - 1,
+            ),
+            loop_vars=[raw_contexts, context_sz - 1],
+            shape_invariants=[
+                tf.TensorSpec(None, dtype=tf.variant),
+                tf.TensorSpec([], dtype=tf.int32),
+            ],
+            parallel_iterations=1,
+        )
+        raw_contexts = raw_contexts.gather(tf.range(0, context_sz))
+
+        return ShellContext64(
+            _raw_contexts=raw_contexts,
+            is_autocontext=False,
+            log_n=log_n,
+            main_moduli=main_moduli,
+            aux_moduli=aux_moduli,
+            plaintext_modulus=plaintext_modulus,
+            noise_variance=noise_variance,
+            scaling_factor=scaling_factor,
+            seed=seed,
+            id_str=id_str,
+        )
 
 
 def create_autocontext64(
@@ -154,45 +170,118 @@ def create_autocontext64(
     noise_offset_log2,
     noise_variance=8,
     seed="",
+    cache_path=None,  # WARN: Caching will not update if graph changes.
 ):
     if len(seed) > 64:
         raise ValueError("Seed must be at most 64 characters long.")
     elif len(seed) < 64 and seed != "":
         seed = seed.ljust(64)
 
-    first_context, new_log_n, new_qs, new_ps, new_t = shell_ops.auto_shell_context64(
-        log2_cleartext_sz=log2_cleartext_sz,
-        scaling_factor=scaling_factor,
-        log2_noise_offset=noise_offset_log2,
-        noise_variance=noise_variance,
-    )
-    context_sz = tf.shape(new_qs)[0]
-    raw_contexts = tf.TensorArray(tf.variant, size=context_sz, clear_after_read=False)
-    raw_contexts = raw_contexts.write(context_sz - 1, first_context)
-
-    # Mod reduce to compute the remaining contexts.
-    raw_contexts, _ = tf.while_loop(
-        lambda cs, l: l > 0,
-        lambda cs, l: (
-            cs.write(l - 1, shell_ops.modulus_reduce_context64(cs.read(l))),
-            l - 1,
-        ),
-        loop_vars=[raw_contexts, context_sz - 1],
-        shape_invariants=[
-            tf.TensorSpec(None, dtype=tf.variant),
-            tf.TensorSpec([], dtype=tf.int32),
-        ],
-        parallel_iterations=1,
+    id_str = str(
+        hash(
+            (
+                log2_cleartext_sz,
+                scaling_factor,
+                noise_offset_log2,
+                noise_variance,
+                seed,
+            )
+        )
     )
 
-    return ShellContext64(
-        _raw_contexts=raw_contexts.gather(tf.range(0, context_sz)),
-        is_autocontext=True,
-        log_n=new_log_n,
-        main_moduli=new_qs,
-        aux_moduli=new_ps,
-        plaintext_modulus=new_t,
-        noise_variance=noise_variance,
-        scaling_factor=scaling_factor,
-        seed=seed,
-    )
+    with tf.name_scope("create_autocontext64"):
+        if cache_path != None:
+            context_cache_path = cache_path + "/" + id_str + "_context"
+            log_n_cache_path = cache_path + "/" + id_str + "_log_n"
+            qs_cache_path = cache_path + "/" + id_str + "_qs"
+            ps_cache_path = cache_path + "/" + id_str + "_ps"
+            t_cache_path = cache_path + "/" + id_str + "_t"
+            paths = [
+                context_cache_path,
+                log_n_cache_path,
+                qs_cache_path,
+                ps_cache_path,
+                t_cache_path,
+            ]
+
+            exists = all([tf.io.gfile.exists(p) for p in paths])
+            if exists:
+
+                def read_and_parse(path, ttype):
+                    return tf.io.parse_tensor(tf.io.read_file(path), out_type=ttype)
+
+                raw_contexts = read_and_parse(context_cache_path, tf.variant)
+                new_log_n = read_and_parse(log_n_cache_path, tf.uint64)
+                new_qs = read_and_parse(qs_cache_path, tf.uint64)
+                new_ps = read_and_parse(ps_cache_path, tf.uint64)
+                new_t = read_and_parse(t_cache_path, tf.uint64)
+
+                # log_n and t will always be scalars. Set the static shape
+                # manually to help with shape inference.
+                new_log_n.set_shape([])
+                new_t.set_shape([])
+
+                return ShellContext64(
+                    _raw_contexts=raw_contexts,
+                    is_autocontext=True,
+                    log_n=new_log_n,
+                    main_moduli=new_qs,
+                    aux_moduli=new_ps,
+                    plaintext_modulus=new_t,
+                    noise_variance=noise_variance,
+                    scaling_factor=scaling_factor,
+                    seed=seed,
+                    id_str=id_str,
+                )
+
+        # Cache was not found, generate the context.
+        first_context, new_log_n, new_qs, new_ps, new_t = (
+            shell_ops.auto_shell_context64(
+                log2_cleartext_sz=log2_cleartext_sz,
+                scaling_factor=scaling_factor,
+                log2_noise_offset=noise_offset_log2,
+                noise_variance=noise_variance,
+            )
+        )
+        context_sz = tf.shape(new_qs)[0]
+        raw_contexts = tf.TensorArray(
+            tf.variant, size=context_sz, clear_after_read=False
+        )
+        raw_contexts = raw_contexts.write(context_sz - 1, first_context)
+
+        # Mod reduce to compute the remaining contexts.
+        raw_contexts, _ = tf.while_loop(
+            lambda cs, l: l > 0,
+            lambda cs, l: (
+                cs.write(l - 1, shell_ops.modulus_reduce_context64(cs.read(l))),
+                l - 1,
+            ),
+            loop_vars=[raw_contexts, context_sz - 1],
+            shape_invariants=[
+                tf.TensorSpec(None, dtype=tf.variant),
+                tf.TensorSpec([], dtype=tf.int32),
+            ],
+            parallel_iterations=1,
+        )
+
+        raw_contexts = raw_contexts.gather(tf.range(0, context_sz))
+
+        if cache_path != None:
+            tf.io.write_file(context_cache_path, tf.io.serialize_tensor(raw_contexts))
+            tf.io.write_file(log_n_cache_path, tf.io.serialize_tensor(new_log_n))
+            tf.io.write_file(qs_cache_path, tf.io.serialize_tensor(new_qs))
+            tf.io.write_file(ps_cache_path, tf.io.serialize_tensor(new_ps))
+            tf.io.write_file(t_cache_path, tf.io.serialize_tensor(new_t))
+
+        return ShellContext64(
+            _raw_contexts=raw_contexts,
+            is_autocontext=True,
+            log_n=new_log_n,
+            main_moduli=new_qs,
+            aux_moduli=new_ps,
+            plaintext_modulus=new_t,
+            noise_variance=noise_variance,
+            scaling_factor=scaling_factor,
+            seed=seed,
+            id_str=id_str,
+        )

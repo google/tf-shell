@@ -29,13 +29,13 @@ class TestShellContext(tf.test.TestCase):
             scaling_factor=1052673,
         )
         key_path = tempfile.mkdtemp()  # Every trace gets a new key.
-        key = tf_shell.create_key64(context, key_path + "cached_test_key")
+        key = tf_shell.create_key64(context, key_path)
 
         a = tf.ones([2**11, 2, 3], dtype=tf.float32) * 10
         ea = tf_shell.to_encrypted(a, key, context)
 
         # Try decrypting with the cached key
-        cached_key = tf_shell.create_key64(context, key_path + "cached_test_key")
+        cached_key = tf_shell.create_key64(context, key_path)
         self.assertAllClose(a, tf_shell.to_tensorflow(ea, cached_key))
 
 

@@ -120,12 +120,28 @@ Status AddScalarConstNode(T value, utils::Mutation* mutation,
   return status;
 }
 
-Status GetAutoShellContextParams(utils::MutableGraphView& graph_view,
-                                 ShellAutoParams& params) {
-  // Get the plaintext modulus t.
-  auto const* autocontext_node_view = graph_view.GetNode(kShellAutoContext);
-  // auto const* autocontext_node_def = autocontext_node_view->node();
+StatusOr<utils::MutableNodeView*> GetAutoShellContextNode(
+    utils::MutableGraphView& graph_view) {
+  utils::MutableNodeView* found = nullptr;
+  for (int i = 0; i < graph_view.NumNodes(); ++i) {
+    auto const* node_view = graph_view.GetNode(i);
+    auto const* node_def = node_view->node();
+    if (node_def->op() == kShellAutoContext) {
+      if (found != nullptr) {
+        return errors::InvalidArgument(
+            "Multiple AutoShellContext nodes found in the graph.");
+      }
+      found = graph_view.GetNode(i);
+    }
+  }
+  if (found == nullptr) {
+    return errors::NotFound("AutoShellContext node not found.");
+  }
+  return found;
+}
 
+Status GetAutoShellContextParams(utils::MutableNodeView* autocontext_node_view,
+                                 ShellAutoParams& params) {
   auto const* cleartext_bits_node =
       autocontext_node_view->GetRegularFanin(0).node_view()->node();
   TF_RETURN_IF_ERROR(GetScalarConstValue<uint64_t, DT_UINT64>(
@@ -656,8 +672,8 @@ Status EstimateNoiseGrowth(utils::MutableGraphView& graph_view,
 Status ReplaceAutoparamWithContext(utils::MutableGraphView& graph_view,
                                    ShellParams const& params,
                                    ShellAutoParams const& auto_params) {
-  utils::MutableNodeView* autocontext_node_view =
-      graph_view.GetNode(kShellAutoContext);
+  TF_ASSIGN_OR_RETURN(auto* autocontext_node_view,
+                      GetAutoShellContextNode(graph_view));
   int autocontext_node_index = autocontext_node_view->node_index();
 
   if constexpr (debug_graph) {
@@ -753,25 +769,12 @@ Status ModuliAutotuneOptimizer::Optimize(Cluster* cluster,
 
   // See if an autocontext node exists in the graph. If not, there is nothing
   // to do.
-  auto const* autocontext_view = graph_view.GetNode(kShellAutoContext);
-  if (autocontext_view == nullptr) {
-    *optimized_graph = std::move(mutable_item.graph);
-    return OkStatus();
-  }
-
-  // Make sure there is only one autocontext node.
-  std::string duplicate_autocontext = kShellAutoContext;
-  duplicate_autocontext += "_1";
-  auto const* duplicate_autocontext_view =
-      graph_view.GetNode(duplicate_autocontext);
-  if (duplicate_autocontext_view != nullptr) {
-    return errors::FailedPrecondition("Multiple autocontext nodes found.");
-  }
+  TF_ASSIGN_OR_RETURN(auto* autocontext, GetAutoShellContextNode(graph_view));
 
   // Use GetScalarConstValue to get value of plaintext modulus,
   // etc.
   ShellAutoParams auto_params;
-  TF_RETURN_IF_ERROR(GetAutoShellContextParams(graph_view, auto_params));
+  TF_RETURN_IF_ERROR(GetAutoShellContextParams(autocontext, auto_params));
 
   // Topological sort so all subsequent traversals are in order.
   TF_RETURN_IF_ERROR(graph_view.SortTopologically(/*ignore_cycles=*/false, {}));
