@@ -11,9 +11,9 @@ bool IsEncode(NodeDef const& node) { return node.op() == kEncode; }
 bool IsDecode(NodeDef const& node) { return node.op() == kDecode; }
 bool IsEncrypt(NodeDef const& node) { return node.op() == kEncrypt; }
 bool IsPlainDerypt(NodeDef const& node) { return node.op() == kDecrypt; }
-bool IsFastDerypt(NodeDef const& node) { return node.op() == kFastDecrypt; }
+bool IsFastDecrypt(NodeDef const& node) { return node.op() == kFastDecrypt; }
 bool IsDecrypt(NodeDef const& node) {
-  return IsPlainDerypt(node) || IsFastDerypt(node);
+  return IsPlainDerypt(node) || IsFastDecrypt(node);
 }
 
 bool IsAddCtCt(NodeDef const& node) { return node.op() == kAddCtCt; }

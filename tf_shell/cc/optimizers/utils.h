@@ -20,7 +20,7 @@ constexpr char kEncode[] = "PolynomialImport64";
 constexpr char kDecode[] = "PolynomialExport64";
 constexpr char kEncrypt[] = "Encrypt64";
 constexpr char kDecrypt[] = "Decrypt64";
-constexpr char kFastDecrypt[] = "FastDecrypt64";
+constexpr char kFastDecrypt[] = "DecryptFastRotated64";
 
 constexpr char kAddCtCt[] = "AddCtCt64";
 constexpr char kSubCtCt[] = "SubCtCt64";
@@ -45,7 +45,7 @@ constexpr char kMatMulPtCt[] = "MatMulPtCt64";
 constexpr char kFastMatMulPtCt[] = "FastMatMulPtCt64";
 
 constexpr char kRoll[] = "Roll64";
-constexpr char kReduceSumByRotation[] = "ReduceSumByRotation64";
+constexpr char kReduceSumByRotation[] = "ReduceSumByRotationCt64";
 constexpr char kFastReduceSumByRotation[] = "FastReduceSumByRotationCt64";
 constexpr char kReduceSum[] = "ReduceSumCt64";
 
@@ -64,7 +64,7 @@ bool IsEncode(NodeDef const& node);
 bool IsDecode(NodeDef const& node);
 bool IsEncrypt(NodeDef const& node);
 bool IsPlainDerypt(NodeDef const& node);
-bool IsFastDerypt(NodeDef const& node);
+bool IsFastDecrypt(NodeDef const& node);
 bool IsDecrypt(NodeDef const& node);
 
 bool IsAddCtCt(NodeDef const& node);

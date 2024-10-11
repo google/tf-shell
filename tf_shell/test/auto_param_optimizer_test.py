@@ -194,6 +194,35 @@ def ct_roll(cleartext_a, cleartext_b, use_auto_context=False):
     return result
 
 
+@tf.function
+def multi_context(cleartext_a, cleartext_b, use_auto_context=False):
+    shell_context1 = (
+        gen_autocontext(test_values_num_bits * 2 + 1, 0)
+        if use_auto_context
+        else gen_context()
+    )
+    key1 = tf_shell.create_key64(shell_context1)
+    a1 = tf_shell.to_encrypted(cleartext_a, key1, shell_context1)
+    b1 = tf_shell.to_encrypted(cleartext_b, key1, shell_context1)
+
+    intermediate1 = a1 * b1
+    result1 = tf_shell.to_tensorflow(intermediate1, key1)
+
+    shell_context2 = (
+        gen_autocontext(test_values_num_bits * 2 + 1, 1)
+        if use_auto_context
+        else gen_context()
+    )  # Use an offset of 1 so the contexts are different and can't be shared.
+    key2 = tf_shell.create_key64(shell_context2)
+    a2 = tf_shell.to_encrypted(cleartext_a, key2, shell_context2)
+    b2 = tf_shell.to_encrypted(cleartext_b, key2, shell_context2)
+
+    intermediate2 = a2 * b2
+    result2 = tf_shell.to_tensorflow(intermediate2, key2)
+
+    return result1 + result2
+
+
 def count_ops(graph, op_name):
     num_ct_pt_ops = 0
     for node in graph.as_graph_def().node:
@@ -204,7 +233,7 @@ def count_ops(graph, op_name):
 
 class TestAutoParamOptimizer(tf.test.TestCase):
 
-    def _test_func(self, tf_func):
+    def _test_func(self, tf_func, num_autocontexts=1):
         shape = [100, 12]
         a = tf.random.uniform(
             shape,
@@ -228,7 +257,7 @@ class TestAutoParamOptimizer(tf.test.TestCase):
         #     print(f"{node.name} {node.op}({node.input})")
 
         orig_num_auto_ops = count_ops(func.graph, "AutoShellContext64")
-        self.assertEqual(orig_num_auto_ops, 1)
+        self.assertEqual(orig_num_auto_ops, num_autocontexts)
 
         # Optimize the graph using tf_shells HE-specific optimizers.
         optimized_func = tf_shell.optimize_shell_graph(
@@ -248,7 +277,7 @@ class TestAutoParamOptimizer(tf.test.TestCase):
         opt_num_auto_ops = count_ops(optimized_func.graph, "AutoShellContext64")
         self.assertEqual(opt_num_auto_ops, 0)
         opt_num_ctx_ops = count_ops(optimized_func.graph, "ContextImport64")
-        self.assertEqual(opt_num_ctx_ops, 1)
+        self.assertEqual(opt_num_ctx_ops, num_autocontexts)
 
         # Check the optimized graph still computes the correct value.
         eager_c = tf_func(a, b, False)
@@ -309,6 +338,9 @@ class TestAutoParamOptimizer(tf.test.TestCase):
 
         with self.subTest(f"Optimizer for roll."):
             self._test_func(ct_roll)
+
+        with self.subTest(f"Optimizer for multi context."):
+            self._test_func(multi_context, num_autocontexts=2)
 
 
 class TestAutoParamEnableOptimizer(tf.test.TestCase):
