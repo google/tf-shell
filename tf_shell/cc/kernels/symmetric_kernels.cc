@@ -60,7 +60,7 @@ class KeyGenOp : public OpKernel {
     OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
                       GetVariant<ContextVariant<T>>(op_ctx, 0));
     Context const* shell_ctx = shell_ctx_var->ct_context_.get();
-    Prng* prng = shell_ctx_var->prng_.get();
+    Prng* prng = shell_ctx_var->prng_[0].get();
 
     // Allocate output tensor which is a scalar holding the secret key.
     Tensor* out;
@@ -116,7 +116,10 @@ class EncryptOp : public OpKernel {
     auto flat_input = input.flat<Variant>();
     auto flat_output = output->flat<Variant>();
 
-    auto enc_in_range = [&](int start, int end) {
+    auto enc_in_range = [&](int start, int end, int worker_id) {
+      int prng_i = worker_id % shell_ctx_var->prng_.size();
+      auto* prng = shell_ctx_var->prng_[prng_i].get();
+
       for (int i = start; i < end; ++i) {
         PolynomialVariant<T> const* pv =
             std::move(flat_input(i).get<PolynomialVariant<T>>());
@@ -128,12 +131,12 @@ class EncryptOp : public OpKernel {
                            shell_ctx_var->ct_context_));
         Polynomial const& p = pv->poly;
 
-        SymmetricCt ciphertext = secret_key
-                                     ->template EncryptPolynomialBgv<Encoder>(
-                                         p, shell_ctx_var->encoder_.get(),
-                                         shell_ctx_var->error_params_.get(),
-                                         shell_ctx_var->prng_.get())
-                                     .value();
+        SymmetricCt ciphertext =
+            secret_key
+                ->template EncryptPolynomialBgv<Encoder>(
+                    p, shell_ctx_var->encoder_.get(),
+                    shell_ctx_var->error_params_.get(), prng)
+                .value();
 
         SymmetricCtVariant ciphertext_var(std::move(ciphertext),
                                           shell_ctx_var->ct_context_,
@@ -145,8 +148,8 @@ class EncryptOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_enc = 6000 * num_slots;  // ns, measured on log_n = 11
-    thread_pool->ParallelFor(flat_output.dimension(0), cost_per_enc,
-                             enc_in_range);
+    thread_pool->ParallelForWithWorkerId(flat_output.dimension(0), cost_per_enc,
+                                         enc_in_range);
   }
 };
 

@@ -108,12 +108,38 @@ class ContextVariant {
                                              ct_context_->MainPrimeModuli()));
     gadget_ = std::make_shared<Gadget const>(std::move(gadget));
 
-    // Create the PRNG with the given or generated seed.
+    // If the PRNG seed is empty, generate one.
+    std::string prng_seed;
     if (seed.empty()) {
-      TF_SHELL_ASSIGN_OR_RETURN(auto gen_seed, HkdfPrng::GenerateSeed());
-      TF_SHELL_ASSIGN_OR_RETURN(prng_, HkdfPrng::Create(gen_seed));
+      TF_SHELL_ASSIGN_OR_RETURN(prng_seed, HkdfPrng::GenerateSeed());
     } else {
-      TF_SHELL_ASSIGN_OR_RETURN(prng_, HkdfPrng::Create(seed));
+      prng_seed = seed;
+    }
+
+    // Create the PRNGs, one per core.
+    auto processor_count = std::thread::hardware_concurrency();
+    if (processor_count == 0) {
+      std::cout << "WARNING: Failed to detect the number of processors. "
+                << std::endl;
+      processor_count = 1;
+    }
+    prng_.reserve(processor_count);
+
+    // Create the first prng then seed the rest with its own output. Note that
+    // if a seed is given, all PRNGs cannot use the same seed, but their output
+    // should still be deterministic.
+    TF_ASSIGN_OR_RETURN(std::shared_ptr<Prng> ptr, HkdfPrng::Create(prng_seed));
+    prng_.push_back(std::move(ptr));
+    for (size_t i = 1; i < processor_count; ++i) {
+      std::vector<uint8_t> gen_rand;
+      gen_rand.reserve(64);
+      for (int i = 0; i < 64; ++i) {
+        TF_ASSIGN_OR_RETURN(uint8_t rand, prng_[0]->Rand8());
+        gen_rand.push_back(rand);
+      }
+      std::string gen_seed(gen_rand.begin(), gen_rand.end());
+      TF_ASSIGN_OR_RETURN(ptr, HkdfPrng::Create(gen_seed));
+      prng_.push_back(std::move(ptr));
     }
 
     // Initialize the substitution powers used for rotation, namely
@@ -227,5 +253,5 @@ class ContextVariant {
   std::shared_ptr<ErrorParams const> error_params_;
   std::shared_ptr<Encoder const> encoder_;
   std::shared_ptr<Gadget const> gadget_;
-  std::shared_ptr<Prng> prng_;
+  std::vector<std::shared_ptr<Prng>> prng_;
 };

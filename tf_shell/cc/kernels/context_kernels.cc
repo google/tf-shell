@@ -58,10 +58,12 @@ class ContextImportOp : public OpKernel {
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(1, TensorShape{}, &out1));
     Tensor* out2;
     OP_REQUIRES_OK(op_ctx,
-                   op_ctx->allocate_output(2, TensorShape{qs.size()}, &out2));
+                   op_ctx->allocate_output(
+                       2, TensorShape{static_cast<int64_t>(qs.size())}, &out2));
     Tensor* out3;
     OP_REQUIRES_OK(op_ctx,
-                   op_ctx->allocate_output(3, TensorShape{ps.size()}, &out3));
+                   op_ctx->allocate_output(
+                       3, TensorShape{static_cast<int64_t>(ps.size())}, &out3));
     Tensor* out4;
     OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(4, TensorShape{}, &out4));
 
