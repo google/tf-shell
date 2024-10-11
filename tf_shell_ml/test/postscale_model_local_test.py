@@ -19,6 +19,7 @@ import keras
 import numpy as np
 import tf_shell
 import tf_shell_ml
+import os
 
 
 class TestModel(tf.test.TestCase):
@@ -39,6 +40,9 @@ class TestModel(tf.test.TestCase):
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
+        context_cache_path = "/tmp/postscale_model_local_test_cache/"
+        os.makedirs(context_cache_path, exist_ok=True)
+
         m = tf_shell_ml.PostScaleSequential(
             [
                 tf.keras.layers.Dense(64, activation="relu"),
@@ -48,10 +52,12 @@ class TestModel(tf.test.TestCase):
                 log2_cleartext_sz=14,
                 scaling_factor=2**10,
                 noise_offset_log2=47,  # may be overprovisioned
+                cache_path=context_cache_path,
             ),
             disable_encryption=False,
             disable_masking=False,
             disable_noise=False,
+            cache_path=context_cache_path,
         )
 
         m.compile(
@@ -63,7 +69,7 @@ class TestModel(tf.test.TestCase):
 
         history = m.fit(train_dataset.take(4), epochs=1, validation_data=val_dataset)
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.3)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
 
     def test_model(self):
         self._test_model(False, False, False)

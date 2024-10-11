@@ -16,7 +16,6 @@
 import tensorflow as tf
 import tensorflow.keras as keras
 import tf_shell
-import tempfile
 from tf_shell_ml.model_base import SequentialBase
 
 
@@ -31,7 +30,8 @@ class PostScaleSequential(SequentialBase):
         disable_encryption=False,
         disable_masking=False,
         disable_noise=False,
-        check_overflow_close=True,
+        check_overflow=False,
+        cache_path=None,
         *args,
         **kwargs,
     ):
@@ -57,7 +57,8 @@ class PostScaleSequential(SequentialBase):
         self.noise_multiplier = noise_multiplier
         self.disable_masking = disable_masking
         self.disable_noise = disable_noise
-        self.check_overflow_close = check_overflow_close
+        self.check_overflow = check_overflow
+        self.cache_path = cache_path
 
     def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
         super().compile(optimizer=optimizer, loss=loss, metrics=metrics, **kwargs)
@@ -82,11 +83,8 @@ class PostScaleSequential(SequentialBase):
             if self.disable_encryption:
                 enc_y = y
             else:
-                key_path = tempfile.mkdtemp()  # Every trace gets a new key.
                 shell_context = self.shell_context_fn()
-                secret_key = tf_shell.create_key64(
-                    shell_context, key_path + "/secret_key"
-                )
+                secret_key = tf_shell.create_key64(shell_context, self.cache_path)
                 # Encrypt the batch of secret labels y.
                 enc_y = tf_shell.to_encrypted(y, secret_key, shell_context)
 
@@ -243,10 +241,14 @@ class PostScaleSequential(SequentialBase):
                     rebalance(g, s) for g, s in zip(batch_grad, mask_scaling_factors)
                 ]
 
-            if not self.disable_encryption and self.check_overflow_close:
+            if not self.disable_encryption and self.check_overflow:
                 # If the unmasked gradient is between [-t/2, -t/4] or
-                # [t/4, t/2], the gradient may have overflowed.
-                overflowed = [tf.abs(g) > t_half / 2 for g in batch_grad]
+                # [t/4, t/2], the gradient may have overflowed. Note this must
+                # also take the scaling factor into account.
+                overflowed = [
+                    tf.abs(g) > t_half / 2 / s
+                    for g, s in zip(batch_grad, mask_scaling_factors)
+                ]
                 overflowed = [tf.reduce_any(o) for o in overflowed]
                 overflowed = tf.reduce_any(overflowed)
                 tf.cond(

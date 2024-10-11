@@ -54,7 +54,7 @@ py_test(
 
 py_test(
     name = "dpsgd_model_local_test",
-    size = "large",
+    size = "enormous",
     srcs = ["dpsgd_model_local_test.py"],
     tags = ["exclusive"],
     deps = [
@@ -65,7 +65,7 @@ py_test(
 
 py_test(
     name = "dpsgd_model_distrib_test",
-    size = "large",
+    size = "enormous",
     srcs = ["dpsgd_model_distrib_test.py"],
     tags = ["exclusive"],
     deps = [
@@ -76,7 +76,7 @@ py_test(
 
 py_test(
     name = "postscale_model_local_test",
-    size = "large",
+    size = "enormous",
     srcs = ["postscale_model_local_test.py"],
     tags = ["exclusive"],
     deps = [

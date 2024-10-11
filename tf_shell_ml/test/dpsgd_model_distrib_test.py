@@ -71,13 +71,16 @@ class TestDistribModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :120], x_test[:, :120]
+        x_train, x_test = x_train[:, :380], x_test[:, :380]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
         train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(2**12)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
+
+        context_cache_path = "/tmp/postscale_model_distrib_test_cache/"
+        os.makedirs(context_cache_path, exist_ok=True)
 
         m = tf_shell_ml.DpSgdSequential(
             [
@@ -93,19 +96,15 @@ class TestDistribModel(tf.test.TestCase):
                     use_fast_reduce_sum=True,
                 ),
             ],
-            # lambda: tf_shell.create_context64(
-            #     log_n=12,
-            #     main_moduli=[288230376151760897, 288230376152137729],
-            #     plaintext_modulus=4294991873,
-            #     scaling_factor=3,
-            # ),
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=32,
-                scaling_factor=3,
-                noise_offset_log2=25,
+                log2_cleartext_sz=14,
+                scaling_factor=8,
+                noise_offset_log2=12,
+                cache_path=context_cache_path,
             ),
             labels_party_dev=labels_party_dev,
             features_party_dev=features_party_dev,
+            cache_path=context_cache_path,
         )
 
         m.compile(
