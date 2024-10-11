@@ -45,7 +45,6 @@ using tensorflow::uint8;
 using tensorflow::Variant;
 using tensorflow::errors::InvalidArgument;
 
-constexpr int kLogGadgetBase = 4;
 constexpr rlwe::PrngType kPrngType = rlwe::PRNG_TYPE_HKDF;
 
 // Fast Rotation Kernels:
@@ -118,9 +117,9 @@ class FastRotationKeyGenOp : public OpKernel {
     keys.push_back(key_sub_i);
 
     for (uint i = 1; i < num_slots / 2; ++i) {
-      OP_REQUIRES_VALUE(
-          key_sub_i, op_ctx,
-          key_sub_i.Substitute(base_power, shell_ctx->MainPrimeModuli()));
+      OP_REQUIRES_VALUE(key_sub_i, op_ctx,
+                        key_sub_i.Substitute(kSubstitutionBasePower,
+                                             shell_ctx->MainPrimeModuli()));
       keys.push_back(key_sub_i);
     }
 

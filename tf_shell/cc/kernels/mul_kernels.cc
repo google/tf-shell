@@ -581,6 +581,12 @@ class MatMulPtCtOp : public OpKernel {
     } else {
       OP_REQUIRES_VALUE(rotation_key_var, op_ctx,
                         GetVariant<RotationKeyVariant<T>>(op_ctx, 3));
+      OP_REQUIRES(
+          op_ctx, rotation_key_var != nullptr,
+          InvalidArgument("RotationKeyVariant did not unwrap successfully."));
+      OP_REQUIRES_OK(op_ctx,
+                     const_cast<RotationKeyVariant<T>*>(rotation_key_var)
+                         ->MaybeLazyDecode(shell_ctx_var->ct_context_));
     }
     std::vector<std::shared_ptr<RotationKey>> empty_rot_keys{};
     std::vector<std::shared_ptr<RotationKey>> const& rot_keys =

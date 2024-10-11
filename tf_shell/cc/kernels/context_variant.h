@@ -124,7 +124,7 @@ class ContextVariant {
     substitution_powers_.reserve(num_slots / 2);
     for (uint shift = 0; shift < num_slots / 2; ++shift) {
       substitution_powers_.push_back(sub_power);
-      sub_power *= base_power;
+      sub_power *= kSubstitutionBasePower;
       sub_power %= two_n;
     }
 

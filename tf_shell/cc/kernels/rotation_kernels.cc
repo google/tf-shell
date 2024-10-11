@@ -44,7 +44,6 @@ using tensorflow::uint8;
 using tensorflow::Variant;
 using tensorflow::errors::InvalidArgument;
 
-constexpr int kLogGadgetBase = 4;
 constexpr rlwe::PrngType kPrngType = rlwe::PRNG_TYPE_HKDF;
 
 template <typename T>
@@ -85,6 +84,10 @@ class RotationKeyGenOp : public OpKernel {
     // Create the output variant
     RotationKeyVariant<T> v_out;
 
+    // The RotationKeys internally hold a pointer to the secret key's moduli.
+    // Thus the context pointer must also come from the secret key.
+    v_out.ct_context = secret_key_var->ct_context;
+
     // Create the gadget.
     int level = shell_ctx->NumMainPrimeModuli() - 1;
     OP_REQUIRES_VALUE(auto q_hats, op_ctx,
@@ -114,9 +117,9 @@ class RotationKeyGenOp : public OpKernel {
       // Skip rotation key at zero, it does not rotate.
       if (start == 0) ++start;
 
-      uint sub_power = base_power;
+      uint sub_power = kSubstitutionBasePower;
       for (int i = 1; i < start; ++i) {
-        sub_power *= base_power;
+        sub_power *= kSubstitutionBasePower;
         sub_power %= two_n;
       }
 
@@ -125,8 +128,8 @@ class RotationKeyGenOp : public OpKernel {
             RotationKey k, op_ctx,
             RotationKey::CreateForBgv(*secret_key, sub_power, variance,
                                       gadget_ptr.get(), t, kPrngType));
-        v_out.keys[i] = std::move(std::make_shared<RotationKey>(k));
-        sub_power *= base_power;
+        v_out.keys[i] = std::make_shared<RotationKey>(std::move(k));
+        sub_power *= kSubstitutionBasePower;
         sub_power %= two_n;
       }
     };
@@ -163,6 +166,8 @@ class RollOp : public OpKernel {
     OP_REQUIRES(
         op_ctx, rotation_key_var != nullptr,
         InvalidArgument("RotationKeyVariant did not unwrap successfully."));
+    OP_REQUIRES_OK(op_ctx, const_cast<RotationKeyVariant<T>*>(rotation_key_var)
+                               ->MaybeLazyDecode(shell_ctx_var->ct_context_));
     std::vector<std::shared_ptr<RotationKey>> const& keys =
         rotation_key_var->keys;
 
@@ -282,6 +287,8 @@ class ReduceSumByRotationCtOp : public OpKernel {
     OP_REQUIRES(
         op_ctx, rotation_key_var != nullptr,
         InvalidArgument("RotationKeyVariant did not unwrap successfully."));
+    OP_REQUIRES_OK(op_ctx, const_cast<RotationKeyVariant<T>*>(rotation_key_var)
+                               ->MaybeLazyDecode(shell_ctx_var->ct_context_));
     std::vector<std::shared_ptr<RotationKey>> const& keys =
         rotation_key_var->keys;
 
@@ -682,3 +689,7 @@ REGISTER_KERNEL_BUILDER(Name("ReduceSumWithModulusPt")
 
 REGISTER_KERNEL_BUILDER(Name("ReduceSumCt64").Device(DEVICE_CPU),
                         ReduceSumCtOp<uint64>);
+
+typedef RotationKeyVariant<uint64> RotationKeyVariantUint64;
+REGISTER_UNARY_VARIANT_DECODE_FUNCTION(RotationKeyVariantUint64,
+                                       RotationKeyVariantUint64::kTypeName);

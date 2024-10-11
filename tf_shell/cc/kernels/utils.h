@@ -36,7 +36,10 @@ using tensorflow::errors::InvalidArgument;
 using tensorflow::errors::Unimplemented;
 
 // The substitution power for Galois rotation by one slot.
-constexpr int base_power = 5;
+constexpr int kSubstitutionBasePower = 5;
+
+// The base of the Galois rotation gadget.
+constexpr int kLogGadgetBase = 4;
 
 // A mutex for use with variants with appropriate copy/assign.
 struct variant_mutex {

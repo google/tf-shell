@@ -430,6 +430,11 @@ class UnsortedSegmentReductionOp : public OpKernel {
     Tensor const& num_segments = context->input(3);
     OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, context,
                       GetVariant<RotationKeyVariant<T>>(context, 4));
+    OP_REQUIRES(
+        context, rotation_key_var != nullptr,
+        InvalidArgument("RotationKeyVariant did not unwrap successfully."));
+    OP_REQUIRES_OK(context, const_cast<RotationKeyVariant<T>*>(rotation_key_var)
+                                ->MaybeLazyDecode(shell_ctx_var->ct_context_));
 
     OP_REQUIRES_OK(context, ValidateUnsortedSegmentReduction(
                                 this, context, shell_ctx_var, data, segment_ids,
