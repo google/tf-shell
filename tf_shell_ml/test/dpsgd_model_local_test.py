@@ -40,7 +40,7 @@ class TestModel(tf.test.TestCase):
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
-        context_cache_path = "/tmp/postscale_model_local_test_cache/"
+        context_cache_path = "/tmp/dpsgd_model_local_test_cache/"
         os.makedirs(context_cache_path, exist_ok=True)
 
         # Turn on the shell optimizer to use autocontext.
