@@ -153,6 +153,9 @@ class MulCtPtOp : public OpKernel {
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
+    OP_REQUIRES_OK(
+        op_ctx, const_cast<SymmetricCtVariant<T>*>(ct_var)->MaybeLazyDecode(
+                    shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
     SymmetricCt const& ct = ct_var->ct;
     int num_slots = 1 << ct.LogN();
     int num_components = ct.NumModuli();
