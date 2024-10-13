@@ -23,7 +23,8 @@ class PostScaleSequential(SequentialBase):
     def __init__(
         self,
         layers,
-        shell_context_fn,
+        backprop_context_fn,
+        noise_context_fn,
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         noise_multiplier=1.0,
@@ -48,7 +49,8 @@ class PostScaleSequential(SequentialBase):
             # be a no-op.
             self.layers[-1].activation_deriv = None
 
-        self.shell_context_fn = shell_context_fn
+        self.backprop_context_fn = backprop_context_fn
+        self.noise_context_fn = noise_context_fn
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
         self.clipping_threshold = 10000000
@@ -83,10 +85,10 @@ class PostScaleSequential(SequentialBase):
             if self.disable_encryption:
                 enc_y = y
             else:
-                shell_context = self.shell_context_fn()
-                secret_key = tf_shell.create_key64(shell_context, self.cache_path)
+                backprop_context = self.backprop_context_fn()
+                secret_key = tf_shell.create_key64(backprop_context, self.cache_path)
                 # Encrypt the batch of secret labels y.
-                enc_y = tf_shell.to_encrypted(y, secret_key, shell_context)
+                enc_y = tf_shell.to_encrypted(y, secret_key, backprop_context)
 
         with tf.device(self.features_party_dev):
             # Unset the activation function for the last layer so it is not used in
@@ -121,64 +123,39 @@ class PostScaleSequential(SequentialBase):
             scalars = tf_shell.expand_dims(scalars, axis=-1)
             # ^ batch_size x num output classes x 1
 
-            # Remember the original shape of the gradient in order to unpack them
-            # after the multiplication so they can be applied to the model.
-            # Get the shapes from TensorFlow's tensors, not SHELL's context
-            # for when the batch size != slotting dim or not using encryption.
-            if len(grads) == 0:
-                raise ValueError("No gradients found")
-            slot_size = tf.shape(grads[0])[0]
-            num_output_classes = grads[0].shape[1]
-            grad_shapes = [g.shape[2:] for g in grads]
-            flattened_grad_shapes = [s.num_elements() for s in grad_shapes]
-
-            flat_grads = [
-                tf.reshape(g, [slot_size, num_output_classes, s])
-                for g, s in zip(grads, flattened_grad_shapes)
-            ]
-            # ^ layers list (batch_size x num output classes x flattened layer weights)
-
-            all_grads = tf.concat(flat_grads, axis=2)
+            # Flatten and remember the original shape of the gradient in order
+            # to unpack them after the multiplication so they can be applied to
+            # the model.
+            grads, slot_size, grad_shapes, flattened_grad_shapes = (
+                self.flatten_jacobian_list(grads)
+            )
             # ^ batch_size x num output classes x all flattened weights
 
-            # The DP sensitivity of backprop when revealing the sum of gradients
-            # across a batch, is the maximum L2 norm of the gradient over every
-            # example in the batch, and over every class.
-            two_norms = tf.map_fn(lambda x: tf.norm(x, axis=0), all_grads)
-            # ^ batch_size x num output classes
-            max_two_norm = tf.reduce_max(two_norms)
-            # ^ scalar
+            max_two_norm = self.flat_jacobian_two_norm(grads)
 
-            scaled_grads = scalars * all_grads
+            # Scale the gradients.
+            grads = scalars * grads
             # ^ batch_size x num output classes x all flattened weights
 
             # Sum over the output classes.
-            scaled_grads = tf_shell.reduce_sum(scaled_grads, axis=1)
+            grads = tf_shell.reduce_sum(grads, axis=1)
+            # ^ batch_size x all flattened weights
 
-            # Split to recover the gradients by layer.
-            ps_grads = tf_shell.split(scaled_grads, flattened_grad_shapes, axis=1)
-            # ^ layers list (batch_size x flat layer weights)
-
-            # Unflatten the gradients to the original layer shape.
-            ps_grads = [
-                tf_shell.reshape(
-                    g,
-                    tf.concat([[slot_size], tf.cast(s, dtype=tf.int64)], axis=0),
-                )
-                for g, s in zip(ps_grads, grad_shapes)
-            ]
+            # Recover the original shapes of the gradients.
+            grads = self.unflatten_batch_grad_list(
+                grads, slot_size, grad_shapes, flattened_grad_shapes
+            )
+            # ^ layers list (batch_size x weights)
 
             # Mask the encrypted grads to prepare for decryption. The masks may
             # overflow during the reduce_sum over the batch. When the masks are
             # operated on, they are multiplied by the scaling factor, so it is
             # not necessary to mask the full range -t/2 to t/2. (Though it is
             # possible, it unnecessarily introduces noise into the ciphertext.)
-            if self.disable_masking or self.disable_encryption:
-                masked_enc_grads = ps_grads
-            else:
-                t = tf.cast(shell_context.plaintext_modulus, tf.float32)
+            if not self.disable_masking and not self.disable_encryption:
+                t = tf.cast(backprop_context.plaintext_modulus, tf.float32)
                 t_half = t // 2
-                mask_scaling_factors = [g._scaling_factor for g in ps_grads]
+                mask_scaling_factors = [g._scaling_factor for g in grads]
                 masks = [
                     tf.random.uniform(
                         tf_shell.shape(g),
@@ -186,42 +163,78 @@ class PostScaleSequential(SequentialBase):
                         minval=-t_half / s,
                         maxval=t_half / s,
                     )
-                    for g, s in zip(ps_grads, mask_scaling_factors)
+                    for g, s in zip(grads, mask_scaling_factors)
                 ]
 
                 # Mask the encrypted gradients to prepare for decryption.
-                masked_enc_grads = [g + m for g, m in zip(ps_grads, masks)]
+                grads = [g + m for g, m in zip(grads, masks)]
+
+            if not self.disable_noise:
+                # Features party encrypts the max two norm to send to the labels
+                # party so they can scale the noise.
+                noise_context = self.noise_context_fn()
+                noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
+                max_two_norm = tf.expand_dims(max_two_norm, 0)
+                max_two_norm = tf.repeat(max_two_norm, noise_context.num_slots, axis=0)
+                enc_max_two_norm = tf_shell.to_encrypted(
+                    max_two_norm, noise_secret_key, noise_context
+                )
 
         with tf.device(self.labels_party_dev):
-            if self.disable_encryption:
-                masked_grads = masked_enc_grads
-            else:
+            if not self.disable_encryption:
                 # Decrypt the weight gradients.
-                masked_grads = [
-                    tf_shell.to_tensorflow(g, secret_key) for g in masked_enc_grads
-                ]
+                grads = [tf_shell.to_tensorflow(g, secret_key) for g in grads]
 
             # Sum the masked gradients over the batch.
             if self.disable_masking or self.disable_encryption:
-                batch_masked_grads = [tf.reduce_sum(mg, 0) for mg in masked_grads]
+                grads = [tf.reduce_sum(g, 0) for g in grads]
             else:
-                batch_masked_grads = [
-                    tf_shell.reduce_sum_with_mod(mg, 0, shell_context, s)
-                    for mg, s in zip(masked_grads, mask_scaling_factors)
+                grads = [
+                    tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
+                    for g, s in zip(grads, mask_scaling_factors)
                 ]
 
+            if not self.disable_noise:
+                # Efficiently pack the masked gradients to prepare for
+                # encryption. This is special because the masked gradients are
+                # no longer batched so the packing must be done manually.
+                (flat_grads, grad_shapes, flattened_grad_shapes, total_grad_size) = (
+                    self.flatten_and_pad_grad_list(grads, noise_context.num_slots)
+                )
+
+                # Sample the noise
+                noise = tf.random.normal(
+                    tf.shape(flat_grads),
+                    stddev=self.noise_multiplier,
+                    dtype=float,
+                )
+                # Scale it by the encrypted max two norm.
+                enc_noise = enc_max_two_norm * noise
+                # Add the encrypted noise to the flat gradients.
+                grads = enc_noise + flat_grads
+
         with tf.device(self.features_party_dev):
-            if self.disable_masking or self.disable_encryption:
-                batch_grad = batch_masked_grads
-            else:
+            if not self.disable_noise:
+                # The gradients must be first be decrypted using the noise
+                # secret key.
+                grads = tf_shell.to_tensorflow(grads, noise_secret_key)
+                # Unpack the noise after decryption.
+                grads = self.unflatten_and_unpad_grad(
+                    flat_grads,
+                    grad_shapes,
+                    flattened_grad_shapes,
+                    total_grad_size,
+                )
+
+            if not self.disable_masking and not self.disable_encryption:
                 # Sum the masks over the batch.
-                batch_masks = [
-                    tf_shell.reduce_sum_with_mod(m, 0, shell_context, s)
+                sum_masks = [
+                    tf_shell.reduce_sum_with_mod(m, 0, backprop_context, s)
                     for m, s in zip(masks, mask_scaling_factors)
                 ]
 
                 # Unmask the batch gradient.
-                batch_grad = [mg - m for mg, m in zip(batch_masked_grads, batch_masks)]
+                grads = [mg - m for mg, m in zip(grads, sum_masks)]
 
                 # SHELL represents floats as integers between [0, t) where t is the
                 # plaintext modulus. To mimic SHELL's modulo operations in
@@ -237,9 +250,7 @@ class PostScaleSequential(SequentialBase):
                     x = tf.where(x < l_bound, x + t_over_s, x)
                     return x
 
-                batch_grad = [
-                    rebalance(g, s) for g, s in zip(batch_grad, mask_scaling_factors)
-                ]
+                grads = [rebalance(g, s) for g, s in zip(grads, mask_scaling_factors)]
 
             if not self.disable_encryption and self.check_overflow:
                 # If the unmasked gradient is between [-t/2, -t/4] or
@@ -247,7 +258,7 @@ class PostScaleSequential(SequentialBase):
                 # also take the scaling factor into account.
                 overflowed = [
                     tf.abs(g) > t_half / 2 / s
-                    for g, s in zip(batch_grad, mask_scaling_factors)
+                    for g, s in zip(grads, mask_scaling_factors)
                 ]
                 overflowed = [tf.reduce_any(o) for o in overflowed]
                 overflowed = tf.reduce_any(overflowed)
@@ -257,25 +268,8 @@ class PostScaleSequential(SequentialBase):
                     lambda: tf.identity(overflowed),
                 )
 
-            if self.disable_noise:
-                noised_grads = batch_grad
-            else:
-                # Set the noise based on the maximum two norm of the gradient
-                # per example, per output.
-                noise = [
-                    tf.random.normal(
-                        tf.shape(g),
-                        stddev=max_two_norm * self.noise_multiplier,
-                        dtype=float,
-                    )
-                    for g in batch_grad
-                ]
-                # ^ layers list (batch_size x weights)
-
-                noised_grads = [g + n for g, n in zip(batch_grad, noise)]
-
             # Apply the gradients to the model.
-            self.optimizer.apply_gradients(zip(noised_grads, self.weights))
+            self.optimizer.apply_gradients(zip(grads, self.weights))
 
         # Do not update metrics during secure training.
         if self.disable_encryption:
@@ -289,6 +283,6 @@ class PostScaleSequential(SequentialBase):
 
             metric_results = {m.name: m.result() for m in self.metrics}
         else:
-            metric_results = {"num_slots": shell_context.num_slots}
+            metric_results = {"num_slots": backprop_context.num_slots}
 
         return metric_results

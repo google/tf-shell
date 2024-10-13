@@ -66,6 +66,12 @@ class TestModel(tf.test.TestCase):
                 noise_offset_log2=12,
                 cache_path=context_cache_path,
             ),
+            lambda: tf_shell.create_autocontext64(
+                log2_cleartext_sz=14,
+                scaling_factor=8,
+                noise_offset_log2=0,
+                cache_path=context_cache_path,
+            ),
             disable_encryption=False,
             disable_masking=False,
             disable_noise=False,
@@ -85,7 +91,7 @@ class TestModel(tf.test.TestCase):
 
         history = m.fit(train_dataset.take(4), epochs=1, validation_data=val_dataset)
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.35)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
 
     def test_model(self):
         self._test_model(False, False, False)

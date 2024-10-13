@@ -24,7 +24,8 @@ class DpSgdSequential(SequentialBase):
     def __init__(
         self,
         layers,
-        shell_context_fn,
+        backprop_context_fn,
+        noise_context_fn,
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         needs_public_rotation_key=False,
@@ -50,7 +51,8 @@ class DpSgdSequential(SequentialBase):
             # be a no-op.
             self.layers[-1].activation_deriv = None
 
-        self.shell_context_fn = shell_context_fn
+        self.backprop_context_fn = backprop_context_fn
+        self.noise_context_fn = noise_context_fn
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
         self.needs_public_rotation_key = needs_public_rotation_key
@@ -96,17 +98,8 @@ class DpSgdSequential(SequentialBase):
         )
         # ^  layers list x (batch size x num output classes x weights) matrix
 
-        if len(grads) == 0:
-            raise ValueError("No gradients found")
-        slot_size = tf.shape(grads[0])[0]
-        num_output_classes = grads[0].shape[1]
-
-        flat_grads = [tf.reshape(g, [slot_size, num_output_classes, -1]) for g in grads]
-        # ^ layers list (batch_size x num output classes x flattened layer weights)
-        all_grads = tf.concat(flat_grads, axis=2)
-        # ^ batch_size x num output classes x all flattened weights
-        two_norms = tf.map_fn(lambda x: tf.norm(x, axis=0), all_grads)
-        max_two_norm = tf.reduce_max(two_norms)
+        all_grads, _, _, _ = self.flatten_jacobian_list(grads)
+        max_two_norm = self.flat_jacobian_two_norm(all_grads)
         return max_two_norm, y_pred
 
     def train_step(self, data):
@@ -116,21 +109,24 @@ class DpSgdSequential(SequentialBase):
             if self.disable_encryption:
                 enc_y = y
             else:
-                shell_context = self.shell_context_fn()
-                secret_key = tf_shell.create_key64(shell_context, self.cache_path)
-                secret_fast_rotation_key = tf_shell.create_fast_rotation_key64(
-                    shell_context, secret_key, self.cache_path
+                backprop_context = self.backprop_context_fn()
+                backprop_secret_key = tf_shell.create_key64(
+                    backprop_context, self.cache_path
+                )
+                backprop_secret_fastrot_key = tf_shell.create_fast_rotation_key64(
+                    backprop_context, backprop_secret_key, self.cache_path
                 )
                 if self.needs_public_rotation_key:
-                    public_rotation_key = tf_shell.create_rotation_key64(
-                        shell_context, secret_key, self.cache_path
+                    public_backprop_rotation_key = tf_shell.create_rotation_key64(
+                        backprop_context, backprop_secret_key, self.cache_path
                     )
+                else:
+                    public_backprop_rotation_key = None
                 # Encrypt the batch of secret labels y.
-                enc_y = tf_shell.to_encrypted(y, secret_key, shell_context)
+                enc_y = tf_shell.to_encrypted(y, backprop_secret_key, backprop_context)
 
         with tf.device(self.features_party_dev):
             # Forward pass in plaintext.
-            # y_pred = self(x, training=True)
             max_two_norm, y_pred = self.compute_max_two_norm_and_pred(x)
 
             # Backward pass.
@@ -141,20 +137,9 @@ class DpSgdSequential(SequentialBase):
                 if isinstance(l, tf_shell_ml.GlobalAveragePooling1D):
                     dw, dx = l.backward(dJ_dx[-1])
                 else:
-                    dw, dx = l.backward(
-                        dJ_dx[-1],
-                        (
-                            public_rotation_key
-                            if not self.disable_encryption
-                            and self.needs_public_rotation_key
-                            else None
-                        ),
-                    )
+                    dw, dx = l.backward(dJ_dx[-1], public_backprop_rotation_key)
                 dJ_dw.extend(dw)
                 dJ_dx.append(dx)
-
-            if len(dJ_dw) == 0:
-                raise ValueError("No gradients found.")
 
             # Mask the encrypted grads to prepare for decryption. The masks may
             # overflow during the reduce_sum over the batch. When the masks are
@@ -162,9 +147,9 @@ class DpSgdSequential(SequentialBase):
             # not necessary to mask the full range -t/2 to t/2. (Though it is
             # possible, it unnecessarily introduces noise into the ciphertext.)
             if self.disable_masking or self.disable_encryption:
-                masked_enc_grads = [g for g in reversed(dJ_dw)]
+                grads = [g for g in reversed(dJ_dw)]
             else:
-                t = tf.cast(shell_context.plaintext_modulus, tf.float32)
+                t = tf.cast(backprop_context.plaintext_modulus, tf.float32)
                 t_half = t // 2
                 mask_scaling_factors = [g._scaling_factor for g in reversed(dJ_dw)]
                 mask = [
@@ -181,20 +166,32 @@ class DpSgdSequential(SequentialBase):
 
                 # Mask the encrypted gradients and reverse the order to match
                 # the order of the layers.
-                masked_enc_grads = [(g + m) for g, m in zip(reversed(dJ_dw), mask)]
+                grads = [(g + m) for g, m in zip(reversed(dJ_dw), mask)]
+
+            if not self.disable_noise:
+                # Features party encrypts the max two norm to send to the labels
+                # party so they can scale the noise.
+                noise_context = self.noise_context_fn()
+                noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
+                max_two_norm = tf.expand_dims(max_two_norm, 0)
+                max_two_norm = tf.repeat(max_two_norm, noise_context.num_slots, axis=0)
+                enc_max_two_norm = tf_shell.to_encrypted(
+                    max_two_norm, noise_secret_key, noise_context
+                )
 
         with tf.device(self.labels_party_dev):
-            if self.disable_encryption:
-                # Unpacking is not necessary when not using encryption.
-                masked_grads = masked_enc_grads
-            else:
-                # Decrypt the weight gradients.
-                packed_masked_grads = [
+            if not self.disable_encryption:
+                # Decrypt the weight gradients with the backprop key.
+                packed_grads = [
                     tf_shell.to_tensorflow(
                         g,
-                        secret_fast_rotation_key if g._is_fast_rotated else secret_key,
+                        (
+                            backprop_secret_fastrot_key
+                            if g._is_fast_rotated
+                            else backprop_secret_key
+                        ),
                     )
-                    for g in masked_enc_grads
+                    for g in grads
                 ]
 
                 # Unpack the plaintext gradients using the corresponding layer's
@@ -202,14 +199,44 @@ class DpSgdSequential(SequentialBase):
                 # TODO: Make sure this doesn't require sending the layers
                 # themselves just for unpacking. The weights should not be
                 # shared with the labels party.
-                masked_grads = [
-                    f(g) for f, g in zip(self.unpacking_funcs, packed_masked_grads)
-                ]
+                grads = [f(g) for f, g in zip(self.unpacking_funcs, packed_grads)]
+
+            if not self.disable_noise:
+                # Efficiently pack the masked gradients to prepare for
+                # encryption. This is special because the masked gradients are
+                # no longer batched so the packing must be done manually.
+                (
+                    flat_grads,
+                    grad_shapes,
+                    flattened_grad_shapes,
+                    total_grad_size,
+                ) = self.flatten_and_pad_grad_list(grads, noise_context.num_slots)
+
+                # Sample the noise.
+                noise = tf.random.normal(
+                    tf.shape(flat_grads),
+                    stddev=self.noise_multiplier,
+                    dtype=float,
+                )
+                # Scale it by the encrypted max two norm.
+                enc_noise = enc_max_two_norm * noise
+                # Add the encrypted noise to the flat masked gradients.
+                grads = enc_noise + flat_grads
 
         with tf.device(self.features_party_dev):
-            if self.disable_masking or self.disable_encryption:
-                grads = masked_grads
-            else:
+            if not self.disable_noise:
+                # The gradients must be first be decrypted using the noise
+                # secret key.
+                flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
+                # Unpack the noise after decryption.
+                grads = self.unflatten_and_unpad_grad(
+                    flat_grads,
+                    grad_shapes,
+                    flattened_grad_shapes,
+                    total_grad_size,
+                )
+
+            if not self.disable_masking and not self.disable_encryption:
                 # SHELL represents floats as integers between [0, t) where t is the
                 # plaintext modulus. To mimic the modulo operation without SHELL,
                 # numbers which exceed the range [-t/2, t/2) are shifted back into
@@ -232,7 +259,7 @@ class DpSgdSequential(SequentialBase):
                 unpacked_mask = [
                     rebalance(m, s) for m, s in zip(unpacked_mask, mask_scaling_factors)
                 ]
-                grads = [mg - m for mg, m in zip(masked_grads, unpacked_mask)]
+                grads = [mg - m for mg, m in zip(grads, unpacked_mask)]
                 grads = [rebalance(g, s) for g, s in zip(grads, mask_scaling_factors)]
 
             if not self.disable_encryption and self.check_overflow:
@@ -251,23 +278,8 @@ class DpSgdSequential(SequentialBase):
                     lambda: tf.identity(overflowed),
                 )
 
-            # TODO: set stddev based on clipping threshold.
-            if self.disable_noise:
-                noised_grads = grads
-            else:
-                noise = [
-                    tf.random.normal(
-                        tf.shape(g),
-                        stddev=max_two_norm * self.noise_multiplier,
-                        dtype=float,
-                    )
-                    # tf.zeros(tf.shape(g))
-                    for g in grads
-                ]
-                noised_grads = [g + n for g, n in zip(grads, noise)]
-
             # Apply the gradients to the model.
-            self.optimizer.apply_gradients(zip(noised_grads, self.weights))
+            self.optimizer.apply_gradients(zip(grads, self.weights))
 
         # Do not update metrics during secure training.
         if self.disable_encryption:
@@ -281,7 +293,7 @@ class DpSgdSequential(SequentialBase):
 
             metric_results = {m.name: m.result() for m in self.metrics}
         else:
-            metric_results = {"num_slots": shell_context.num_slots}
+            metric_results = {"num_slots": backprop_context.num_slots}
 
         return metric_results
 

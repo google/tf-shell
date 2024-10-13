@@ -182,9 +182,10 @@ StatusOr<bool> DecryptUsesSameContext(utils::MutableNodeView const* node_view,
   }
   trace = trace->GetRegularFanin(0).node_view();
 
-  // The next op should be a tensor list gather. This is how the context was
-  // created.
-  if (trace->GetOp() != "TensorListGather") {
+  // The next op could be a tensor list gather (if the context was created on
+  // a local device) or a ParseTensor (if the context is read from a cache).
+  if (trace->GetOp() != "TensorListGather" && trace->GetOp() != "ParseTensor") {
+    std::cout << "Trace: " << trace->node()->DebugString() << std::endl;
     return errors::InvalidArgument(
         "Traceback to context expected the second op to be a tensor list "
         "gather, but found ",

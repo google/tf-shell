@@ -71,7 +71,7 @@ class TestDistribModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :380], x_test[:, :380]
+        x_train, x_test = x_train[:, :350], x_test[:, :350]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
         train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(2**12)
@@ -100,6 +100,12 @@ class TestDistribModel(tf.test.TestCase):
                 log2_cleartext_sz=14,
                 scaling_factor=8,
                 noise_offset_log2=12,
+                cache_path=context_cache_path,
+            ),
+            lambda: tf_shell.create_autocontext64(
+                log2_cleartext_sz=14,
+                scaling_factor=8,
+                noise_offset_log2=0,
                 cache_path=context_cache_path,
             ),
             labels_party_dev=labels_party_dev,
