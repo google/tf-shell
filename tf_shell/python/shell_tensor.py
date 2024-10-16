@@ -480,18 +480,23 @@ def _match_moduli_and_scaling(x, y):
         while x._num_mod_reductions > y._num_mod_reductions:
             y = mod_reduce_tensor64(y)
 
-        # First make sure the scaling factors are compatible.
-        frac = x._scaling_factor / y._scaling_factor
-        if abs(frac - int(frac)) != 0:
-            raise ValueError(
-                f"Scaling factors must be compatible. Got {x._scaling_factor} and {y._scaling_factor}"
-            )
+        # Make sure the scaling factors are compatible. This should always be
+        # true unless the user is mixing contexts with different scaling
+        # factors.
+        xsf = x._scaling_factor
+        ysf = y._scaling_factor
+        while xsf < ysf:
+            xsf *= x._context.scaling_factor
+        while ysf < xsf:
+            ysf *= y._context.scaling_factor
+        if xsf != ysf:
+            raise ValueError(f"Scaling factors must be compatible. Got {xsf} and {ysf}")
 
         # Match the scaling factors.
-        while x._scaling_factor > y._scaling_factor:
-            y = y.__mul__(y._scaling_factor)
-        while x._scaling_factor < y._scaling_factor:
-            x = x.__mul__(x._scaling_factor)
+        if xsf > x._scaling_factor:
+            x = x.__mul__(xsf / (x._scaling_factor**2))
+        if ysf > y._scaling_factor:
+            y = y.__mul__(ysf / (y._scaling_factor**2))
 
     return x, y
 
@@ -1092,3 +1097,272 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
         return tf.math.unsorted_segment_sum(x, segments, num_segments)
     else:
         raise ValueError("Unsupported type for segment_sum")
+
+
+def _conv2d(x, filt, strides, padding, dilations, func):
+    if not x._is_enc and not filt._is_enc:
+        raise ValueError("At least one input must be encrypted ShellTensor64.")
+
+    if x._is_fast_rotated or filt._is_fast_rotated:
+        raise ValueError(
+            "A ShellTensor which has been fast-rotated or fast-reduced-summed cannot be an input to conv2d."
+        )
+
+    matched_x, matched_filt = _match_moduli_and_scaling(x, filt)
+
+    return ShellTensor64(
+        _raw_tensor=func(
+            matched_x._context._get_context_at_level(matched_x._level),
+            matched_x._raw_tensor,
+            matched_filt._raw_tensor,
+            strides,
+            padding,
+            dilations,
+            filter_num_elements=matched_filt._raw_tensor.shape.num_elements(),
+        ),
+        _context=matched_x._context,
+        _level=matched_x._level,
+        _num_mod_reductions=matched_x._num_mod_reductions,
+        _underlying_dtype=matched_x._underlying_dtype,
+        _scaling_factor=matched_x._scaling_factor**2,
+        _is_enc=True,
+        _is_fast_rotated=False,
+    )
+
+
+def conv2d(
+    x,
+    filt,
+    strides=[1, 1, 1, 1],
+    padding=[0, 0, 0, 0],
+    dilations=[1, 1, 1, 1],
+    with_channel=False,
+):
+    """Convolution (technically cross-correlation) of x with filt.
+
+    This operation is different from TensorFlow's conv2d in that it deconvolves
+    a batch of filters, not a single filter.
+
+    x and filt can be ShellTensors or TensorFlow tensors. If both are TensorFlow
+    tensors, the output is a TensorFLow tensor which mimics the behavior of the
+    tf-shell operation.
+
+    Important note: Tensorflow (and this function) flip the order of the filter
+    argument between conv2d and conv2d_transpose. conv2d expects the filter to
+    be of shape [filter_height, filter_width, in_channels, out_channels].
+
+    x is expected to be of shape:
+    [batch, in_height, in_width, in_channels].
+
+    The order of strides padding, and dilations is top, bottom, left, right.
+    """
+
+    # Plaintext implementation of tf-shell's conv2d using tensorflow ops.
+    if not isinstance(x, ShellTensor64) and not isinstance(filt, ShellTensor64):
+        # When the number of channels in x and filt are the same, perform
+        # element-wise convolution for each x and filt pair in the batch.
+        if not with_channel:
+            tf_padding = [
+                [0, 0],
+                [padding[0], padding[1]],  # top, bottom
+                [padding[2], padding[3]],  # left, right
+                [0, 0],
+            ]
+
+            def single_conv(tupl):
+                x, kernel = tupl
+                x = tf.expand_dims(x, 0)  # TODO needed?
+                return tf.nn.conv2d(
+                    x, kernel, strides=strides, padding=tf_padding, dilations=dilations
+                )
+
+            res = tf.map_fn(single_conv, (x, filt), fn_output_signature=x.dtype)
+            res = tf.squeeze(res, axis=1)
+        else:
+            # When the number of channels in x and filt are different, mimic
+            # tf-shell's behavior and slide over the channels dimension.
+            if padding == [0] * 4:
+                padding_str = "VALID"
+            elif padding == [filt.shape[1] // 2] * 4:
+                padding_str = "SAME"
+            else:
+                raise ValueError(
+                    "Padding is not supported for plaintext conv2d when the number of channels in x and filt are different."
+                )
+
+            # TensorFlow expects dilations in the old channel dimension.
+            exp_dilations = dilations + [1]
+            exp_dilations[-2] = exp_dilations[-3]
+
+            def single_conv(tupl):
+                x, kernel = tupl
+                x = tf.expand_dims(x, 0)  # Fake batch size.
+                return tf.nn.conv3d(
+                    x,
+                    kernel,
+                    strides=strides + [1],
+                    padding=padding_str,
+                    dilations=exp_dilations,
+                )
+
+            # Use a 3d convolution with dummy channel dimension.
+            x_exp = tf.expand_dims(x, -1)
+            filt_exp = tf.expand_dims(filt, -2)
+            res = tf.map_fn(single_conv, (x_exp, filt_exp), fn_output_signature=x.dtype)
+            res = tf.squeeze(res, axis=1)  # Remove fake batch size.
+
+        return res
+
+    if not isinstance(x, ShellTensor64):
+        x = to_shell_plaintext(x, filt._context)
+    if not isinstance(filt, ShellTensor64):
+        filt = to_shell_plaintext(filt, x._context)
+
+    if not with_channel:
+        # If the number of channels is equal, use the version of the op which
+        # assumes x and filt have the same number of channels. This is the same
+        # way TensorFlow's conv2d works.
+        if x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_ct_ct64
+        elif x._is_enc and not filt._is_enc:
+            func = shell_ops.conv2d_ct_pt64
+        elif not x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_pt_ct64
+    else:
+        # If the number of channels is different, use the version of the op
+        # which slides over the channels dimension. This is unique to tf-shell.
+        # TODO: When tf-shell has a squeeze op, all cases can use the
+        # "with chan" version of the op and squeeze the channel dimension out
+        # of the result.
+        if x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_with_chan_ct_ct64
+        elif x._is_enc and not filt._is_enc:
+            func = shell_ops.conv2d_with_chan_ct_pt64
+        elif not x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_with_chan_pt_ct64
+
+    return _conv2d(x, filt, strides, padding, dilations, func)
+
+
+def conv2d_transpose(
+    x, filt, strides=[1, 1, 1, 1], padding=[0, 0, 0, 0], with_channel=False
+):
+    """Deconvolution (or gradient of conv2d) of x with filt.
+
+    This operation is different from TensorFlow's conv2d in that it
+    deconvolves a batch of filters, not a single filter.
+
+    x and filt can be ShellTensors or TensorFlow tensors. If both are TensorFlow
+    tensors, the output is a TensorFLow tensor which mimics the behavior of the
+    tf-shell operation.
+
+    Important note: Tensorflow (and this function) flip the order of the filter
+    argument between conv2d and conv2d_transpose. conv2d_transpose expects the
+    filter to be of shape:
+    [filter_height, filter_width, out_channels, in_channels].
+
+    x is expected to be of shape:
+    [batch, in_height, in_width, in_channels].
+
+    The order of strides and padding is top, bottom, left, right.
+    """
+
+    # Plaintext implementation of tf-shell's conv2d using tensorflow ops.
+    if not isinstance(x, ShellTensor64) and not isinstance(filt, ShellTensor64):
+        # When the number of channels in x and filt are the same, perform
+        # element-wise convolution for each x and filt pair in the batch.
+        if not with_channel:
+            tf_padding = [
+                [0, 0],
+                [padding[0], padding[1]],  # top, bottom
+                [padding[2], padding[3]],  # left, right
+                [0, 0],
+            ]
+            output_shape = [
+                1,  # Fake batch size.
+                ((x.shape[1] - 1) * strides[1])
+                + filt.shape[1]
+                - padding[0]
+                - padding[1],
+                ((x.shape[2] - 1) * strides[2])
+                + filt.shape[2]
+                - padding[2]
+                - padding[3],
+                filt.shape[3],  # Output channel dim.
+            ]
+
+            def single_conv(tupl):
+                x, kernel = tupl
+                x = tf.expand_dims(x, 0)  # Fake batch dimension.
+                return tf.nn.conv2d_transpose(
+                    x, kernel, output_shape, strides=strides, padding=tf_padding
+                )
+
+            res = tf.map_fn(single_conv, (x, filt), fn_output_signature=x.dtype)
+            res = tf.squeeze(res, axis=1)  # Remove fake batch size.
+        else:
+            # When the number of channels in x and filt are different, mimic
+            # tf-shell's behavior and slide over the channels dimension.
+            if padding != [0, 0, 0, 0]:
+                raise ValueError(
+                    "Padding is not supported for plaintext conv2d_transpose when the number of channels in x and filt are different."
+                )
+            output_shape = [
+                1,  # Fake batch size.
+                ((x.shape[1] - 1) * strides[1])
+                + filt.shape[1]
+                - padding[0]
+                - padding[1],
+                ((x.shape[2] - 1) * strides[2])
+                + filt.shape[2]
+                - padding[2]
+                - padding[3],
+                ((filt.shape[3] - 1) * strides[3]) + filt.shape[3],  # Conv channel dim.
+                filt.shape[4],  # Output channel dim.
+            ]
+            print("output_shape", output_shape, flush=True)
+
+            def single_conv(tupl):
+                x, kernel = tupl
+                x = tf.expand_dims(x, 0)  # Fake batch size.
+                return tf.nn.conv3d_transpose(
+                    x, kernel, output_shape, strides=strides + [1], padding="VALID"
+                )
+
+            # Use a 3d convolution with dummy channel dimension.
+            x_exp = tf.expand_dims(x, -1)
+            filt_exp = tf.expand_dims(filt, -2)
+            res = tf.map_fn(single_conv, (x_exp, filt_exp), fn_output_signature=x.dtype)
+            res = tf.squeeze(res, axis=1)  # Remove fake batch size.
+
+        return res
+
+    if not isinstance(x, ShellTensor64):
+        x = to_shell_plaintext(x, filt._context)
+    if not isinstance(filt, ShellTensor64):
+        filt = to_shell_plaintext(filt, x._context)
+
+    if not with_channel:
+        # If the number of channels is equal, use the version of the op which
+        # assumes x and filt have the same number of channels. This is the same
+        # way TensorFlow's conv2d works.
+        if x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_transpose_ct_ct64
+        elif x._is_enc and not filt._is_enc:
+            func = shell_ops.conv2d_transpose_ct_pt64
+        elif not x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_transpose_pt_ct64
+    else:
+        # If the number of channels is different, use the version of the op
+        # which slides over the channels dimension. This is unique to tf-shell.
+        # TODO: When tf-shell has a squeeze op, all cases can use the
+        # "with chan" version of the op and squeeze the channel dimension out
+        # of the result.
+        if x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_transpose_with_chan_ct_ct64
+        elif x._is_enc and not filt._is_enc:
+            func = shell_ops.conv2d_transpose_with_chan_ct_pt64
+        elif not x._is_enc and filt._is_enc:
+            func = shell_ops.conv2d_transpose_with_chan_pt_ct64
+
+    return _conv2d(x, filt, strides, padding, [1, 1, 1, 1], func)

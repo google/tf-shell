@@ -19,6 +19,8 @@ from tf_shell_ml.activation import relu, relu_deriv, sigmoid, sigmoid_deriv
 from tf_shell_ml.dense import ShellDense
 from tf_shell_ml.dropout import ShellDropout
 from tf_shell_ml.embedding import ShellEmbedding
+from tf_shell_ml.conv2d import Conv2D
+from tf_shell_ml.flatten import Flatten
 from tf_shell_ml.loss import CategoricalCrossentropy
 from tf_shell_ml.loss import BinaryCrossentropy
 from tf_shell_ml.globalaveragepool1d import GlobalAveragePooling1D

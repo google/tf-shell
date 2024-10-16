@@ -51,6 +51,13 @@ constexpr char kReduceSum[] = "ReduceSumCt64";
 
 constexpr char kUnsortedCtSegmentSum[] = "UnsortedCtSegmentSum";
 
+constexpr char kConv2dPtCt64[] = "Conv2dPtCt64";
+constexpr char kConv2dCtPt64[] = "Conv2dCtPt64";
+constexpr char kConv2dCtCt64[] = "Conv2dCtCt64";
+constexpr char Conv2dWithChanPtCt64[] = "Conv2dWithChanPtCt64";
+constexpr char Conv2dWithChanCtPt64[] = "Conv2dWithChanCtPt64";
+constexpr char Conv2dWithChanCtCt64[] = "Conv2dWithChanCtCt64";
+
 // TensorFlow names
 constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
 constexpr char kBroadcastToShape[] = "BroadcastToShape";  // TODO check name
@@ -97,6 +104,11 @@ bool IsFastReduceSumByRotation(NodeDef const& node);
 bool IsReduceSum(NodeDef const& node);
 
 bool IsUnsortedCtSegmentSum(NodeDef const& node);
+
+bool IsPtCtConv2d(NodeDef const& node);
+bool IsCtPtConv2d(NodeDef const& node);
+bool IsCtCtConv2d(NodeDef const& node);
+bool IsConv2d(NodeDef const& node);
 
 bool IsExpandDimsVariant(NodeDef const& node);
 bool IsBroadcastToShape(NodeDef const& node);

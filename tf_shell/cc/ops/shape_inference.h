@@ -50,3 +50,11 @@ Status ShellMatMulCtPtShape(InferenceContext* c);
 Status ShellMatMulPtCtShape(InferenceContext* c);
 
 Status ShellSegmentReductionWithNumSegmentsShape(InferenceContext* c);
+
+Status ShellConv2d(InferenceContext* c);
+
+Status ShellConv2dWithChan(InferenceContext* c);
+
+Status ShellConv2dTranspose(InferenceContext* c);
+
+Status ShellConv2dTransposeWithChan(InferenceContext* c);

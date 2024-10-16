@@ -19,14 +19,15 @@ from tensorflow.python.keras import initializers
 import tf_shell
 
 
-# For details see https://medium.com/latinxinai/convolutional-neural-network-from-scratch-6b1c856e1c07
+# For details see https://pavisj.medium.com/convolutions-and-backpropagations-46026a8f5d2c
+# and https://www.jefkine.com/general/2016/09/05/backpropagation-in-convolutional-neural-networks
 class Conv2D(keras.layers.Layer):
     def __init__(
         self,
-        units,
-        in_channels,
-        out_channels,
+        filters,
+        kernel_size,
         strides=1,
+        padding="VALID",
         activation=None,
         activation_deriv=None,
         kernel_initializer="glorot_uniform",
@@ -35,10 +36,24 @@ class Conv2D(keras.layers.Layer):
         use_fast_reduce_sum=False,
     ):
         super().__init__()
-        self.units = int(units)
-        self.in_channels = int(in_channels)
-        self.out_channels = int(out_channels)
+        self.filters = int(filters)
+        self.kernel_size = int(kernel_size)
         self.strides = [1, int(strides), int(strides), 1]
+        if padding.upper() == "SAME":
+            self.padding = [(self.kernel_size - 1) // 2] * 4
+            self.tf_padding = [
+                [0, 0],
+                [self.padding[0], self.padding[1]],  # top, bottom
+                [self.padding[2], self.padding[3]],  # left, right
+                [0, 0],
+            ]
+        elif padding.upper() == "VALID":
+            self.padding = [0, 0, 0, 0]
+            self.tf_padding = [[0, 0], [0, 0], [0, 0], [0, 0]]
+        else:
+            raise ValueError(
+                f"Invalid padding type: {padding} (must be 'SAME' or 'VALID')"
+            )
         self.activation = activation
         self.activation_deriv = activation_deriv
 
@@ -58,20 +73,24 @@ class Conv2D(keras.layers.Layer):
         return config
 
     def build(self, input_shape):
-        self.units_in = int(input_shape[1])
-        self.kernel = self.add_weight(
-            shape=[self.units, self.units, self.in_channels, self.out_channels],
+        self.in_channels = int(input_shape[-1])
+        self.add_weight(
+            shape=[self.kernel_size, self.kernel_size, self.in_channels, self.filters],
             initializer=self.kernel_initializer,
             trainable=True,
             name="kernel",
         )
 
     def call(self, inputs, training=False):
+        """Inputs are expected to be in NHWC format, i.e.
+        [batch, height, width, channels]
+        """
+        kernel = self.weights[0]
         if training:
             self._layer_input = inputs
 
         outputs = tf.nn.conv2d(
-            inputs, self.kernel, strides=self.strides, padding="SAME"
+            inputs, kernel, strides=self.strides, padding=self.tf_padding
         )
 
         if training:
@@ -83,20 +102,20 @@ class Conv2D(keras.layers.Layer):
         return outputs
 
     def backward(self, dy, rotation_key):
-        """dense backward"""
+        """Compute the gradient."""
         x = self._layer_input
         z = self._layer_intermediate
-        y = self._layer_output
         kernel = self.weights[0]
         grad_weights = []
         batch_size = tf.shape(x)[0] // 2
 
-        # On the forward pass, inputs may be batched differently than the
+        # On the forward pass, x may be batched differently than the
         # ciphertext scheme. Pad them to match the ciphertext scheme.
-        padding = [[0, dy._context.num_slots - x.shape[0]]] + [
-            [0, 0] for _ in range(len(x.shape) - 1)
-        ]
-        x = tf.pad(x, padding)
+        if isinstance(dy, tf_shell.ShellTensor64):
+            padding = [[0, dy._context.num_slots - x.shape[0]]] + [
+                [0, 0] for _ in range(len(x.shape) - 1)
+            ]
+            x = tf.pad(x, padding)
 
         if self.activation_deriv is not None:
             dy = self.activation_deriv(z, dy)
@@ -104,24 +123,29 @@ class Conv2D(keras.layers.Layer):
         if self.is_first_layer:
             d_x = None  # no gradient needed for first layer
         else:
-            # Perform the multiplication for dy/dx.
-            kernel_t = tf.transpose(kernel)
-            d_x = tf_shell.matmul(dy, kernel_t)
+            exp_kernel = tf.expand_dims(kernel, axis=0)
+            exp_kernel = tf.repeat(exp_kernel, batch_size * 2, axis=0)
+            d_x = tf_shell.conv2d_transpose(dy, exp_kernel, self.strides, self.padding)
 
-        # Perform the multiplication for dy/dw.
+        # Swap strides and dilations for the backward pass.
+        dy_exp = tf_shell.expand_dims(dy, axis=3)
+        d_w = tf_shell.conv2d(
+            x, dy_exp, [1, 1, 1, 1], self.padding, self.strides, with_channel=True
+        )
+
         if self.use_fast_reduce_sum:
-            d_weights = tf_shell.matmul(tf.transpose(x), dy, fast=True)
+            d_w = tf_shell.fast_reduce_sum(d_w)
         else:
-            d_weights = tf_shell.matmul(tf.transpose(x), dy, rotation_key)
+            d_w = tf_shell.reduce_sum(d_w, 0, rotation_key)
 
-        grad_weights.append(d_weights)
+        grad_weights.append(d_w)
 
         return grad_weights, d_x
 
     @staticmethod
     def unpack(plaintext_packed_dx):
         batch_size = tf.shape(plaintext_packed_dx)[0] // 2
-        return [plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]]
+        return plaintext_packed_dx[0] + plaintext_packed_dx[batch_size]
 
     def unpacking_funcs(self):
         return [Conv2D.unpack]

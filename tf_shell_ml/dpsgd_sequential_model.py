@@ -87,20 +87,25 @@ class DpSgdSequential(SequentialBase):
             if hasattr(l, "unpacking_funcs"):
                 self.unpacking_funcs.extend(l.unpacking_funcs())
 
-    def compute_max_two_norm_and_pred(self, features):
+    def compute_max_two_norm_and_pred(self, features, skip_two_norm):
         with tf.GradientTape(persistent=tf.executing_eagerly()) as tape:
             y_pred = self(features, training=True)  # forward pass
-        grads = tape.jacobian(
-            y_pred,
-            self.trainable_variables,
-            parallel_iterations=1,
-            experimental_use_pfor=False,
-        )
-        # ^  layers list x (batch size x num output classes x weights) matrix
 
-        all_grads, _, _, _ = self.flatten_jacobian_list(grads)
-        max_two_norm = self.flat_jacobian_two_norm(all_grads)
-        return max_two_norm, y_pred
+        if not skip_two_norm:
+            grads = tape.jacobian(
+                y_pred,
+                self.trainable_variables,
+                parallel_iterations=1,
+                experimental_use_pfor=False,
+            )
+            # ^  layers list x (batch size x num output classes x weights) matrix
+
+            all_grads, _, _, _ = self.flatten_jacobian_list(grads)
+            max_two_norm = self.flat_jacobian_two_norm(all_grads)
+        else:
+            max_two_norm = None
+
+        return y_pred, max_two_norm
 
     def train_step(self, data):
         x, y = data
@@ -127,7 +132,9 @@ class DpSgdSequential(SequentialBase):
 
         with tf.device(self.features_party_dev):
             # Forward pass in plaintext.
-            max_two_norm, y_pred = self.compute_max_two_norm_and_pred(x)
+            y_pred, max_two_norm = self.compute_max_two_norm_and_pred(
+                x, self.disable_noise
+            )
 
             # Backward pass.
             dx = self.loss_fn.grad(enc_y, y_pred)

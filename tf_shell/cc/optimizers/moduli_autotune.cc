@@ -251,6 +251,14 @@ StatusOr<int> GetMulDepth(utils::MutableGraphView& graph_view,
       node_mul_depth[i] = node_mul_depth[fanin_a_index];
     }
 
+    else if (IsConv2d(*this_node_def)) {
+      int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
+      int const fanin_b_index = this_node_view->GetRegularFanin(2).node_index();
+      node_mul_depth[i] = std::max(node_mul_depth[fanin_a_index],
+                                   node_mul_depth[fanin_b_index]) +
+                          1;
+    }
+
     else if (IsExpandDimsVariant(*this_node_def)) {
       int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
       node_mul_depth[i] = node_mul_depth[fanin_a_index];
@@ -643,11 +651,34 @@ Status EstimateNodeNoise(
     uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
         kNumComponents, kLogGadgetBase, gadget_dimension));
     rot_noise += BitWidth(params.log_n);  // There are at most log_n rotations.
-    // The number of additions required is data dependent, so it cannot be
-    // accounted for during graph optimization here. Instead add a margin of
-    // 8 bits to support a small number of additions. For more, the user may use
-    // the noise offset parameter.
+    std::cout << "WARNING: ciphertext noise introduced by UnsortedCtSegmentSum "
+                 "is data dependent and cannot be estimated. Use the noise "
+                 "offset parameter to budget accordingly."
+              << std::endl;
     *this_noise = std::max(noise_a, rot_noise) + 1 + 8;
+  }
+
+  // Conv2d operations. Convolution requires one multiplication and n - 1
+  // additions, where n is the number of elements in the filter.
+  else if (IsConv2d(*node_def)) {
+    // Convolution performs one multiplication.
+    if (IsCtPtConv2d(*node_def)) {
+      *this_noise = noise_a + BitWidth(error_params.B_plaintext());
+    } else if (IsPtCtConv2d(*node_def)) {
+      *this_noise = BitWidth(error_params.B_plaintext()) + noise_b;
+    } else if (IsCtCtConv2d(*node_def)) {
+      *this_noise = noise_a + noise_b;
+    }
+    // Convolution performs n - 1 additions where n is the number of elements
+    // in the filter.
+    int32 filter_elems = 0;
+    if (!TryGetNodeAttr(*node_def, "filter_num_elements", &filter_elems)) {
+      std::cout << "WARNING: Could not determine filter num_elements when "
+                   "estimating noise. Noise budget may be under-provisioned."
+                << std::endl;
+    } else {
+      *this_noise += filter_elems - 1;
+    }
   }
 
   else if (IsDecrypt(*node_def)) {

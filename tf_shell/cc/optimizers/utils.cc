@@ -65,6 +65,19 @@ bool IsUnsortedCtSegmentSum(NodeDef const& node) {
   return node.op() == kUnsortedCtSegmentSum;
 }
 
+bool IsPtCtConv2d(NodeDef const& node) {
+  return node.op() == kConv2dPtCt64 || node.op() == Conv2dWithChanPtCt64;
+}
+bool IsCtPtConv2d(NodeDef const& node) {
+  return node.op() == kConv2dCtPt64 || node.op() == Conv2dWithChanCtPt64;
+}
+bool IsCtCtConv2d(NodeDef const& node) {
+  return node.op() == kConv2dCtCt64 || node.op() == Conv2dWithChanCtCt64;
+}
+bool IsConv2d(NodeDef const& node) {
+  return IsPtCtConv2d(node) || IsCtPtConv2d(node) || IsCtCtConv2d(node);
+}
+
 bool IsExpandDimsVariant(NodeDef const& node) {
   return node.op() == kExpandDimsVariant;
 }

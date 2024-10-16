@@ -447,6 +447,139 @@ REGISTER_OP("UnsortedCtSegmentSum")
     .Attr("Tnumsegments: {int32,int64} = DT_INT32")
     .SetShapeFn(ShellSegmentReductionWithNumSegmentsShape);
 
+// Convolutions.
+REGISTER_OP("Conv2dPtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2d);
+
+REGISTER_OP("Conv2dCtPt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2d);
+
+REGISTER_OP("Conv2dCtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2d);
+
+REGISTER_OP("Conv2dWithChanPtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dWithChan);
+
+REGISTER_OP("Conv2dWithChanCtPt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dWithChan);
+
+REGISTER_OP("Conv2dWithChanCtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dWithChan);
+
+REGISTER_OP("Conv2dTransposePtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dTranspose);
+
+REGISTER_OP("Conv2dTransposeCtPt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dTranspose);
+
+REGISTER_OP("Conv2dTransposeCtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dTranspose);
+
+REGISTER_OP("Conv2dTransposeWithChanPtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dTransposeWithChan);
+
+REGISTER_OP("Conv2dTransposeWithChanCtPt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dTransposeWithChan);
+
+REGISTER_OP("Conv2dTransposeWithChanCtCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("filter: variant")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("dilations: list(int)")
+    .Attr("filter_num_elements: int")
+    .Output("output: variant")
+    .SetShapeFn(ShellConv2dTransposeWithChan);
+
 // MPC-based kernels.
 REGISTER_OP("ClipAndNoiseFeaturesParty")
     .Attr("Dtype: {int32, int64}")

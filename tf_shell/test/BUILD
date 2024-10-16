@@ -152,6 +152,19 @@ py_test(
 )
 
 py_test(
+    name = "conv2d_test",
+    size = "medium",
+    srcs = [
+        "conv2d_test.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
     name = "ct_pt_optimizer_test",
     size = "medium",
     srcs = [
