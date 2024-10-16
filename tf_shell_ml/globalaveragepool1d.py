@@ -42,7 +42,7 @@ class GlobalAveragePooling1D(keras.layers.Layer):
         )
         return config
 
-    def backward(self, dy):
+    def backward(self, dy, _):
         dx = tf_shell.expand_dims(dy, axis=1)
         dx = tf_shell.broadcast_to(
             dx, (dx.shape[0], self._layer_intermediate, dx.shape[2])
