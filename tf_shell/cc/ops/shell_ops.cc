@@ -580,6 +580,19 @@ REGISTER_OP("Conv2dTransposeWithChanCtCt64")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dTransposeWithChan);
 
+REGISTER_OP("MaxUnpool2dCt64")
+    .Input("shell_context: variant")
+    .Input("x: variant")
+    .Input("argmax: int64")
+    .Attr("pool_size: list(int)")
+    .Attr("strides: list(int)")
+    .Attr("padding: list(int)")
+    .Attr("output_shape: list(int)")
+    .Output("output: variant")
+    .SetShapeFn([](InferenceContext* c) {
+      return ShapeFromAttr(c, "output_shape", 0, true);
+    });
+
 // MPC-based kernels.
 REGISTER_OP("ClipAndNoiseFeaturesParty")
     .Attr("Dtype: {int32, int64}")

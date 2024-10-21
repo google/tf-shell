@@ -361,3 +361,21 @@ Status ShellConv2dTranspose(InferenceContext* c) {
 Status ShellConv2dTransposeWithChan(InferenceContext* c) {
   return ShellConv2dTransposeImpl(c, true);
 }
+
+Status ShapeFromAttr(InferenceContext* c, char const* attr_name, int output_idx,
+                     bool skip_batching_dim) {
+  std::vector<tsl::int32> shape;
+  TF_RETURN_IF_ERROR(c->GetAttr(attr_name, &shape));
+
+  int shape_starts_at = skip_batching_dim ? 1 : 0;
+
+  ShapeHandle output_shape = c->Vector(c->MakeDim(shape[shape_starts_at]));
+  for (uint i = shape_starts_at + 1; i < shape.size(); i++) {
+    auto const& dim = shape[i];
+    TF_RETURN_IF_ERROR(c->Concatenate(output_shape, c->Vector(c->MakeDim(dim)),
+                                      &output_shape));
+  }
+
+  c->set_output(output_idx, output_shape);
+  return OkStatus();
+}

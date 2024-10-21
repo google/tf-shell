@@ -609,6 +609,237 @@ class Conv2dTransposeOp : public OpKernel {
   }
 };
 
+// This Op can multiply either a shell ciphertext or a plaintext polynomial by
+// a plaintext scalar, depending on the class template.
+template <typename T>
+class MaxUnpool2dCtOp : public OpKernel {
+ private:
+  using ModularInt = rlwe::MontgomeryInt<T>;
+  using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
+  using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
+  using Context = rlwe::RnsContext<ModularInt>;
+  using ErrorParams = rlwe::RnsErrorParams<ModularInt>;
+  using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
+
+  std::vector<tsl::int32> pool_size;
+  std::vector<tsl::int32> stride;
+  std::vector<tsl::int32> padding;
+  std::vector<tsl::int32> output_shape;
+
+ public:
+  explicit MaxUnpool2dCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
+    // Get the pool size and strides attributes.
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("pool_size", &pool_size));
+    OP_REQUIRES(op_ctx, pool_size.size() == 2,
+                InvalidArgument("pool_size must have 2 elements."));
+
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("strides", &stride));
+    OP_REQUIRES(op_ctx, stride.size() == 2,
+                InvalidArgument("strides must have 2 elements."));
+
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("padding", &padding));
+    OP_REQUIRES(op_ctx, padding.size() == 4,
+                InvalidArgument("Padding must have 4 elements."));
+
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("output_shape", &output_shape));
+    OP_REQUIRES(op_ctx, output_shape.size() == 4,
+                InvalidArgument("output_shape must have 4 elements."));
+  }
+
+  void Compute(OpKernelContext* op_ctx) override {
+    // Get the input tensors.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
+    int64_t const num_slots = ((int64_t)1) << shell_ctx_var->log_n_;
+    Encoder const* encoder = shell_ctx_var->encoder_.get();
+    Context const* shell_ctx = shell_ctx_var->ct_context_.get();
+
+    Tensor const& x = op_ctx->input(1);
+    Tensor const& argmax = op_ctx->input(2);
+
+    // x has shape [batch size (implicit), height, width, in_channels]
+    OP_REQUIRES(op_ctx, x.dims() == 3,
+                InvalidArgument("Input x must have 3 dimensions."));
+    int64_t const height = x.dim_size(0);
+    int64_t const width = x.dim_size(1);
+    int64_t const channels = x.dim_size(2);
+    auto shaped_x = x.shaped<Variant, 3>({height, width, channels});
+
+    int64_t const pool_height = pool_size[0];
+    int64_t const pool_width = pool_size[1];
+
+    // Stride is a tensor of shape [2].
+    int64_t const stride_height = stride[0];
+    int64_t const stride_width = stride[1];
+    OP_REQUIRES(op_ctx, stride_height > 0 && stride_width > 0,
+                InvalidArgument("Strides must be positive."));
+    OP_REQUIRES(
+        op_ctx, stride_height <= pool_height,
+        InvalidArgument("Stride height must be less or equal to pool height."));
+    OP_REQUIRES(op_ctx, stride_width <= pool_width,
+                InvalidArgument(
+                    "Stride width must be less than or equal to pool width."));
+
+    // Padding is a tensor of shape [4].
+    int64_t const padding_top = padding[0];
+    int64_t const padding_bottom = padding[1];
+    int64_t const padding_left = padding[2];
+    int64_t const padding_right = padding[3];
+    OP_REQUIRES(op_ctx,
+                padding_top >= 0 && padding_bottom >= 0 && padding_left >= 0 &&
+                    padding_right >= 0,
+                InvalidArgument("Padding must be non-negative."));
+    OP_REQUIRES(op_ctx,
+                padding_top < pool_height && padding_bottom < pool_height,
+                InvalidArgument("Padding must be less than pool height."));
+
+    // Check argmax shape.
+    OP_REQUIRES(op_ctx, argmax.dims() == 4,
+                InvalidArgument("Input argmax must have 4 dimensions."));
+    int64_t const argmax_batch = argmax.dim_size(0);
+    int64_t const argmax_height = argmax.dim_size(1);
+    int64_t const argmax_width = argmax.dim_size(2);
+    int64_t const argmax_channels = argmax.dim_size(3);
+    OP_REQUIRES(
+        op_ctx, argmax_batch == num_slots,
+        InvalidArgument("Argmax batch size must match number of slots."));
+    auto shaped_argmax = argmax.shaped<int64_t, 4>(
+        {argmax_batch, argmax_height, argmax_width, argmax_channels});
+
+    // int64_t const out_batch = output_shape[0];
+    int64_t const out_height = output_shape[1];
+    int64_t const out_width = output_shape[2];
+    int64_t const out_channels = output_shape[3];
+    OP_REQUIRES(op_ctx, channels == out_channels,
+                InvalidArgument("Input and output channels must match."));
+
+    // Allocate output with shape the same shape as the input.
+    TensorShape output_shape = {out_height, out_width, out_channels};
+    Tensor* output;
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
+    auto shaped_output =
+        output->shaped<Variant, 3>({out_height, out_width, out_channels});
+
+    // Perform the convolution by sliding over the input tensor. Parallelization
+    // is difficult because the same output indices may be written to by
+    // consecutive h and w loops.
+    for (int64_t h = 0; h < out_height; h += stride_height) {
+      for (int64_t w = 0; w < out_width; w += stride_width) {
+        for (int64_t c = 0; c < out_channels; c += 1) {
+          // For each patch starting position, multiply the pool patch by
+          // a selection vector.
+          std::vector<uint64_t> selection(num_slots);
+
+          // Iterate over patches of the input tensor of shape:
+          // [batch_sz (implicit), pool_height, pool_width, channel].
+          // Unpool the max value in each patch to the output tensor.
+          for (int64_t i = 0; i < pool_height; ++i) {
+            for (int64_t j = 0; j < pool_width; ++j) {
+              // Inner padding corresponds to an offset between the argmax
+              // index vs the output and selection indices.
+              int64_t const argmax_i = h / stride_height;
+              int64_t const argmax_j = w / stride_width;
+              int64_t const out_i = h - padding_top + i;
+              int64_t const out_j = w - padding_left + j;
+
+              // When the pool kernel runs off the edge of the input.
+              if (out_i < 0 || out_i >= out_height || out_j < 0 ||
+                  out_j >= out_width) {
+                continue;
+              }
+
+              // When the output shape is larger than the input, the selection
+              // indices will be out of bounds at the outer edges. These
+              // outputs must be zero but SHELL does not support creating zero
+              // valued ciphertexts. While SHELL has "CreateZero", subsequent
+              // operations e.g. AddInPlace fail because the ciphertext degree
+              // does not match the other argument. Therefore, we take the
+              // last valid ciphertext input and multiply by zero.
+              if (argmax_i < 0 || argmax_i >= argmax_height || argmax_j < 0 ||
+                  argmax_j >= argmax_width) {
+                if (!shaped_output(out_i, out_j, c).is_empty()) {
+                  continue;  // Already set.
+                }
+                // Get any valid input ciphertext.
+                SymmetricCtVariant<T> const* x_val =
+                    shaped_x(0, 0, 0).get<SymmetricCtVariant<T>>();
+
+                // Multiply by 0.
+                SymmetricCt mul = x_val->ct;
+                OP_REQUIRES_OK(op_ctx, mul.AbsorbInPlace(0));
+
+                SymmetricCtVariant<T> result_var(
+                    std::move(mul), x_val->ct_context, x_val->error_params);
+                shaped_output(out_i, out_j, c) = std::move(result_var);
+                continue;
+              }
+
+              // Create a selection vector which is 1 if argmax matches this
+              // index and 0 otherwise.
+              bool at_least_one_selection = false;
+              for (int64_t b = 0; b < num_slots; ++b) {
+                int64_t const output_index =
+                    ((out_i)*out_width + (out_j)) * channels + c;
+                bool match =
+                    shaped_argmax(b, argmax_i, argmax_j, c) == output_index;
+                // TensorFlow as a bug where argmax may exceed the size of the
+                // input tensor. This is a workaround.
+                // int64_t const argmax_val =
+                //     shaped_argmax(b, argmax_i, argmax_j, c);
+                // int64_t const tf_i = argmax_val / (out_width * channels);
+                // int64_t const tf_j = (argmax_val / channels) % out_width;
+                // int64_t const tf_c = argmax_val % channels;
+                // bool match = tf_i == out_i && tf_j == out_j;
+
+                selection[b] = match;
+                at_least_one_selection |= match;
+              }
+              auto cur_output =
+                  shaped_output(out_i, out_j, c).get<SymmetricCtVariant<T>>();
+              if (!at_least_one_selection && cur_output != nullptr) {
+                // Only skip if the selection vector is all zeros and the output
+                // is not already set. This prevents leaving empty outputs.
+                continue;
+              }
+
+              // Encode the selection as a polynomial.
+              OP_REQUIRES_VALUE(
+                  RnsPolynomial selection_poly, op_ctx,
+                  encoder->EncodeBgv(selection, shell_ctx->MainPrimeModuli()));
+
+              // Get the input ciphertext.
+              SymmetricCtVariant<T> const* x_val =
+                  shaped_x(argmax_i, argmax_j, c).get<SymmetricCtVariant<T>>();
+              OP_REQUIRES(op_ctx, x_val != nullptr,
+                          InvalidArgument("Ciphertext input x is null."));
+              OP_REQUIRES_OK(
+                  op_ctx,
+                  const_cast<SymmetricCtVariant<T>*>(x_val)->MaybeLazyDecode(
+                      shell_ctx_var->ct_context_,
+                      shell_ctx_var->error_params_));
+
+              // Multiply the input by the selection polynomial.
+              SymmetricCt mul = x_val->ct;
+              OP_REQUIRES_OK(op_ctx, mul.AbsorbInPlace(selection_poly));
+
+              if (cur_output == nullptr) {
+                // If the output at this position has not yet been set,
+                // create it.
+                SymmetricCtVariant<T> result_var(
+                    std::move(mul), x_val->ct_context, x_val->error_params);
+                shaped_output(out_i, out_j, c) = std::move(result_var);
+              } else {
+                // If the output is already set, add to it.
+                OP_REQUIRES_OK(op_ctx, cur_output->ct.AddInPlace(mul));
+              }
+            }
+          }  // End patch
+        }
+      }
+    }
+  }
+};
+
 REGISTER_KERNEL_BUILDER(Name("Conv2dPtCt64").Device(DEVICE_CPU),
                         Conv2dOp<uint64, PolynomialVariant<uint64>,
                                  SymmetricCtVariant<uint64_t>, false>);
@@ -659,3 +890,6 @@ REGISTER_KERNEL_BUILDER(
     Name("Conv2dTransposeWithChanCtCt64").Device(DEVICE_CPU),
     Conv2dTransposeOp<uint64, SymmetricCtVariant<uint64_t>,
                       SymmetricCtVariant<uint64_t>, true>);
+
+REGISTER_KERNEL_BUILDER(Name("MaxUnpool2dCt64").Device(DEVICE_CPU),
+                        MaxUnpool2dCtOp<uint64>);

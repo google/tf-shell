@@ -20,6 +20,7 @@ from tf_shell_ml.dense import ShellDense
 from tf_shell_ml.dropout import ShellDropout
 from tf_shell_ml.embedding import ShellEmbedding
 from tf_shell_ml.conv2d import Conv2D
+from tf_shell_ml.max_pool2d import MaxPool2D
 from tf_shell_ml.flatten import Flatten
 from tf_shell_ml.loss import CategoricalCrossentropy
 from tf_shell_ml.loss import BinaryCrossentropy

@@ -89,6 +89,7 @@ conv2d_transpose_ct_ct64 = shell_ops.conv2d_transpose_ct_ct64
 conv2d_transpose_with_chan_pt_ct64 = shell_ops.conv2d_transpose_with_chan_pt_ct64
 conv2d_transpose_with_chan_ct_pt64 = shell_ops.conv2d_transpose_with_chan_ct_pt64
 conv2d_transpose_with_chan_ct_ct64 = shell_ops.conv2d_transpose_with_chan_ct_ct64
+max_unpool2d_ct64 = shell_ops.max_unpool2d_ct64
 
 # MPC-based ops.
 clip_and_noise_features_party = shell_ops.clip_and_noise_features_party

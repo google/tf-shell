@@ -63,6 +63,16 @@ py_test(
 )
 
 py_test(
+    name = "max_pool2d_test",
+    size = "medium",
+    srcs = ["max_pool2d_test.py"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow-cpu"),
+    ],
+)
+
+py_test(
     name = "dpsgd_model_local_test",
     size = "enormous",
     srcs = ["dpsgd_model_local_test.py"],

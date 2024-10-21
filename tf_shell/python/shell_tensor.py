@@ -1366,3 +1366,102 @@ def conv2d_transpose(
             func = shell_ops.conv2d_transpose_with_chan_pt_ct64
 
     return _conv2d(x, filt, strides, padding, [1, 1, 1, 1], func)
+
+
+def max_unpool2d(
+    updates,
+    argmax,
+    pool_size=[1, 1],
+    strides=[1, 1, 1, 1],
+    padding="VALID",
+    output_shape=None,
+):
+    """Max pool 2d transpose of updates with argmax. This computes the gradient of
+    tf.nn.max_pool_with_argmax.
+
+    updates is expected to be of shape:
+    [batch, in_height, in_width, in_channels].
+
+    argmax is expected to be of shape:
+    [batch * out_height * out_width * in_channels].
+
+    The output is of shape:
+    [batch, out_height, out_width, in_channels].
+    """
+    if isinstance(updates, tf.Tensor):
+        # TensorFlow does not have an unpool op. This implementation is borrowed
+        # from tensorflow_addons max_unpooling_2d.
+        #
+        # This function currently does not support outputs of MaxPoolingWithArgMax in following cases:
+        # - include_batch_in_index equals true.
+        # - The max pooling operation results in duplicate values in updates and mask.
+        #
+        # Unpool the outputs of a maximum pooling operation.
+        mask = tf.cast(argmax, "int32")
+        input_shape = tf.shape(updates, out_type="int32")
+        input_shape = [updates.shape[i] or input_shape[i] for i in range(4)]
+
+        # Calculates indices for batch, height, width and feature maps.
+        one_like_mask = tf.ones_like(mask, dtype="int32")
+        batch_shape = tf.concat([[input_shape[0]], [1], [1], [1]], axis=0)
+        batch_range = tf.reshape(
+            tf.range(output_shape[0], dtype="int32"), shape=batch_shape
+        )
+        b = one_like_mask * batch_range
+        y = mask // (output_shape[2] * output_shape[3])
+        x = (mask // output_shape[3]) % output_shape[2]
+        feature_range = tf.range(output_shape[3], dtype="int32")
+        f = one_like_mask * feature_range
+
+        # Transposes indices & reshape update values to one dimension.
+        updates_size = tf.size(updates)
+        indices = tf.transpose(tf.reshape(tf.stack([b, y, x, f]), [4, updates_size]))
+        values = tf.reshape(updates, [updates_size])
+        ret = tf.scatter_nd(indices, values, output_shape)
+        return ret
+
+    if updates._is_fast_rotated:
+        raise ValueError(
+            "A ShellTensor which has been fast-rotated or fast-reduced-summed cannot be an input to max_pool2d_transpose."
+        )
+
+    if padding.upper() == "VALID":
+        padding_list = [0, 0, 0, 0]
+    elif padding.upper() == "SAME":
+
+        def compute_padding_same(input_size, kernel_size, stride=1, dilation_rate=1):
+            import math
+
+            dilated_kernel_size = kernel_size + (kernel_size - 1) * (dilation_rate - 1)
+            output_size = math.ceil(input_size / stride)
+            total_padding = (
+                (output_size - 1) * stride + dilated_kernel_size - input_size
+            )
+            padding_before = total_padding // 2
+            padding_after = total_padding - padding_before
+            return padding_before, padding_after
+
+        top, bottom = compute_padding_same(updates.shape[1], pool_size[0], strides[0])
+        left, right = compute_padding_same(updates.shape[2], pool_size[1], strides[1])
+        padding_list = [top, bottom, left, right]
+    else:
+        raise ValueError(f"Padding must be 'VALID' or 'SAME'. Got {padding}.")
+
+    return ShellTensor64(
+        _raw_tensor=shell_ops.max_unpool2d_ct64(
+            updates._context._get_context_at_level(updates._level),
+            updates._raw_tensor,
+            argmax,
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding_list,
+            output_shape=output_shape,
+        ),
+        _context=updates._context,
+        _level=updates._level,
+        _num_mod_reductions=updates._num_mod_reductions,
+        _underlying_dtype=updates._underlying_dtype,
+        _scaling_factor=updates._scaling_factor,
+        _is_enc=True,
+        _is_fast_rotated=False,
+    )
