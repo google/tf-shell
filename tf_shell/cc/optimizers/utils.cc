@@ -7,6 +7,7 @@ bool IsShellAutoContext(NodeDef const& node) {
   return node.op() == kShellAutoContext;
 }
 
+// Encryption ops.
 bool IsEncode(NodeDef const& node) { return node.op() == kEncode; }
 bool IsDecode(NodeDef const& node) { return node.op() == kDecode; }
 bool IsEncrypt(NodeDef const& node) { return node.op() == kEncrypt; }
@@ -16,6 +17,7 @@ bool IsDecrypt(NodeDef const& node) {
   return IsPlainDerypt(node) || IsFastDecrypt(node);
 }
 
+// Arithmetic ops.
 bool IsAddCtCt(NodeDef const& node) { return node.op() == kAddCtCt; }
 bool IsSubCtCt(NodeDef const& node) { return node.op() == kSubCtCt; }
 bool IsMulCtCt(NodeDef const& node) { return node.op() == kMulCtCt; }
@@ -43,15 +45,17 @@ bool IsMulPtTfScalar(NodeDef const& node) {
   return node.op() == kMulPtTfScalar;
 }
 
+// Matrix multiplication ops.
 bool IsMatMulCtPt(NodeDef const& node) { return node.op() == kMatMulCtPt; }
 bool IsMatMulPtCt(NodeDef const& node) { return node.op() == kMatMulPtCt; }
 bool IsFastMatMulPtCt(NodeDef const& node) {
   return node.op() == kFastMatMulPtCt;
 }
-bool IsMatMul(NodeDef const& node) {
+bool IsTfShellMatMul(NodeDef const& node) {
   return IsMatMulCtPt(node) || IsMatMulPtCt(node) || IsFastMatMulPtCt(node);
 }
 
+// Rotation ops.
 bool IsRoll(NodeDef const& node) { return node.op() == kRoll; }
 bool IsReduceSumByRotation(NodeDef const& node) {
   return node.op() == kReduceSumByRotation;
@@ -61,29 +65,34 @@ bool IsFastReduceSumByRotation(NodeDef const& node) {
 }
 bool IsReduceSum(NodeDef const& node) { return node.op() == kReduceSum; }
 
+// Segment sum ops.
 bool IsUnsortedCtSegmentSum(NodeDef const& node) {
   return node.op() == kUnsortedCtSegmentSum;
 }
 
+// Convolution ops.
 bool IsPtCtConv2d(NodeDef const& node) {
-  return node.op() == kConv2dPtCt64 || node.op() == Conv2dWithChanPtCt64;
+  return node.op() == kConv2dPtCt64 || node.op() == kConv2dWithChanPtCt64;
 }
 bool IsCtPtConv2d(NodeDef const& node) {
-  return node.op() == kConv2dCtPt64 || node.op() == Conv2dWithChanCtPt64;
+  return node.op() == kConv2dCtPt64 || node.op() == kConv2dWithChanCtPt64;
 }
 bool IsCtCtConv2d(NodeDef const& node) {
-  return node.op() == kConv2dCtCt64 || node.op() == Conv2dWithChanCtCt64;
+  return node.op() == kConv2dCtCt64 || node.op() == kConv2dWithChanCtCt64;
 }
 bool IsConv2d(NodeDef const& node) {
   return IsPtCtConv2d(node) || IsCtPtConv2d(node) || IsCtCtConv2d(node);
 }
 
+bool IsMaxUnpool2d(NodeDef const& node) {
+  return node.op() == kMaxUnpool2dCt64;
+}
+
+// TensorFlow ops.
 bool IsExpandDimsVariant(NodeDef const& node) {
   return node.op() == kExpandDimsVariant;
 }
-
 bool IsBroadcastToShape(NodeDef const& node) {
   return node.op() == kBroadcastToShape;
 }
-
 bool IsReshape(NodeDef const& node) { return node.op() == kReshape; }

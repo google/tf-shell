@@ -24,9 +24,14 @@ namespace grappler {
 
 namespace {
 
-constexpr bool const debug_moduli = false;
+constexpr bool const qs_mod_t_is_one = true;
+
+constexpr bool const debug_moduli = true;
+constexpr bool const debug_mul_depth = false;
+constexpr bool const debug_noise_estimation = false;
 constexpr bool const debug_graph = false;
 constexpr bool const debug_output_params = true;
+
 constexpr uint64_t const kMaxPrimeBitsPlaintext = 58;
 constexpr uint64_t const kMaxPrimeBitsCiphertext = 60;
 constexpr uint64_t const kMinPrimeBits = 3;
@@ -217,12 +222,16 @@ StatusOr<int> GetMulDepth(utils::MutableGraphView& graph_view,
   int const num_nodes = graph_view.NumNodes();
   std::vector<uint64_t> node_mul_depth(num_nodes);
 
+  if constexpr (debug_mul_depth) {
+    std::cout << "Calculating multiplicative depth." << std::endl;
+  }
+
   uint64_t max_depth = 0;
   for (int i = 0; i < num_nodes; ++i) {
     auto const* this_node_view = graph_view.GetNode(i);
     auto const* this_node_def = this_node_view->node();
 
-    if (IsArithmetic(*this_node_def) || IsMatMul(*this_node_def) ||
+    if (IsArithmetic(*this_node_def) || IsTfShellMatMul(*this_node_def) ||
         IsMulCtTfScalar(*this_node_def) || IsMulPtTfScalar(*this_node_def)) {
       // Get the fanin nodes.
       int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
@@ -232,7 +241,7 @@ StatusOr<int> GetMulDepth(utils::MutableGraphView& graph_view,
 
       // Update the multiplicative depth of this node.
       if (IsMulCtCt(*this_node_def) || IsMulCtPt(*this_node_def) ||
-          IsMulPtPt(*this_node_def) || IsMatMul(*this_node_def)) {
+          IsMulPtPt(*this_node_def) || IsTfShellMatMul(*this_node_def)) {
         node_mul_depth[i] = max_fanin_depth + 1;
       } else {
         node_mul_depth[i] = max_fanin_depth;
@@ -259,6 +268,13 @@ StatusOr<int> GetMulDepth(utils::MutableGraphView& graph_view,
                           1;
     }
 
+    else if (IsMaxUnpool2d(*this_node_def)) {
+      // Max unpool performs a multiplication but does not affect the scaling
+      // factor since it is by a selection 0 or 1 plaintext.
+      int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
+      node_mul_depth[i] = node_mul_depth[fanin_a_index];
+    }
+
     else if (IsExpandDimsVariant(*this_node_def)) {
       int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
       node_mul_depth[i] = node_mul_depth[fanin_a_index];
@@ -268,8 +284,12 @@ StatusOr<int> GetMulDepth(utils::MutableGraphView& graph_view,
     } else if (IsReshape(*this_node_def)) {
       int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
       node_mul_depth[i] = node_mul_depth[fanin_a_index];
-    } else if (IsDecrypt(*this_node_def)) {
+    } else if (IsStridedSlice(*this_node_def)) {
+      int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
+      node_mul_depth[i] = node_mul_depth[fanin_a_index];
+
       // Decryption is where the maximum multiplicative depth is reached.
+    } else if (IsDecrypt(*this_node_def)) {
       int const fanin_a_index = this_node_view->GetRegularFanin(2).node_index();
       node_mul_depth[i] = node_mul_depth[fanin_a_index];
 
@@ -281,6 +301,15 @@ StatusOr<int> GetMulDepth(utils::MutableGraphView& graph_view,
         max_depth = std::max(max_depth, node_mul_depth[i]);
       }
     }
+
+    if constexpr (debug_mul_depth) {
+      std::cout << "  Node: " << this_node_def->name()
+                << " Depth: " << node_mul_depth[i]
+                << " Max depth: " << max_depth << std::endl;
+    }
+  }
+  if constexpr (debug_mul_depth) {
+    std::cout << "Max Multiplicative Depth: " << max_depth << std::endl;
   }
   return max_depth;
 }
@@ -325,26 +354,28 @@ uint64_t FindPrimeMod2n(uint64_t const two_n, uint64_t const bits_start,
   // Handle the case when end is larger than start, iterate in reverse.
   bool const reverse = start > end;
 
-  // std::cout << "Finding prime between " << bits_start << " and " << bits_end
-  //           << " bits which is congruent to 1 mod 2n (" << two_n << ")."
-  //           << std::endl;
+  if constexpr (debug_moduli) {
+    std::cout << "Finding prime between " << bits_start << " and " << bits_end
+              << " bits which is congruent to 1 mod 2n (" << two_n << ")."
+              << std::endl;
+  }
 
   for (uint64_t i = start; reverse ? i > end : i < end; reverse ? --i : ++i) {
     // Check i mod t is 1.
-    if (t != 0) {
-      uint64_t i_mod_t = i % t;
-      // if (bits_start == 60)
-      //   std::cout << "i: " << i << " i mod t: " << i_mod_t << std::endl;
-      if (i_mod_t != 1) {
-        // Given i mod t is not 1, skip ahead.
-        if (i_mod_t != 0 && i > t) {
-          if (reverse) {
-            i -= (i_mod_t - 2);
-          } else {
-            i += t - i_mod_t;
+    if constexpr (qs_mod_t_is_one) {
+      if (t != 0) {
+        uint64_t i_mod_t = i % t;
+        if (i_mod_t != 1) {
+          // Given i mod t is not 1, skip ahead.
+          if (i_mod_t != 0 && i > t) {
+            if (reverse) {
+              i -= (i_mod_t - 2);
+            } else {
+              i += t - i_mod_t;
+            }
           }
+          continue;
         }
-        continue;
       }
     }
 
@@ -371,67 +402,90 @@ constexpr uint64_t BitWidth(uint64_t n) {
   return bits;
 }
 
+// Choose primes for the RNS ciphertext moduli chain. The primes are all
+// congruent to 1 mod 2n and 1 mod t. The number of bits in the product of
+// the primes returned is at least log_q. The aggression parameter controls
+// how optimistic the search expects to find primes at the upper end of the
+// range. E.g. if aggression is 2, the algorithm will assume that a prime can
+// be found at the upper end of the range with 2 fewer bits than the maximum.
+// This is useful to minimize the number of primes in the chain.
 std::vector<uint64_t> ChooseRnsCtModuli(uint64_t const two_n, uint64_t const t,
-                                        uint64_t const log_q) {
+                                        uint64_t const log_q,
+                                        uint64_t const aggression) {
   std::vector<uint64_t> qs;
   int64_t needed_bits_of_primes = log_q;
   bool is_first_prime = true;
 
   // Find prime numbers for the RNS chain of ciphertext moduli.
   while (needed_bits_of_primes > 0) {
-    uint64_t prime;
+    uint64_t range_start;
+    uint64_t range_end;
     uint64_t smallest_prime;
 
     // Check how many 64-bit primes are left to find.
     if (needed_bits_of_primes >
-        2 * static_cast<int64_t>(kMaxPrimeBitsCiphertext) - 4) {
+        2 * static_cast<int64_t>(kMaxPrimeBitsCiphertext - aggression)) {
       // More than two primes are left to find. The goal is to find the largest
       // prime possible.
       //
       // The first prime is special and must be larger than the plaintext
       // modulus. This is because decryption ModReduces to the first RNS prime,
       // then to the plaintext modulus. For remaining moduli, this restriction
-      // is not necessary and the full range may be searched.
-      smallest_prime = is_first_prime ? BitWidth(t) + 1 : kMinPrimeBits;
-
+      // is not necessary (assuming qs_mod_t_is_one is false) and the full range
+      // may be searched.
+      //
       // Since subsequent primes are needed after this one, start the search
       // from the end of the range to find the largest one.
-      prime =
-          FindPrimeMod2n(two_n, kMaxPrimeBitsCiphertext, smallest_prime, qs, t);
+      range_start = kMaxPrimeBitsCiphertext;
+      range_end = is_first_prime ? BitWidth(t) + 1 : kMinPrimeBits;
     } else if (needed_bits_of_primes >
-               static_cast<int64_t>(kMaxPrimeBitsCiphertext) - 4) {
+               static_cast<int64_t>(kMaxPrimeBitsCiphertext - aggression)) {
       // Only two primes are left to find. Instead of finding the largest prime
       // possible for this second to last position, leaving potentially too few
       // bits for the next prime, try to balance the bits between the two
       // primes. To perfectly balance the primes, the goal is for each to have
       // half the number of required bits, i.e. needed_bits_of_primes / 2.
-      // This is not likely to be possible, so instead aim for the smallest
-      // prime possible and search upwards. This reduces the risk of
-      // overprovisioning bits for the last prime.
       //
-      // Again, the first prime is special and must be larger than the plaintext
-      // modulus.
-      smallest_prime = is_first_prime ? BitWidth(t) + 1 : kMinPrimeBits;
-
       // Search from the beginning of the range to find the smallest prime.
-      prime =
-          FindPrimeMod2n(two_n, smallest_prime, kMaxPrimeBitsCiphertext, qs, t);
+      range_start = static_cast<uint64_t>(needed_bits_of_primes / 2);
+
+      // As above, the first prime is special and must be larger than the
+      // plaintext modulus.
+      if (is_first_prime) {
+        range_start = std::max(BitWidth(t) + 1, range_start);
+      }
+
+      range_end = kMaxPrimeBitsCiphertext;
 
     } else {
       // If only one prime more prime is needed, start the search from the
       // begining of the range to find the smallest one.
-      smallest_prime = needed_bits_of_primes;
-
-      prime =
-          FindPrimeMod2n(two_n, smallest_prime, kMaxPrimeBitsCiphertext, qs, t);
+      range_start = needed_bits_of_primes;
+      range_end = kMaxPrimeBitsCiphertext;
     }
 
+    if constexpr (qs_mod_t_is_one) {
+      // When each q_i is required to be congruent to 1 mod t, all primes must
+      // be larger than t.
+      if (range_start < range_end) {
+        range_start = std::max(BitWidth(t) + 1, range_start);
+      } else {
+        range_end = std::max(BitWidth(t) + 1, range_end);
+      }
+    }
+
+    uint64_t prime = FindPrimeMod2n(two_n, range_start, range_end, qs, t);
+
     if (prime == 0) {
-      std::cout << "ERROR: Could not find a prime for RNS ct prime between "
-                << smallest_prime << " and " << kMaxPrimeBitsCiphertext
-                << " bits which is congruent to 1 mod 2n (" << two_n
-                << ") and congruent to 1 mod t (" << t << ")." << std::endl;
-      return {};
+      static bool warning_printed = false;
+      if (!warning_printed) {
+        std::cout << "ERROR: Could not find a prime for RNS ct prime between "
+                  << range_start << " and " << range_end
+                  << " bits which is congruent to 1 mod 2n (" << two_n
+                  << ") and congruent to 1 mod t (" << t << ")." << std::endl;
+        warning_printed = true;
+        return {};
+      }
     }
     qs.push_back(prime);
     needed_bits_of_primes -= BitWidth(prime);
@@ -478,13 +532,29 @@ Status ChooseShellParams(ShellParams& params, uint64_t const total_pt_bits,
   uint64_t t =
       FindPrimeMod2n(two_n, bounded_total_pt_bits, kMaxPrimeBitsPlaintext);
   if (t == 0) {
-    std::cout << "ERROR: Could not find a prime for plaintext modulus."
-              << std::endl;
+    static bool warning_printed = false;
+    if (!warning_printed) {
+      std::cout
+          << "ERROR: Could not find a prime for plaintext modulus between "
+          << bounded_total_pt_bits << " and " << kMaxPrimeBitsPlaintext
+          << " bits." << std::endl;
+      warning_printed = true;
+    }
     return errors::FailedPrecondition(
         "Could not find a prime for plaintext modulus.");
   }
 
-  std::vector<uint64_t> qs = ChooseRnsCtModuli(two_n, t, total_ct_bits);
+  std::vector<uint64_t> qs;
+  uint64_t aggression = 1;
+  while (qs.empty() && aggression < 8) {
+    if constexpr (debug_moduli) {
+      std::cout << "Searching for " << total_ct_bits
+                << " bits of qs with aggression parameter " << aggression
+                << std::endl;
+    }
+    qs = ChooseRnsCtModuli(two_n, t, total_ct_bits, aggression);
+    aggression++;
+  }
   if (qs.empty()) {
     std::cout << "ERROR: Could not find prime(s) for ciphertext modulus."
               << std::endl;
@@ -513,7 +583,7 @@ Status ChooseShellParams(ShellParams& params, uint64_t const total_pt_bits,
   params.qs = std::move(qs);
 
   if constexpr (debug_moduli) {
-    std::cout << "Choosing parameters:" << std::endl;
+    std::cout << "Found parameters:" << std::endl;
     std::cout << "  log_n: " << params.log_n << std::endl;
     std::cout << "  t: " << params.t << std::endl;
     std::cout << "  qs: ";
@@ -677,7 +747,25 @@ Status EstimateNodeNoise(
                    "estimating noise. Noise budget may be under-provisioned."
                 << std::endl;
     } else {
-      *this_noise += filter_elems - 1;
+      *this_noise += BitWidth(filter_elems - 1);
+    }
+  }
+
+  else if (IsMaxUnpool2d(*node_def)) {
+    // Max unpooling performs one multiplication.
+    *this_noise = noise_a + BitWidth(error_params.B_plaintext());
+    // Then n - 1 additions where n is the number of elements in the filter.
+    std::vector<int32> pool_size;
+    if (!TryGetNodeAttr(*node_def, "pool_size", &pool_size)) {
+      std::cout << "WARNING: Could not determine pool size when "
+                   "estimating noise. Noise budget may be under-provisioned."
+                << std::endl;
+    } else {
+      int64_t total_pool_size = 1;
+      for (auto const& size : pool_size) {
+        total_pool_size *= size;
+      }
+      *this_noise += BitWidth(total_pool_size - 1);
     }
   }
 
@@ -685,7 +773,7 @@ Status EstimateNodeNoise(
     *this_noise = noise_b;
   }
 
-  if constexpr (debug_moduli) {
+  if constexpr (debug_noise_estimation) {
     std::cout << "\tNode " << node_def->name() << " noise bits: " << *this_noise
               << std::endl;
   }
@@ -729,6 +817,9 @@ Status EstimateNoiseGrowth(utils::MutableGraphView& graph_view,
   rlwe::RnsErrorParams<ModularInt> error_params = error_params_or.value();
 
   uint64_t log_max_noise = 0;
+  if constexpr (debug_noise_estimation) {
+    std::cout << "Estimating noise growth." << std::endl;
+  }
   for (int i = 0; i < num_nodes; ++i) {
     // Estimate the noise budget of this node.
     TF_RETURN_IF_ERROR(
@@ -748,7 +839,7 @@ Status EstimateNoiseGrowth(utils::MutableGraphView& graph_view,
     }
   }
 
-  if constexpr (debug_moduli) {
+  if constexpr (debug_noise_estimation) {
     std::cout << "Max noise bits: " << log_max_noise << std::endl;
   }
 
@@ -853,21 +944,22 @@ Status OptimizeAutocontext(utils::MutableGraphView& graph_view,
 
   // Find the maximum multiplicative depth of the graph and use this to set
   // the plaintext modulus t, based on the scaling factor and depth.
-  // Note the mul_depth + 1 accounts for the first multiplication by the
-  // scaling factor during encoding.
+  // The depth computation includes the initial scaling factor included during
+  // encryption.
   TF_ASSIGN_OR_RETURN(int mul_depth, GetMulDepth(graph_view, autocontext));
-  uint64_t total_plaintext_bits =
-      auto_params.cleartext_bits +
-      std::ceil(std::log2(
-          std::pow(auto_params.scaling_factor, std::pow(2, mul_depth + 1))));
+  uint64_t mul_bits =
+      BitWidth(std::pow(auto_params.scaling_factor, std::pow(2, mul_depth)));
+  uint64_t total_plaintext_bits = auto_params.cleartext_bits + mul_bits;
+
   if constexpr (debug_moduli) {
     std::cout << "Multiplicative Depth: " << mul_depth << std::endl;
+    std::cout << "Bits of scaling factor: " << mul_bits << std::endl;
     std::cout << "Total Cleartext Bits: " << total_plaintext_bits << std::endl;
   }
   if (total_plaintext_bits >= kMaxPrimeBitsCiphertext) {
-    std::cout << "ERROR: Total plaintext size exceeds "
-              << kMaxPrimeBitsCiphertext << ". This is not supported."
-              << std::endl;
+    std::cout << "ERROR: Total plaintext size (" << total_plaintext_bits
+              << ") >= " << kMaxPrimeBitsCiphertext
+              << ". This is not supported." << std::endl;
     return errors::FailedPrecondition("Total plaintext size exceeds ",
                                       kMaxPrimeBitsCiphertext,
                                       ". This is not supported.");
@@ -880,6 +972,7 @@ Status OptimizeAutocontext(utils::MutableGraphView& graph_view,
   uint64_t log_q_r = total_plaintext_bits + 210;
   uint64_t log_q = (log_q_r + log_q_l) / 2;
   uint64_t log_max_noise = 0;
+  uint64_t total_ct_bits = 0;
   ShellParams params;
 
   while (log_q_l <= log_q_r && log_q < log_q_r + 10) {
@@ -902,7 +995,7 @@ Status OptimizeAutocontext(utils::MutableGraphView& graph_view,
         graph_view, autocontext, params, auto_params.noise_variance,
         &log_max_noise));
 
-    uint64_t total_ct_bits =
+    total_ct_bits =
         BitWidth(params.t) + log_max_noise + auto_params.noise_offset_bits;
 
     // Adjust the noise budget to account for the encryption noise.
@@ -934,7 +1027,10 @@ Status OptimizeAutocontext(utils::MutableGraphView& graph_view,
   }
 
   if (log_q >= total_plaintext_bits + 210) {
-    std::cout << "ERROR: Could not find suitable parameters." << std::endl;
+    std::cout
+        << "ERROR: Could not find suitable parameters. RNS chain requires "
+        << total_ct_bits << " bits (maximum search space "
+        << total_plaintext_bits + 210 << " bits)." << std::endl;
     return errors::FailedPrecondition("Could not find suitable parameters.");
   }
 

@@ -46,7 +46,7 @@ constexpr char kFastMatMulPtCt[] = "FastMatMulPtCt64";
 
 constexpr char kRoll[] = "Roll64";
 constexpr char kReduceSumByRotation[] = "ReduceSumByRotationCt64";
-constexpr char kFastReduceSumByRotation[] = "FastReduceSumByRotationCt64";
+constexpr char kFastReduceSumByRotation[] = "FastReduceSumByRotation64";
 constexpr char kReduceSum[] = "ReduceSumCt64";
 
 constexpr char kUnsortedCtSegmentSum[] = "UnsortedCtSegmentSum";
@@ -54,9 +54,11 @@ constexpr char kUnsortedCtSegmentSum[] = "UnsortedCtSegmentSum";
 constexpr char kConv2dPtCt64[] = "Conv2dPtCt64";
 constexpr char kConv2dCtPt64[] = "Conv2dCtPt64";
 constexpr char kConv2dCtCt64[] = "Conv2dCtCt64";
-constexpr char Conv2dWithChanPtCt64[] = "Conv2dWithChanPtCt64";
-constexpr char Conv2dWithChanCtPt64[] = "Conv2dWithChanCtPt64";
-constexpr char Conv2dWithChanCtCt64[] = "Conv2dWithChanCtCt64";
+constexpr char kConv2dWithChanPtCt64[] = "Conv2dWithChanPtCt64";
+constexpr char kConv2dWithChanCtPt64[] = "Conv2dWithChanCtPt64";
+constexpr char kConv2dWithChanCtCt64[] = "Conv2dWithChanCtCt64";
+
+constexpr char kMaxUnpool2dCt64[] = "MaxUnpool2dCt64";
 
 // TensorFlow names
 constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
@@ -96,7 +98,7 @@ bool IsMulPtTfScalar(NodeDef const& node);
 bool IsMatMulCtPt(NodeDef const& node);
 bool IsMatMulPtCt(NodeDef const& node);
 bool IsFastMatMulPtCt(NodeDef const& node);
-bool IsMatMul(NodeDef const& node);
+bool IsTfShellMatMul(NodeDef const& node);
 
 bool IsRoll(NodeDef const& node);
 bool IsReduceSumByRotation(NodeDef const& node);
@@ -109,6 +111,8 @@ bool IsPtCtConv2d(NodeDef const& node);
 bool IsCtPtConv2d(NodeDef const& node);
 bool IsCtCtConv2d(NodeDef const& node);
 bool IsConv2d(NodeDef const& node);
+
+bool IsMaxUnpool2d(NodeDef const& node);
 
 bool IsExpandDimsVariant(NodeDef const& node);
 bool IsBroadcastToShape(NodeDef const& node);
