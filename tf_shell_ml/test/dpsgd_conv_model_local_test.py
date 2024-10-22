@@ -67,13 +67,9 @@ class TestModel(tf.test.TestCase):
                     strides=2,
                     use_fast_reduce_sum=True,
                 ),
-                tf_shell_ml.MaxPool2D(
-                    pool_size=(2, 2),
-                    strides=1,
-                ),
                 tf_shell_ml.Flatten(),
                 tf_shell_ml.ShellDense(
-                    32,
+                    16,
                     activation=tf.nn.softmax,
                     use_fast_reduce_sum=True,
                 ),
@@ -83,22 +79,25 @@ class TestModel(tf.test.TestCase):
                     use_fast_reduce_sum=True,
                 ),
             ],
-            lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=20,
-                scaling_factor=32,
-                noise_offset_log2=12,
+            backprop_context_fn=lambda: tf_shell.create_autocontext64(
+                log2_cleartext_sz=26,
+                scaling_factor=2,
+                noise_offset_log2=46,
                 cache_path=context_cache_path,
             ),
-            lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=20,
-                scaling_factor=32,
-                noise_offset_log2=0,
+            noise_context_fn=lambda: tf_shell.create_autocontext64(
+                log2_cleartext_sz=26,
+                scaling_factor=2,
+                noise_offset_log2=47,
                 cache_path=context_cache_path,
             ),
-            disable_encryption=False,
-            disable_masking=False,
-            disable_noise=True,
+            disable_encryption=disable_encryption,
+            disable_masking=disable_masking,
+            disable_noise=disable_noise,
             cache_path=context_cache_path,
+            check_overflow=True,
+            jacobian_pfor=False,
+            jacobian_pfor_iterations=None,
         )
 
         m.compile(
@@ -111,7 +110,7 @@ class TestModel(tf.test.TestCase):
         m.build([None, 28, 28, 1])
         m.summary()
 
-        history = m.fit(train_dataset.take(16), epochs=1, validation_data=val_dataset)
+        history = m.fit(train_dataset.take(9), epochs=1, validation_data=val_dataset)
 
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
 

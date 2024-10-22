@@ -35,6 +35,8 @@ class DpSgdSequential(SequentialBase):
         disable_noise=False,
         check_overflow=False,
         cache_path=None,
+        jacobian_pfor=False,
+        jacobian_pfor_iterations=None,
         *args,
         **kwargs,
     ):
@@ -62,6 +64,8 @@ class DpSgdSequential(SequentialBase):
         self.disable_noise = disable_noise
         self.check_overflow = check_overflow
         self.cache_path = cache_path
+        self.jacobian_pfor = jacobian_pfor
+        self.jacobian_pfor_iterations = jacobian_pfor_iterations
 
     def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
         super().compile(optimizer=optimizer, loss=loss, metrics=metrics, **kwargs)
@@ -95,8 +99,9 @@ class DpSgdSequential(SequentialBase):
             grads = tape.jacobian(
                 y_pred,
                 self.trainable_variables,
-                parallel_iterations=1,
-                experimental_use_pfor=False,
+                unconnected_gradients='zero',
+                parallel_iterations=self.jacobian_pfor_iterations,
+                experimental_use_pfor=self.jacobian_pfor,
             )
             # ^  layers list x (batch size x num output classes x weights) matrix
 
@@ -275,13 +280,13 @@ class DpSgdSequential(SequentialBase):
                 # also take the scaling factor into account.
                 overflowed = [
                     tf.abs(g) > t_half / 2 / s
-                    for g, s in zip(batch_grad, mask_scaling_factors)
+                    for g, s in zip(grads, mask_scaling_factors)
                 ]
                 overflowed = [tf.reduce_any(o) for o in overflowed]
                 overflowed = tf.reduce_any(overflowed)
                 tf.cond(
                     overflowed,
-                    lambda: tf.print("Gradient may have overflowed"),
+                    lambda: tf.print("WARNING: Gradient may have overflowed."),
                     lambda: tf.identity(overflowed),
                 )
 
