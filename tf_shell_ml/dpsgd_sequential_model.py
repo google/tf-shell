@@ -111,6 +111,7 @@ class DpSgdSequential(SequentialBase):
         with tf.device(self.labels_party_dev):
             if self.disable_encryption:
                 enc_y = y
+                public_backprop_rotation_key = None
             else:
                 backprop_context = self.backprop_context_fn()
                 backprop_secret_key = tf_shell.create_key64(

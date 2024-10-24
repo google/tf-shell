@@ -13,6 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import math
 import tensorflow as tf
 import tf_shell.python.shell_ops as shell_ops
 from tf_shell.python.shell_context import ShellContext64
@@ -321,7 +322,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
     def __mul__(self, other):
         if isinstance(other, ShellTensor64):
-            matched_self, matched_other = _match_moduli_and_scaling(self, other)
+            matched_self, matched_other = _match_moduli(self, other)
 
             if self.is_encrypted and other.is_encrypted:
                 if self._is_fast_rotated or other._is_fast_rotated:
@@ -360,7 +361,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _level=matched_self._level,
                 _num_mod_reductions=matched_self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
-                _scaling_factor=matched_self._scaling_factor**2,
+                _scaling_factor=matched_self._scaling_factor * matched_other._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
                 _is_fast_rotated=self._is_fast_rotated or other._is_fast_rotated,
             )
@@ -471,33 +472,29 @@ def mod_reduce_tensor64(shell_tensor):
 
     return reduced_self
 
-
-def _match_moduli_and_scaling(x, y):
-    with tf.name_scope("match_moduli_and_scaling"):
+def _match_moduli(x, y):
+    with tf.name_scope("match_moduli"):
         # Mod switch to the smaller modulus of the two.
         while x._num_mod_reductions < y._num_mod_reductions:
             x = mod_reduce_tensor64(x)
         while x._num_mod_reductions > y._num_mod_reductions:
             y = mod_reduce_tensor64(y)
 
-        # Make sure the scaling factors are compatible. This should always be
-        # true unless the user is mixing contexts with different scaling
-        # factors.
-        xsf = x._scaling_factor
-        ysf = y._scaling_factor
-        while xsf < ysf:
-            xsf *= x._context.scaling_factor
-        while ysf < xsf:
-            ysf *= y._context.scaling_factor
-        if xsf != ysf:
-            raise ValueError(f"Scaling factors must be compatible. Got {xsf} and {ysf}")
+    return x, y
+
+def _match_moduli_and_scaling(x, y):
+    with tf.name_scope("match_moduli_and_scaling"):
+        x, y = _match_moduli(x, y)
+
+        gcd = math.gcd(x._scaling_factor, y._scaling_factor)
+        lcm = math.lcm(x._scaling_factor, y._scaling_factor)
 
         # Match the scaling factors.
-        if xsf > x._scaling_factor:
-            x = x.__mul__(xsf / (x._scaling_factor**2))
-        if ysf > y._scaling_factor:
-            y = y.__mul__(ysf / (y._scaling_factor**2))
-
+        if lcm > x._scaling_factor:
+            x = x.__mul__(gcd / x._scaling_factor)
+        if lcm > y._scaling_factor:
+            y = y.__mul__(gcd / y._scaling_factor)
+        
     return x, y
 
 
@@ -663,6 +660,7 @@ def to_tensorflow(s_tensor, key=None):
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
             batching_dim=batching_dim,
+            final_scaling_factor=s_tensor._scaling_factor,
         )
 
     elif s_tensor.is_encrypted:
@@ -679,6 +677,7 @@ def to_tensorflow(s_tensor, key=None):
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
             batching_dim=batching_dim,
+            final_scaling_factor=s_tensor._scaling_factor,
         )
 
     elif not s_tensor.is_encrypted:
@@ -690,6 +689,7 @@ def to_tensorflow(s_tensor, key=None):
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
             batching_dim=batching_dim,
+            final_scaling_factor=s_tensor._scaling_factor,
         )
 
     else:
@@ -894,7 +894,7 @@ def matmul(x, y, rotation_key=None, pt_ct_reduction="galois"):
             )
 
         # Encode the plaintext x to the same scaling factor as y.
-        scaled_x = _encode_scaling(x, y._scaling_factor)
+        scaled_x = _encode_scaling(x, y._context.scaling_factor)
 
         if pt_ct_reduction == "galois":
             if not isinstance(rotation_key, ShellRotationKey64):
@@ -926,7 +926,7 @@ def matmul(x, y, rotation_key=None, pt_ct_reduction="galois"):
             _level=y._level,
             _num_mod_reductions=y._num_mod_reductions,
             _underlying_dtype=y._underlying_dtype,
-            _scaling_factor=y._scaling_factor**2,
+            _scaling_factor=y._scaling_factor * y._context.scaling_factor,
             _is_enc=True,
             _is_fast_rotated=pt_ct_reduction == "fast",
         )
@@ -1112,7 +1112,7 @@ def _conv2d(x, filt, strides, padding, dilations, func):
             "A ShellTensor which has been fast-rotated or fast-reduced-summed cannot be an input to conv2d."
         )
 
-    matched_x, matched_filt = _match_moduli_and_scaling(x, filt)
+    matched_x, matched_filt = _match_moduli(x, filt)
 
     return ShellTensor64(
         _raw_tensor=func(
@@ -1128,7 +1128,7 @@ def _conv2d(x, filt, strides, padding, dilations, func):
         _level=matched_x._level,
         _num_mod_reductions=matched_x._num_mod_reductions,
         _underlying_dtype=matched_x._underlying_dtype,
-        _scaling_factor=matched_x._scaling_factor**2,
+        _scaling_factor=matched_x._scaling_factor * matched_filt._scaling_factor,
         _is_enc=True,
         _is_fast_rotated=False,
     )

@@ -95,9 +95,12 @@ class TestShellTensor(tf.test.TestCase):
         )
 
         # Here, ec has a mul depth of 1 while eb has a mul depth of 0. To
-        # multiply them, eb needs to be mod reduced to match ec. ShellTensor
-        # should handle this automatically.
+        # multiply them, tf-shell needs to account for the difference in scaling
+        # factors. For ct_ct multiplication, the scaling factors must match, so
+        # in this case eb will be scaled up with a ct_pt multiplication to match
+        # ec. tf-shell will handle this automatically.
         ed = ec * eb
+        self.assertEqual(ed._scaling_factor, (ea._scaling_factor**2)**2)
         self.assertAllClose(
             a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
         )
@@ -132,10 +135,13 @@ class TestShellTensor(tf.test.TestCase):
         )
 
         # Here, ec has a mul depth of 1 while b is has a mul depth of 0. To
-        # multiply them, b needs to be encoded as a shell plaintext with
-        # moduli which match the now-mod-reduced ec. ShellTensor should handle
-        # this automatically.
+        # multiply them, tf-shell needs to account for the difference in
+        # scaling factors. For ct_pt multiplication, the scaling factors do
+        # not need to match, but their product must be remembered and divided
+        # out when the result is decrypted. tf-shell will handle this
+        # automatically.
         ed = ec * b
+        self.assertEqual(ed._scaling_factor, ea._scaling_factor**3)
         self.assertAllClose(
             a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
         )

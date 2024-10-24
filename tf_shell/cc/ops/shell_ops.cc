@@ -72,6 +72,7 @@ REGISTER_OP("PolynomialExport64")
     .Input("shell_context: variant")
     .Input("val: variant")
     .Input("runtime_batching_dim: int64")
+    .Attr("final_scaling_factor: int")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<1>);
 
@@ -94,6 +95,7 @@ REGISTER_OP("Decrypt64")
     .Input("key: variant")
     .Input("val: variant")
     .Input("runtime_batching_dim: int64")
+    .Attr("final_scaling_factor: int")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 
@@ -298,6 +300,7 @@ REGISTER_OP("DecryptFastRotated64")
     .Input("fast_rotation_key: variant")
     .Input("val: variant")
     .Input("runtime_batching_dim: int64")
+    .Attr("final_scaling_factor: int")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 

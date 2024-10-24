@@ -26,8 +26,7 @@ namespace {
 
 constexpr bool const qs_mod_t_is_one = true;
 
-constexpr bool const debug_moduli = true;
-constexpr bool const debug_mul_depth = false;
+constexpr bool const debug_moduli = false;
 constexpr bool const debug_noise_estimation = false;
 constexpr bool const debug_graph = false;
 constexpr bool const debug_output_params = true;
@@ -109,8 +108,7 @@ Status AddScalarConstNode(T value, utils::Mutation* mutation,
   } else {
     []<bool flag = false>() {
       static_assert(flag, "AddScalarConstNode does not support this type");
-    }
-    ();
+    }();
   }
   tensor->set_allocated_tensor_shape(tensor_shape.release());
   (*node.mutable_attr())["value"].set_allocated_tensor(tensor.release());
@@ -172,7 +170,8 @@ Status GetAutoShellContextParams(utils::MutableNodeView* autocontext,
 StatusOr<bool> DecryptUsesSameContext(utils::MutableNodeView const* node_view,
                                       utils::MutableNodeView const* context) {
   utils::MutableNodeView const* trace = node_view;
-  if (trace == nullptr || !IsDecrypt(*trace->node())) {
+  if (trace == nullptr ||
+      !(IsDecrypt(*trace->node()) || IsDecode(*trace->node()))) {
     return errors::InvalidArgument(
         "Expected the node to be a decrypt node, but found ", trace->GetOp());
   }
@@ -216,102 +215,37 @@ StatusOr<bool> DecryptUsesSameContext(utils::MutableNodeView const* node_view,
   return true;
 }
 
-StatusOr<int> GetMulDepth(utils::MutableGraphView& graph_view,
-                          utils::MutableNodeView const* autocontext) {
-  // Traverse the graph and return the maximum multiplicative depth.
+StatusOr<int64_t> MaxScalingFactor(utils::MutableGraphView& graph_view,
+                                   utils::MutableNodeView const* autocontext) {
+  // Traverse the graph and return the maximum scaling factor across all decrypt
+  // ops tied to this autocontext.
   int const num_nodes = graph_view.NumNodes();
-  std::vector<uint64_t> node_mul_depth(num_nodes);
+  int64_t max_sf = 0;
 
-  if constexpr (debug_mul_depth) {
-    std::cout << "Calculating multiplicative depth." << std::endl;
-  }
-
-  uint64_t max_depth = 0;
   for (int i = 0; i < num_nodes; ++i) {
     auto const* this_node_view = graph_view.GetNode(i);
     auto const* this_node_def = this_node_view->node();
 
-    if (IsArithmetic(*this_node_def) || IsTfShellMatMul(*this_node_def) ||
-        IsMulCtTfScalar(*this_node_def) || IsMulPtTfScalar(*this_node_def)) {
-      // Get the fanin nodes.
-      int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
-      int const fanin_b_index = this_node_view->GetRegularFanin(2).node_index();
-      int max_fanin_depth = std::max(node_mul_depth[fanin_a_index],
-                                     node_mul_depth[fanin_b_index]);
-
-      // Update the multiplicative depth of this node.
-      if (IsMulCtCt(*this_node_def) || IsMulCtPt(*this_node_def) ||
-          IsMulPtPt(*this_node_def) || IsTfShellMatMul(*this_node_def)) {
-        node_mul_depth[i] = max_fanin_depth + 1;
-      } else {
-        node_mul_depth[i] = max_fanin_depth;
-      }
-    }
-
-    else if (IsNegCt(*this_node_def) ||
-             IsFastReduceSumByRotation(*this_node_def) ||
-             IsUnsortedCtSegmentSum(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-    }
-
-    else if (IsRoll(*this_node_def) || IsReduceSumByRotation(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(2).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-    }
-
-    else if (IsConv2d(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
-      int const fanin_b_index = this_node_view->GetRegularFanin(2).node_index();
-      node_mul_depth[i] = std::max(node_mul_depth[fanin_a_index],
-                                   node_mul_depth[fanin_b_index]) +
-                          1;
-    }
-
-    else if (IsMaxUnpool2d(*this_node_def)) {
-      // Max unpool performs a multiplication but does not affect the scaling
-      // factor since it is by a selection 0 or 1 plaintext.
-      int const fanin_a_index = this_node_view->GetRegularFanin(1).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-    }
-
-    else if (IsExpandDimsVariant(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-    } else if (IsBroadcastToShape(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-    } else if (IsReshape(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-    } else if (IsStridedSlice(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(0).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-
-      // Decryption is where the maximum multiplicative depth is reached.
-    } else if (IsDecrypt(*this_node_def)) {
-      int const fanin_a_index = this_node_view->GetRegularFanin(2).node_index();
-      node_mul_depth[i] = node_mul_depth[fanin_a_index];
-
+    // Decryption is where the maximum multiplicative depth is reached.
+    if (IsDecrypt(*this_node_def) || IsDecode(*this_node_def)) {
       // Ensure the decrypt op uses the same autocontext node as the argument
       // (for the case where there are multiple autocontext nodes in the graph).
       TF_ASSIGN_OR_RETURN(bool is_same_autocontext,
                           DecryptUsesSameContext(this_node_view, autocontext));
+
+      int64 sf = 0;
+      if (!TryGetNodeAttr(*this_node_def, "final_scaling_factor", &sf)) {
+        std::cout
+            << "WARNING: Could not determine scaling factor in Decrypt op."
+            << " Plaintext modulus may be underprovisioned." << std::endl;
+      }
+
       if (is_same_autocontext) {
-        max_depth = std::max(max_depth, node_mul_depth[i]);
+        max_sf = std::max(max_sf, sf);
       }
     }
-
-    if constexpr (debug_mul_depth) {
-      std::cout << "  Node: " << this_node_def->name()
-                << " Depth: " << node_mul_depth[i]
-                << " Max depth: " << max_depth << std::endl;
-    }
   }
-  if constexpr (debug_mul_depth) {
-    std::cout << "Max Multiplicative Depth: " << max_depth << std::endl;
-  }
-  return max_depth;
+  return max_sf;
 }
 
 // Function for modular exponentiation
@@ -862,12 +796,12 @@ Status ReplaceAutoparamWithContext(utils::MutableGraphView& graph_view,
   }
 
   // Create the new inputs for the ShellContext node.
-  std::string log_n_name = "ContextImport64/log_n";
-  std::string qs_name = "ContextImport64/main_moduli";
-  std::string ps_name = "ContextImport64/aux_moduli";
-  std::string t_name = "ContextImport64/plaintext_modulus";
-  std::string noise_var_name = "ContextImport64/noise_variance";
-  std::string seed_str_name = "ContextImport64/seed";
+  std::string log_n_name = autocontext->GetName() + "/log_n";
+  std::string qs_name = autocontext->GetName() + "/main_moduli";
+  std::string ps_name = autocontext->GetName() + "/aux_moduli";
+  std::string t_name = autocontext->GetName() + "/plaintext_modulus";
+  std::string noise_var_name = autocontext->GetName() + "/noise_variance";
+  std::string seed_str_name = autocontext->GetName() + "/seed";
 
   utils::Mutation* mutation = graph_view.GetMutationBuilder();
   std::string device = autocontext->GetDevice();
@@ -942,18 +876,18 @@ Status OptimizeAutocontext(utils::MutableGraphView& graph_view,
   ShellAutoParams auto_params;
   TF_RETURN_IF_ERROR(GetAutoShellContextParams(autocontext, auto_params));
 
-  // Find the maximum multiplicative depth of the graph and use this to set
-  // the plaintext modulus t, based on the scaling factor and depth.
-  // The depth computation includes the initial scaling factor included during
-  // encryption.
-  TF_ASSIGN_OR_RETURN(int mul_depth, GetMulDepth(graph_view, autocontext));
-  uint64_t mul_bits =
-      BitWidth(std::pow(auto_params.scaling_factor, std::pow(2, mul_depth)));
-  uint64_t total_plaintext_bits = auto_params.cleartext_bits + mul_bits;
+  // Find the maximum scaling factor used in the graph and use this to set the
+  // plaintext modulus t. The maximum plaintext bits * the maximum scaling
+  // factor is the maximum size. This is too conservative an estimate, so
+  // for now, it is disabled.
+  // TF_ASSIGN_OR_RETURN(int64_t max_sf,
+  //                     MaxScalingFactor(graph_view, autocontext));
+  // uint64_t sf_bits = BitWidth(max_sf);
+  uint64_t total_plaintext_bits = auto_params.cleartext_bits;
 
   if constexpr (debug_moduli) {
-    std::cout << "Multiplicative Depth: " << mul_depth << std::endl;
-    std::cout << "Bits of scaling factor: " << mul_bits << std::endl;
+    // std::cout << "Max bits of scaling factor upon decryption: " << sf_bits
+    //           << std::endl;
     std::cout << "Total Cleartext Bits: " << total_plaintext_bits << std::endl;
   }
   if (total_plaintext_bits >= kMaxPrimeBitsCiphertext) {
