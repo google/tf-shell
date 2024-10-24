@@ -842,7 +842,7 @@ def fast_reduce_sum(x):
     )
 
 
-def matmul(x, y, rotation_key=None, fast=False):
+def matmul(x, y, rotation_key=None, pt_ct_reduction="galois"):
     """Matrix multiplication is specialized to whether the operands are
     plaintext or ciphertext.
 
@@ -888,53 +888,48 @@ def matmul(x, y, rotation_key=None, fast=False):
                 f"Underlying dtypes must match. Got {x.dtype} and {y._underlying_dtype}"
             )
 
+        if pt_ct_reduction not in ["galois", "fast", "none"]:
+            raise ValueError(
+                f"pt_ct_reduction must be 'galois', 'fast', or 'none'. Got {pt_ct_reduction}."
+            )
+
         # Encode the plaintext x to the same scaling factor as y.
         scaled_x = _encode_scaling(x, y._scaling_factor)
 
-        if fast:
+        if pt_ct_reduction == "galois":
+            if not isinstance(rotation_key, ShellRotationKey64):
+                raise ValueError(
+                    f"Rotation key must be provided to matmul pt*ct with galois reduction. Instead saw {rotation_key}."
+                )
+            # Get the correct rotation key for the level of y.
+            raw_rotation_key = rotation_key._get_key_at_level(y._level)
+        elif pt_ct_reduction == "fast":
             if y._is_fast_rotated:
                 raise ValueError(
                     "A ShellTensor which has been fast-reduced-summed cannot be fast-reduced-summed again."
                 )
-            return ShellTensor64(
-                _raw_tensor=shell_ops.fast_mat_mul_pt_ct64(
-                    y._context._get_context_at_level(y._level),
-                    scaled_x,
-                    y._raw_tensor,
-                    # no rotation key
-                ),
-                _context=y._context,
-                _level=y._level,
-                _num_mod_reductions=y._num_mod_reductions,
-                _underlying_dtype=y._underlying_dtype,
-                _scaling_factor=y._scaling_factor**2,
-                _is_enc=True,
-                _is_fast_rotated=True,
-            )
-        else:
-            if not isinstance(rotation_key, ShellRotationKey64):
-                raise ValueError(
-                    f"Rotation key must be provided to matmul pt*ct. Instead saw {rotation_key}."
-                )
+            # Any variant tensor will do. It is ignored by the op.
+            raw_rotation_key = y._context._get_context_at_level(y._level)
+        elif pt_ct_reduction == "none":
+            # Any variant tensor will do. It is ignored by the op.
+            raw_rotation_key = y._context._get_context_at_level(y._level)
 
-            # Get the correct rotation key for the level of y.
-            raw_rotation_key = rotation_key._get_key_at_level(y._level)
-
-            return ShellTensor64(
-                _raw_tensor=shell_ops.mat_mul_pt_ct64(
-                    y._context._get_context_at_level(y._level),
-                    scaled_x,
-                    y._raw_tensor,
-                    raw_rotation_key,
-                ),
-                _context=y._context,
-                _level=y._level,
-                _num_mod_reductions=y._num_mod_reductions,
-                _underlying_dtype=y._underlying_dtype,
-                _scaling_factor=y._scaling_factor**2,
-                _is_enc=True,
-                _is_fast_rotated=y._is_fast_rotated,
-            )
+        return ShellTensor64(
+            _raw_tensor=shell_ops.mat_mul_pt_ct64(
+                y._context._get_context_at_level(y._level),
+                scaled_x,
+                y._raw_tensor,
+                raw_rotation_key,
+                reduction=pt_ct_reduction,
+            ),
+            _context=y._context,
+            _level=y._level,
+            _num_mod_reductions=y._num_mod_reductions,
+            _underlying_dtype=y._underlying_dtype,
+            _scaling_factor=y._scaling_factor**2,
+            _is_enc=True,
+            _is_fast_rotated=pt_ct_reduction == "fast",
+        )
 
     elif isinstance(x, ShellTensor64) and isinstance(y, ShellTensor64):
         return NotImplementedError
@@ -1061,16 +1056,24 @@ def split(x, num_or_size_splits, axis=0, num_splits=None):
         raise ValueError("Unsupported type for expand_dims")
 
 
-def segment_sum(x, segments, num_segments, rotation_key=None):
+def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"):
     if not isinstance(segments, tf.Tensor):
         raise ValueError("`segments` must be a TensorFlow tensor.")
 
     if isinstance(x, ShellTensor64):
-        if not isinstance(rotation_key, ShellRotationKey64):
-            raise ValueError(
-                f"Rotation key must be provided. Instead saw {rotation_key}."
-            )
-        raw_rotation_key = rotation_key._get_key_at_level(x._level)
+        if reduction not in ["galois", "none"]:
+            raise ValueError(f"Reduction must be 'galois' or 'none'. Got {reduction}.")
+
+        if reduction == "galois":
+            if not isinstance(rotation_key, ShellRotationKey64):
+                raise ValueError(
+                    f"Rotation key must be provided for galois-based reduction. Instead saw {rotation_key}."
+                )
+            raw_rotation_key = rotation_key._get_key_at_level(x._level)
+
+        elif reduction == "none":
+            # Any variant tensor will do. It is ignored by the op.
+            raw_rotation_key = x._context._get_context_at_level(x._level)
 
         raw_result, reduction_count = shell_ops.segment_sum_ct(
             x._context._get_context_at_level(x._level),
@@ -1078,6 +1081,7 @@ def segment_sum(x, segments, num_segments, rotation_key=None):
             segments,
             num_segments,
             raw_rotation_key,
+            reduction=reduction,
         )
 
         return (

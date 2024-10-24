@@ -204,15 +204,7 @@ REGISTER_OP("MatMulPtCt64")
     .Input("a: Dtype")
     .Input("b: variant")
     .Input("rotation_key: variant")
-    .Output("c: variant")
-    .SetShapeFn(ShellMatMulPtCtShape);
-
-REGISTER_OP("FastMatMulPtCt64")
-    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
-    .Input("context: variant")
-    .Input("a: Dtype")
-    .Input("b: variant")
-    // no rotation key
+    .Attr("reduction: string")
     .Output("c: variant")
     .SetShapeFn(ShellMatMulPtCtShape);
 
@@ -441,6 +433,7 @@ REGISTER_OP("UnsortedCtSegmentSum")
     .Input("segment_ids: Tindices")
     .Input("num_segments: Tnumsegments")
     .Input("rotation_key: variant")
+    .Attr("reduction: string")
     .Output("output: variant")
     .Output("reduction_counts: Tindices")
     .Attr("Tindices: {int32,int64}")

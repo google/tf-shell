@@ -26,12 +26,19 @@ class ShellEmbedding(keras.layers.Layer):
         output_dim,
         embeddings_initializer="uniform",
         skip_embeddings_below_index=0,
+        grad_reduction="none",
     ):
         super().__init__()
         self.input_dim = int(input_dim)
         self.output_dim = int(output_dim)
         self.embeddings_initializer = initializers.get(embeddings_initializer)
         self.skip_embeddings_below_index = skip_embeddings_below_index
+        self.grad_reduction = grad_reduction
+
+        if grad_reduction not in ["galois", "none"]:
+            raise ValueError(
+                f"Invalid grad_reduction type: {grad_reduction} (must be 'galois' or 'none')"
+            )
 
     def get_config(self):
         config = super().get_config()
@@ -112,6 +119,7 @@ class ShellEmbedding(keras.layers.Layer):
             indices,
             self.input_dim,
             rotation_key,
+            reduction=self.grad_reduction,
         )
 
         return [summedvalues], tf.zeros(0)

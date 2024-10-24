@@ -55,7 +55,6 @@ class TestModel(tf.test.TestCase):
                     kernel_size=8,
                     strides=2,
                     padding="SAME",
-                    use_fast_reduce_sum=True,
                 ),
                 tf_shell_ml.MaxPool2D(
                     pool_size=(2, 2),
@@ -65,18 +64,15 @@ class TestModel(tf.test.TestCase):
                     filters=32,
                     kernel_size=4,
                     strides=2,
-                    use_fast_reduce_sum=True,
                 ),
                 tf_shell_ml.Flatten(),
                 tf_shell_ml.ShellDense(
                     16,
                     activation=tf.nn.softmax,
-                    use_fast_reduce_sum=True,
                 ),
                 tf_shell_ml.ShellDense(
                     10,
                     activation=tf.nn.softmax,
-                    use_fast_reduce_sum=True,
                 ),
             ],
             backprop_context_fn=lambda: tf_shell.create_autocontext64(

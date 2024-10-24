@@ -79,25 +79,25 @@ class TestEmbedding(tf.test.TestCase):
             enc_dy = tf_shell.to_encrypted(dy, key, context)
 
             enc_dw, _ = embedding_layer.backward(enc_dy, rotation_key)
-            packed_dx = tf_shell.to_tensorflow(enc_dw[0], key)
-            dx = embedding_layer.unpack(packed_dx)
+            dw = tf_shell.to_tensorflow(enc_dw[0], key)
+            # dw = embedding_layer.unpack(packed_dw)
+            dw = tf.reduce_sum(dw, axis=0)
+            return dw
 
-            return dx
-
-        dx = forward_backward(x)
+        dw = forward_backward(x)
 
         for i in range(0, input_dim):
-            # Check dx[ special_index] has counted the number of elements.
+            # Check dw[ special_index] has counted the number of elements.
             if i == special_index:
                 self.assertAllEqual(
-                    dx[special_index, :],
+                    dw[special_index, :],
                     tf.constant(
                         context.num_slots * sentence_length, shape=(output_dim,)
                     ),
                 )
             # Make sure the rest of the gradient elements are 0.
             else:
-                self.assertAllEqual(dx[i, :], tf.constant(0, shape=(output_dim,)))
+                self.assertAllEqual(dw[i, :], tf.constant(0, shape=(output_dim,)))
 
     def test_embedding_eager(self):
         tf.config.run_functions_eagerly(True)

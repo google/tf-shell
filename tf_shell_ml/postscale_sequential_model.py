@@ -272,10 +272,10 @@ class PostScaleSequential(SequentialBase):
                 # Unmask the batch gradient.
                 grads = [mg - m for mg, m in zip(grads, sum_masks)]
 
-                # SHELL represents floats as integers between [0, t) where t is the
-                # plaintext modulus. To mimic SHELL's modulo operations in
-                # TensorFlow, numbers which exceed the range [-t/2, t/2] are shifted
-                # back into the range.
+                # SHELL represents floats as integers between [0, t) where t is
+                # the plaintext modulus. To mimic SHELL's modulo operations in
+                # TensorFlow, numbers which exceed the range [-t/2, t/2] are
+                # shifted back into the range.
                 epsilon = tf.constant(1e-6, dtype=float)
 
                 def rebalance(x, s):

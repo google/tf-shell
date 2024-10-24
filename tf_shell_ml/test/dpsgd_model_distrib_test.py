@@ -88,12 +88,10 @@ class TestDistribModel(tf.test.TestCase):
                     64,
                     activation=tf_shell_ml.relu,
                     activation_deriv=tf_shell_ml.relu_deriv,
-                    use_fast_reduce_sum=True,
                 ),
                 tf_shell_ml.ShellDense(
                     10,
                     activation=tf.nn.softmax,
-                    use_fast_reduce_sum=True,
                 ),
             ],
             lambda: tf_shell.create_autocontext64(

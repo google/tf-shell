@@ -142,18 +142,25 @@ Status ShellSegmentReductionWithNumSegmentsShape(InferenceContext* c) {
     DimensionHandle num_segments_dim;
     TF_RETURN_IF_ERROR(c->MakeDimForScalarInput(3, &num_segments_dim));
 
-    // Output is {2} + {segment_id_rank} + s_data[segment_id_rank -
-    // 1:]. 2 is because the top and bottom of the ciphertexts are treated
+    std::string reduction_type;
+    TF_RETURN_IF_ERROR(c->GetAttr("reduction", &reduction_type));
+
+    // When the reduction type is galois, the output shape is:
+    // [2, segment_id_rank, s_data[segment_id_rank - 1:]].
+    // 2 is because the top and bottom of the ciphertexts are treated
     // independently. The packing dimension is not included as the output is
     // a ciphertext and holds this dimension implicitly.
+    // When the reduction type is none, the 2 is omitted.
     ShapeHandle s_data_suffix;
     auto rank = c->Rank(s_segment_ids_suffix);
     TF_RETURN_IF_ERROR(c->Subshape(s_data, rank, &s_data_suffix));
 
     TF_RETURN_IF_ERROR(
         c->Concatenate(c->Vector(num_segments_dim), s_data_suffix, &data_out));
-    TF_RETURN_IF_ERROR(
-        c->Concatenate(c->Vector(c->MakeDim(2)), data_out, &data_out));
+    if (reduction_type == "galois") {
+      TF_RETURN_IF_ERROR(
+          c->Concatenate(c->Vector(c->MakeDim(2)), data_out, &data_out));
+    }
 
     TF_RETURN_IF_ERROR(c->WithRankAtLeast(s_segment_ids, 1, &s_segment_ids));
     DimensionHandle num_slots = c->Dim(s_segment_ids, 0);

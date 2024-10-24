@@ -84,13 +84,6 @@ class DpSgdSequential(SequentialBase):
             x = l(x, training=training)
         return x
 
-    def build(self, input_shape):
-        super().build(input_shape)
-        self.unpacking_funcs = []
-        for l in self.layers:
-            if hasattr(l, "unpacking_funcs"):
-                self.unpacking_funcs.extend(l.unpacking_funcs())
-
     def compute_max_two_norm_and_pred(self, features, skip_two_norm):
         with tf.GradientTape(persistent=tf.executing_eagerly()) as tape:
             y_pred = self(features, training=True)  # forward pass
@@ -187,7 +180,7 @@ class DpSgdSequential(SequentialBase):
                 t = tf.cast(backprop_context.plaintext_modulus, tf.float32)
                 t_half = t // 2
                 mask_scaling_factors = [g._scaling_factor for g in reversed(dJ_dw)]
-                mask = [
+                masks = [
                     tf.random.uniform(
                         tf_shell.shape(g),
                         dtype=tf.float32,
@@ -195,13 +188,11 @@ class DpSgdSequential(SequentialBase):
                         maxval=t_half / s,
                     )
                     for g, s in zip(reversed(dJ_dw), mask_scaling_factors)
-                    # tf.zeros_like(tf_shell.shape(g), dtype=tf.int64)
-                    # for g in dJ_dw
                 ]
 
                 # Mask the encrypted gradients and reverse the order to match
                 # the order of the layers.
-                grads = [(g + m) for g, m in zip(reversed(dJ_dw), mask)]
+                grads = [(g + m) for g, m in zip(reversed(dJ_dw), masks)]
 
             if not self.disable_noise:
                 # Features party encrypts the max two norm to send to the labels
@@ -217,7 +208,7 @@ class DpSgdSequential(SequentialBase):
         with tf.device(self.labels_party_dev):
             if not self.disable_encryption:
                 # Decrypt the weight gradients with the backprop key.
-                packed_grads = [
+                grads = [
                     tf_shell.to_tensorflow(
                         g,
                         (
@@ -229,12 +220,14 @@ class DpSgdSequential(SequentialBase):
                     for g in grads
                 ]
 
-                # Unpack the plaintext gradients using the corresponding layer's
-                # unpack function.
-                # TODO: Make sure this doesn't require sending the layers
-                # themselves just for unpacking. The weights should not be
-                # shared with the labels party.
-                grads = [f(g) for f, g in zip(self.unpacking_funcs, packed_grads)]
+            # Sum the masked gradients over the batch.
+            if self.disable_masking or self.disable_encryption:
+                grads = [tf.reduce_sum(g, 0) for g in grads]
+            else:
+                grads = [
+                    tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
+                    for g, s in zip(grads, mask_scaling_factors)
+                ]
 
             if not self.disable_noise:
                 tf.assert_equal(
@@ -271,7 +264,7 @@ class DpSgdSequential(SequentialBase):
                 # secret key.
                 flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
 
-                if self.check_overflow_INSECURE:
+                if not self.disable_encryption and self.check_overflow_INSECURE:
                     nosie_scaling_factors = grads._scaling_factor
                     self.warn_on_overflow(
                         [flat_grads],
@@ -289,12 +282,19 @@ class DpSgdSequential(SequentialBase):
                 )
 
             if not self.disable_masking and not self.disable_encryption:
+                # Sum the masks over the batch.
+                sum_masks = [
+                    tf_shell.reduce_sum_with_mod(m, 0, backprop_context, s)
+                    for m, s in zip(masks, mask_scaling_factors)
+                ]
+
+                # Unmask the batch gradient.
+                grads = [mg - m for mg, m in zip(grads, sum_masks)]
+
                 # SHELL represents floats as integers between [0, t) where t is
-                # the plaintext modulus. To mimic the modulo operation without
-                # SHELL, numbers which exceed the range [-t/2, t/2) are shifted
-                # back into the range. In this context, t is the plaintext
-                # modulus of the backprop context, since that what the gradients
-                # were encrypted with when the mask was added.
+                # the plaintext modulus. To mimic SHELL's modulo operations in
+                # TensorFlow, numbers which exceed the range [-t/2, t/2] are
+                # shifted back into the range.
                 epsilon = tf.constant(1e-6, dtype=float)
 
                 def rebalance(x, s):
@@ -305,15 +305,6 @@ class DpSgdSequential(SequentialBase):
                     x = tf.where(x < l_bound, x + t_over_s, x)
                     return x
 
-                # Unmask the gradients using the mask. The unpacking function may
-                # sum the mask from two of the gradients (one from each batch), so
-                # the mask must be brought back into the range of [-t/2, t/2] before
-                # subtracting it from the gradient, and again after.
-                unpacked_mask = [f(m) for f, m in zip(self.unpacking_funcs, mask)]
-                unpacked_mask = [
-                    rebalance(m, s) for m, s in zip(unpacked_mask, mask_scaling_factors)
-                ]
-                grads = [mg - m for mg, m in zip(grads, unpacked_mask)]
                 grads = [rebalance(g, s) for g, s in zip(grads, mask_scaling_factors)]
 
             # Apply the gradients to the model.

@@ -121,9 +121,9 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
                   TensorShape const& segment_ids_shape,
                   typename TTypes<Index, 2>::ConstTensor segment_ids,
                   typename TTypes<Variant, 2>::ConstTensor data,
-                  typename TTypes<Variant, 2>::Tensor unreduced_output,
                   typename TTypes<Variant, 3>::Tensor output,
-                  typename TTypes<Index, 2>::Tensor slot_counter) {
+                  typename TTypes<Index, 2>::Tensor slot_counter,
+                  std::string const& reduction_type) {
     // Initialize the output.
     // auto initial_value = InitialValueF()(shell_ctx_var);
     for (int i = 0; i < output.dimension(0); ++i) {
@@ -148,7 +148,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
 
     // Reduce `N` rows input to `num_segments` rows output.
     int64_t const N = segment_ids.dimension(1);
-    int64_t const num_segments = unreduced_output.dimension(0);
+    int64_t const num_segments = output.dimension(1);
     int64_t const inner_dim = data.dimension(1);
     int64_t const num_slots = 1 << shell_ctx_var->log_n_;
     ShellContext const* shell_ctx = shell_ctx_var->ct_context_.get();
@@ -178,14 +178,6 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
     // Nothing to reduce. All output values equal to `InitialValueF()`.
     if (trivial_reduction) {
       return;
-    }
-
-    // Initialize intermediate storage tensor.
-    for (int i = 0; i < unreduced_output.dimension(0); ++i) {
-      for (int ii = 0; ii < unreduced_output.dimension(1); ++ii) {
-        // unreduced_output(i, ii) = initial_value;
-        unreduced_output(i, ii) = InitialValueF()(shell_ctx_var);
-      }
     }
 
     // Step 1: Reduce over the ciphertext dimension. There are many slots in a
@@ -255,7 +247,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
                               data_var->ct * mask_pt);
 
             SymmetricCtVariant<T>* output_var =
-                unreduced_output((int64_t)j, chip).get<SymmetricCtVariant<T>>();
+                output(0, (int64_t)j, chip).get<SymmetricCtVariant<T>>();
             OP_REQUIRES(ctx, output_var != nullptr,
                         InvalidArgument("SymmetricCtVariant for output did not "
                                         "unwrap successfully."));
@@ -269,7 +261,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
               // input's context to prevent premature deletion of the moduli.
               SymmetricCtVariant var(masked_data_ct, data_var->ct_context,
                                      data_var->error_params);
-              unreduced_output((int64_t)j, chip) = std::move(var);
+              output(0, (int64_t)j, chip) = std::move(var);
             } else {
               OP_REQUIRES_OK(ctx, reduction(masked_data_ct, output_var->ct));
             }
@@ -295,12 +287,10 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
         for (int64_t chip = 0; chip < inner_dim; ++chip) {
           // Start the reduction for the top and bottom halves of the ciphertext
           // with the output value.
-          SymmetricCt accum_top = unreduced_output(j, chip)
-                                      .get<SymmetricCtVariant<T>>()
-                                      ->ct;  // deep copy
-          SymmetricCt accum_bottom = unreduced_output(j, chip)
-                                         .get<SymmetricCtVariant<T>>()
-                                         ->ct;  // deep copy
+          SymmetricCt accum_top =
+              output(0, j, chip).get<SymmetricCtVariant<T>>()->ct;  // deep copy
+          SymmetricCt accum_bottom =
+              output(0, j, chip).get<SymmetricCtVariant<T>>()->ct;  // deep copy
           // No need to lazy decode the accums, they were created in this op.
 
           for (int64_t slot = 1; slot < num_slots; ++slot) {
@@ -317,7 +307,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
               key = keys[key_slot].get();
 
               SymmetricCt const& ct =
-                  unreduced_output(j, chip).get<SymmetricCtVariant<T>>()->ct;
+                  output(0, j, chip).get<SymmetricCtVariant<T>>()->ct;
 
               // Rotate.
               OP_REQUIRES_VALUE(auto ct_sub, ctx,
@@ -344,13 +334,15 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
       }
     };
 
-    // Use a fixed block size to avoid stragglers in the reduction.
-    int64_t const batchaxis_block_size = 2;
-    tsl::thread::ThreadPool::SchedulingParams batchaxis_scheduling_params(
-        tsl::thread::ThreadPool::SchedulingStrategy::kFixedBlockSize,
-        std::nullopt, batchaxis_block_size);
-    thread_pool->ParallelFor(num_segments, batchaxis_scheduling_params,
-                             batchAxisReductionWorker);
+    if (reduction_type == "galois") {
+      // Use a fixed block size to avoid stragglers in the reduction.
+      int64_t const batchaxis_block_size = 2;
+      tsl::thread::ThreadPool::SchedulingParams batchaxis_scheduling_params(
+          tsl::thread::ThreadPool::SchedulingStrategy::kFixedBlockSize,
+          std::nullopt, batchaxis_block_size);
+      thread_pool->ParallelFor(num_segments, batchaxis_scheduling_params,
+                               batchAxisReductionWorker);
+    }
   }
 };
 
@@ -378,7 +370,7 @@ struct SumOp {
 // check routines not in the templated class to reduce code size
 template <typename T>
 Status ValidateUnsortedSegmentReduction(OpKernel* op_kernel,
-                                        OpKernelContext* context,
+                                        OpKernelContext* op_ctx,
                                         ContextVariant<T> const* shell_ctx_var,
                                         Tensor const& data,
                                         Tensor const& segment_ids,
@@ -416,82 +408,104 @@ class UnsortedSegmentReductionOp : public OpKernel {
  private:
   using ModularInt = rlwe::MontgomeryInt<T>;
   using ShellContext = rlwe::RnsContext<ModularInt>;
+  using RotationKey = rlwe::RnsGaloisKey<ModularInt>;
+
+  std::string reduction_type;
+  char const* galois_reduction = "galois";
+  char const* no_reduction = "none";
 
  public:
-  explicit UnsortedSegmentReductionOp(OpKernelConstruction* context)
-      : OpKernel(context), reduction_functor_(DeviceReductionFunctor()) {}
+  explicit UnsortedSegmentReductionOp(OpKernelConstruction* op_ctx)
+      : OpKernel(op_ctx), reduction_functor_(DeviceReductionFunctor()) {
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("reduction", &reduction_type));
+    OP_REQUIRES(op_ctx, reduction_type == "galois" || reduction_type == "none",
+                InvalidArgument("Invalid reduction attribute: ", reduction_type,
+                                ". Must be 'galois' or 'none'."));
+  }
 
-  void Compute(OpKernelContext* context) override {
-    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, context,
-                      GetVariant<ContextVariant<T>>(context, 0));
+  void Compute(OpKernelContext* op_ctx) override {
+    // Recover the input tensors.
+    OP_REQUIRES_VALUE(ContextVariant<T> const* shell_ctx_var, op_ctx,
+                      GetVariant<ContextVariant<T>>(op_ctx, 0));
     int64_t const num_slots = 1 << shell_ctx_var->log_n_;
-    Tensor const& data = context->input(1);
-    Tensor const& segment_ids = context->input(2);
-    Tensor const& num_segments = context->input(3);
-    OP_REQUIRES_VALUE(RotationKeyVariant<T> const* rotation_key_var, context,
-                      GetVariant<RotationKeyVariant<T>>(context, 4));
-    OP_REQUIRES(
-        context, rotation_key_var != nullptr,
-        InvalidArgument("RotationKeyVariant did not unwrap successfully."));
-    OP_REQUIRES_OK(context, const_cast<RotationKeyVariant<T>*>(rotation_key_var)
-                                ->MaybeLazyDecode(shell_ctx_var->ct_context_));
+    Tensor const& data = op_ctx->input(1);
+    Tensor const& segment_ids = op_ctx->input(2);
+    Tensor const& num_segments = op_ctx->input(3);
 
-    OP_REQUIRES_OK(context, ValidateUnsortedSegmentReduction(
-                                this, context, shell_ctx_var, data, segment_ids,
-                                num_segments));
+    // Validate the input tensors.
+    OP_REQUIRES_OK(op_ctx, ValidateUnsortedSegmentReduction(
+                               this, op_ctx, shell_ctx_var, data, segment_ids,
+                               num_segments));
 
     Index const output_rows = static_cast<Index>(
         num_segments.dtype() == DT_INT32 ? num_segments.scalar<int32>()()
                                          : num_segments.scalar<int64_t>()());
-    OP_REQUIRES(context, output_rows >= 0,
+    OP_REQUIRES(op_ctx, output_rows >= 0,
                 InvalidArgument("Input num_segments == ", output_rows,
                                 " must not be negative."));
 
+    // Recover the rotation keys if needed.
+    RotationKeyVariant<T> const* rotation_key_var = nullptr;
+    if (reduction_type == galois_reduction) {
+      OP_REQUIRES_VALUE(rotation_key_var, op_ctx,
+                        GetVariant<RotationKeyVariant<T>>(op_ctx, 4));
+      OP_REQUIRES(
+          op_ctx, rotation_key_var != nullptr,
+          InvalidArgument("RotationKeyVariant did not unwrap successfully."));
+      OP_REQUIRES_OK(op_ctx,
+                     const_cast<RotationKeyVariant<T>*>(rotation_key_var)
+                         ->MaybeLazyDecode(shell_ctx_var->ct_context_));
+    }
+    std::vector<std::shared_ptr<RotationKey>> empty_rot_keys{};
+    std::vector<std::shared_ptr<RotationKey>> const& rot_keys =
+        reduction_type == galois_reduction ? rotation_key_var->keys
+                                           : empty_rot_keys;
+
+    // Build the output tensor shape.
     TensorShape output_shape;
-    OP_REQUIRES_OK(context, output_shape.AddDimWithStatus(output_rows));
+    OP_REQUIRES_OK(op_ctx, output_shape.AddDimWithStatus(output_rows));
     for (int i = segment_ids.dims() - 1; i < data.dims(); i++) {
       // -1 for batch axis packing.
-      OP_REQUIRES_OK(context, output_shape.AddDimWithStatus(data.dim_size(i)));
+      OP_REQUIRES_OK(op_ctx, output_shape.AddDimWithStatus(data.dim_size(i)));
     }
 
-    // `unreduced_data` is a temporary tensor to store the intermediate result
-    // before reducing over the packing dimension.
-    Tensor unreduced_data;
-    OP_REQUIRES_OK(context, context->allocate_temp(DT_VARIANT, output_shape,
-                                                   &unreduced_data));
-
-    // `slot_counter` records which slots in the unreduced_output ciphertext
-    // contain real data. This is used to rotate the occupied slots in
-    // unreduced_output to the first (and mid) positions for the real output.
-    // Since this is a plaintext output, prepend the packing dimension.
-    // TensorShape slot_counter_shape = output_shape;
-    // OP_REQUIRES_OK(context, slot_counter_shape.InsertDimWithStatus(0,
+    // `slot_counter` records which slots in the output ciphertexts contain real
+    // data. This is used to rotate the occupied slots in unreduced_output to
+    // the first (and mid) positions. Since this is a plaintext output, prepend
+    // the packing dimension. TensorShape slot_counter_shape = output_shape;
+    // OP_REQUIRES_OK(op_ctx, slot_counter_shape.InsertDimWithStatus(0,
     // num_slots));
     TensorShape slot_counter_shape = {num_slots, output_rows};
     Tensor* slot_counter = nullptr;
-    OP_REQUIRES_OK(context, context->allocate_output(1, slot_counter_shape,
-                                                     &slot_counter));
+    OP_REQUIRES_OK(
+        op_ctx, op_ctx->allocate_output(1, slot_counter_shape, &slot_counter));
 
-    // The reduced output will have a prefix dimension of 2, corresponding to
-    // the result from the top and bottom half of the ciphertexts.
-    OP_REQUIRES_OK(context, output_shape.InsertDimWithStatus(0, 2));
+    int64_t output_prefix_dim;
+
+    if (reduction_type == galois_reduction) {
+      // The reduced output will have a prefix dimension of 2, corresponding to
+      // the result from the top and bottom half of the ciphertexts.
+      output_prefix_dim = 2;
+      OP_REQUIRES_OK(op_ctx,
+                     output_shape.InsertDimWithStatus(0, output_prefix_dim));
+    } else {
+      output_prefix_dim = 1;
+    }
     Tensor* output = nullptr;
-    OP_REQUIRES_OK(context, context->allocate_output(0, output_shape, &output));
+    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
 
     auto const segment_flat = segment_ids.flat_outer_dims<Index>();
-    auto unreduced_data_flat = unreduced_data.flat_outer_dims<Variant>();
     auto output_flat =
-        output->shaped<Variant, 3>({2, unreduced_data_flat.dimension(0),
-                                    unreduced_data_flat.dimension(1)});
+        output->flat_inner_outer_dims<Variant>(output_prefix_dim - 2);
     auto data_flat =
         data.flat_inner_outer_dims<Variant, 2>(segment_ids.dims() - 1 - 1);
     // -1 because flat_inner_outer_dims arg is an includsive range,
     // -1 again for batch axis packing (dimension 0 of data is imaginary).
     auto slot_counter_matrix = slot_counter->flat_outer_dims<Index>();
 
-    reduction_functor_(context, shell_ctx_var, rotation_key_var->keys,
-                       segment_ids.shape(), segment_flat, data_flat,
-                       unreduced_data_flat, output_flat, slot_counter_matrix);
+    reduction_functor_(op_ctx, shell_ctx_var, rot_keys, segment_ids.shape(),
+                       segment_flat, data_flat, output_flat,
+                       slot_counter_matrix, reduction_type);
   }
 
  protected:

@@ -33,7 +33,7 @@ class Conv2D(keras.layers.Layer):
         kernel_initializer="glorot_uniform",
         weight_dtype=tf.float32,
         is_first_layer=False,
-        use_fast_reduce_sum=False,
+        grad_reduction="none",
     ):
         super().__init__()
         self.filters = int(filters)
@@ -60,7 +60,12 @@ class Conv2D(keras.layers.Layer):
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.weight_dtype = weight_dtype
         self.is_first_layer = is_first_layer
-        self.use_fast_reduce_sum = use_fast_reduce_sum
+        self.grad_reduction = grad_reduction
+
+        if grad_reduction not in ["galois", "fast", "none"]:
+            raise ValueError(
+                f"Invalid grad_reduction type: {grad_reduction} (must be 'galois', 'fast', or 'none')"
+            )
 
     def get_config(self):
         config = super().get_config()
@@ -133,10 +138,10 @@ class Conv2D(keras.layers.Layer):
             x, dy_exp, [1, 1, 1, 1], self.padding, self.strides, with_channel=True
         )
 
-        if self.use_fast_reduce_sum:
-            d_w = tf_shell.fast_reduce_sum(d_w)
-        else:
+        if self.grad_reduction == "galois":
             d_w = tf_shell.reduce_sum(d_w, 0, rotation_key)
+        elif self.grad_reduction == "fast":
+            d_w = tf_shell.fast_reduce_sum(d_w)
 
         grad_weights.append(d_w)
 

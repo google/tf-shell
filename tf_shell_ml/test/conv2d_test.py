@@ -82,7 +82,7 @@ class TestConv2D(tf.test.TestCase):
         tf_dw = tape.gradient(y, tf_conv_layer.trainable_variables)
 
         self.assertAllClose(dx, tf_dx)
-        self.assertAllClose(dws[0], tf_dw[0])
+        self.assertAllClose(tf.reduce_sum(dws[0], axis=0), tf_dw[0])
 
     def test_conv2d_plaintext_forward_backward_correct(self):
         for stride in [1, 2]:
@@ -124,7 +124,7 @@ class TestConv2D(tf.test.TestCase):
             # Encrypted backward pass.
             enc_dw, enc_dx = conv_layer.backward(enc_dy, rotation_key)
             dw = tf_shell.to_tensorflow(enc_dw[0], key)
-            dw = conv_layer.unpack(dw)
+            # dw = conv_layer.unpack(dw)  # for layer reduction 'fast' or 'galois'
             dx = tf_shell.to_tensorflow(enc_dx, key)
 
             # Plaintext backward pass.

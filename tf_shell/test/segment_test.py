@@ -194,6 +194,76 @@ class TestShellTensor(tf.test.TestCase):
                 ):
                     self._test_segment_sum(test_context, segment_creator)
 
+    def _test_segment_sum_no_reduction(self, test_context, segment_creator_functor):
+        repeats = 8
+        num_segments = test_context.shell_context.num_slots.numpy() // repeats
+
+        a = self.create_rand_data(test_context, repeats)
+        if a is None:
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
+
+        segments = segment_creator_functor(test_context, repeats, num_segments)
+        segments_shape_should_be = [
+            test_context.shell_context.num_slots.numpy(),
+            num_segments,
+        ]
+        counts_shape_should_be = [
+            test_context.shell_context.num_slots.numpy(),
+            num_segments,
+        ]
+
+        @tf.function
+        def test_functor(ea, segments, num_segments):
+            ess, counts = tf_shell.segment_sum(
+                ea, segments, num_segments, reduction="none"
+            )
+            # Tests shape inference
+            self.assertEqual(ess.shape.ndims, len(segments_shape_should_be))
+            for i in range(ess.shape.ndims):
+                if ess.shape[i] is not None:
+                    self.assertEqual(ess.shape[i], segments_shape_should_be[i])
+            self.assertEqual(counts.shape.ndims, len(counts_shape_should_be))
+            for i in range(counts.shape.ndims):
+                if counts.shape[i] is not None:
+                    self.assertEqual(counts.shape[i], counts_shape_should_be[i])
+
+            return ess, counts
+
+        ess, counts = test_functor(ea, segments, num_segments)
+
+        ss = tf_shell.to_tensorflow(ess, test_context.key)
+
+        pt_result = tf.math.unsorted_segment_sum(a, segments, num_segments)
+
+        # Ensure the data is correct.
+        self.assertAllClose(pt_result, tf.reduce_sum(ss, axis=0))
+
+        # Ensure the counts are correct.
+        def bincount(x):
+            return tf.math.bincount(x, minlength=num_segments, maxlength=num_segments)
+
+        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
+        pt_counts = tf.map_fn(bincount, segments_nonnegative)
+        self.assertAllEqual(pt_counts, counts)
+
+        # Ensure initial arguments are not modified.
+        self.assertAllClose(a, tf_shell.to_tensorflow(sa))
+        self.assertAllClose(a, tf_shell.to_tensorflow(ea, test_context.key))
+
+    def test_segment_sum_no_reduction(self):
+        for test_context in self.test_contexts:
+            for segment_creator in [
+                self.create_uniform_segments,
+                self.create_nonuniform_segments,
+            ]:
+                with self.subTest(
+                    f"{self._testMethodName} with context `{test_context}` and segment creator `{segment_creator}``."
+                ):
+                    self._test_segment_sum_no_reduction(test_context, segment_creator)
+
     def _test_segment_sum_fewer_dims(self, test_context, segment_creator_functor):
         repeats = 8
         num_segments = test_context.shell_context.num_slots.numpy() // repeats

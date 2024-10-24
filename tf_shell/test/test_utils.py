@@ -189,6 +189,7 @@ def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
 
     min_val, max_val = get_bounds_for_n_muls(test_context, num_muls)
 
+    subsequent_adds = tf.cast(subsequent_adds, min_val.dtype)
     min_val = min_val / (subsequent_adds + 1)
     max_val = max_val / (subsequent_adds + 1)
 

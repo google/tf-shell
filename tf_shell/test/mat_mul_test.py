@@ -179,7 +179,7 @@ class TestShellTensor(tf.test.TestCase):
         @tf.function
         def test_functor():
             if use_fast_rotation:
-                ec = tf_shell.matmul(a, eb, fast=True)
+                ec = tf_shell.matmul(a, eb, pt_ct_reduction="fast")
             else:
                 ec = tf_shell.matmul(a, eb, test_context.rotation_key)
             # Tests shape inference

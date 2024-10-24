@@ -91,7 +91,7 @@ class TestMNISTBackprop(tf.test.TestCase):
             activation=tf_shell_ml.relu,
             activation_deriv=tf_shell_ml.relu_deriv,
             is_first_layer=True,
-            use_fast_reduce_sum=use_fast_reduce_sum,
+            grad_reduction="fast" if use_fast_reduce_sum else "galois",
         )
         output_layer = tf_shell_ml.ShellDense(
             10,
@@ -102,7 +102,7 @@ class TestMNISTBackprop(tf.test.TestCase):
             # to compute than each of them individually). So instead just let the
             # loss function derivative incorporate y_pred - y and let the derivative
             # of this last layer's activation be a no-op.
-            use_fast_reduce_sum=use_fast_reduce_sum,
+            reduction="fast" if use_fast_reduce_sum else "galois",
         )
 
         # Call the layers once to create the weights.
