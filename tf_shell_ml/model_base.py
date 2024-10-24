@@ -242,3 +242,30 @@ class SequentialBase(keras.Sequential):
         # Reshape to the original shapes.
         grads_list = [tf.reshape(g, s) for g, s in zip(grads_list, grad_shapes)]
         return grads_list
+
+    def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
+        # If the gradient is between [-t/2, -t/4] or [t/4, t/2], the gradient
+        # may have overflowed. This also must take the scaling factor into
+        # account so the range is divided by the scaling factor.
+        t = tf.cast(plaintext_modulus, grads[0].dtype)
+        t_half = t / 2
+
+        over_by = [
+            tf.reduce_max(tf.abs(g) - t_half / 2 / s)
+            for g, s in zip(grads, scaling_factors)
+        ]
+        max_over_by = tf.reduce_max(over_by)
+        overflowed = tf.reduce_any(max_over_by > 0)
+
+        tf.cond(
+            overflowed,
+            lambda: tf.print(
+                message,
+                "Overflowed by",
+                over_by,
+                "(positive number indicates overflow amount).",
+            ),
+            lambda: tf.identity(overflowed),
+        )
+
+        return overflowed

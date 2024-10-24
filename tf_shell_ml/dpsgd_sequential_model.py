@@ -33,7 +33,7 @@ class DpSgdSequential(SequentialBase):
         disable_encryption=False,
         disable_masking=False,
         disable_noise=False,
-        check_overflow=False,
+        check_overflow_INSECURE=False,
         cache_path=None,
         jacobian_pfor=False,
         jacobian_pfor_iterations=None,
@@ -62,7 +62,7 @@ class DpSgdSequential(SequentialBase):
         self.disable_encryption = disable_encryption
         self.disable_masking = disable_masking
         self.disable_noise = disable_noise
-        self.check_overflow = check_overflow
+        self.check_overflow_INSECURE = check_overflow_INSECURE
         self.cache_path = cache_path
         self.jacobian_pfor = jacobian_pfor
         self.jacobian_pfor_iterations = jacobian_pfor_iterations
@@ -99,7 +99,7 @@ class DpSgdSequential(SequentialBase):
             grads = tape.jacobian(
                 y_pred,
                 self.trainable_variables,
-                unconnected_gradients='zero',
+                unconnected_gradients="zero",
                 parallel_iterations=self.jacobian_pfor_iterations,
                 experimental_use_pfor=self.jacobian_pfor,
             )
@@ -143,8 +143,8 @@ class DpSgdSequential(SequentialBase):
 
             # Backward pass.
             dx = self.loss_fn.grad(enc_y, y_pred)
-            dJ_dw = []
-            dJ_dx = [dx]
+            dJ_dw = []  # Derivatives of the loss with respect to the weights.
+            dJ_dx = [dx]  # Derivatives of the loss with respect to the inputs.
             for l in reversed(self.layers):
                 if isinstance(l, tf_shell_ml.GlobalAveragePooling1D):
                     dw, dx = l.backward(dJ_dx[-1])
@@ -152,6 +152,29 @@ class DpSgdSequential(SequentialBase):
                     dw, dx = l.backward(dJ_dx[-1], public_backprop_rotation_key)
                 dJ_dw.extend(dw)
                 dJ_dx.append(dx)
+
+            # Check if the backproped gradients overflowed.
+            if not self.disable_encryption and self.check_overflow_INSECURE:
+                # Note, checking the backprop gradients requires decryption
+                # on the features party which breaks security of the protocol.
+                bp_scaling_factors = [g._scaling_factor for g in dJ_dw]
+                dec_dJ_dw = [
+                    tf_shell.to_tensorflow(
+                        g,
+                        (
+                            backprop_secret_fastrot_key
+                            if g._is_fast_rotated
+                            else backprop_secret_key
+                        ),
+                    )
+                    for g in dJ_dw
+                ]
+                self.warn_on_overflow(
+                    dec_dJ_dw,
+                    bp_scaling_factors,
+                    backprop_context.plaintext_modulus,
+                    "WARNING: Backprop gradient may have overflowed.",
+                )
 
             # Mask the encrypted grads to prepare for decryption. The masks may
             # overflow during the reduce_sum over the batch. When the masks are
@@ -214,9 +237,16 @@ class DpSgdSequential(SequentialBase):
                 grads = [f(g) for f, g in zip(self.unpacking_funcs, packed_grads)]
 
             if not self.disable_noise:
-                # Efficiently pack the masked gradients to prepare for
-                # encryption. This is special because the masked gradients are
-                # no longer batched so the packing must be done manually.
+                tf.assert_equal(
+                    backprop_context.num_slots,
+                    noise_context.num_slots,
+                    message="Backprop and noise contexts must have the same number of slots.",
+                )
+
+                # Efficiently pack the masked gradients to prepare for adding
+                # the encrypted noise. This is special because the masked
+                # gradients are no longer batched, so the packing must be done
+                # manually.
                 (
                     flat_grads,
                     grad_shapes,
@@ -240,6 +270,16 @@ class DpSgdSequential(SequentialBase):
                 # The gradients must be first be decrypted using the noise
                 # secret key.
                 flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
+
+                if self.check_overflow_INSECURE:
+                    nosie_scaling_factors = grads._scaling_factor
+                    self.warn_on_overflow(
+                        [flat_grads],
+                        [nosie_scaling_factors],
+                        noise_context.plaintext_modulus,
+                        "WARNING: Noised gradient may have overflowed.",
+                    )
+
                 # Unpack the noise after decryption.
                 grads = self.unflatten_and_unpad_grad(
                     flat_grads,
@@ -249,10 +289,12 @@ class DpSgdSequential(SequentialBase):
                 )
 
             if not self.disable_masking and not self.disable_encryption:
-                # SHELL represents floats as integers between [0, t) where t is the
-                # plaintext modulus. To mimic the modulo operation without SHELL,
-                # numbers which exceed the range [-t/2, t/2) are shifted back into
-                # the range.
+                # SHELL represents floats as integers between [0, t) where t is
+                # the plaintext modulus. To mimic the modulo operation without
+                # SHELL, numbers which exceed the range [-t/2, t/2) are shifted
+                # back into the range. In this context, t is the plaintext
+                # modulus of the backprop context, since that what the gradients
+                # were encrypted with when the mask was added.
                 epsilon = tf.constant(1e-6, dtype=float)
 
                 def rebalance(x, s):
@@ -273,22 +315,6 @@ class DpSgdSequential(SequentialBase):
                 ]
                 grads = [mg - m for mg, m in zip(grads, unpacked_mask)]
                 grads = [rebalance(g, s) for g, s in zip(grads, mask_scaling_factors)]
-
-            if not self.disable_encryption and self.check_overflow:
-                # If the unmasked gradient is between [-t/2, -t/4] or
-                # [t/4, t/2], the gradient may have overflowed. Note this must
-                # also take the scaling factor into account.
-                overflowed = [
-                    tf.abs(g) > t_half / 2 / s
-                    for g, s in zip(grads, mask_scaling_factors)
-                ]
-                overflowed = [tf.reduce_any(o) for o in overflowed]
-                overflowed = tf.reduce_any(overflowed)
-                tf.cond(
-                    overflowed,
-                    lambda: tf.print("WARNING: Gradient may have overflowed."),
-                    lambda: tf.identity(overflowed),
-                )
 
             # Apply the gradients to the model.
             self.optimizer.apply_gradients(zip(grads, self.weights))

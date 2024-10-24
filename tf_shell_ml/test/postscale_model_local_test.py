@@ -50,19 +50,21 @@ class TestModel(tf.test.TestCase):
             ],
             lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=14,
-                scaling_factor=2**10,
+                scaling_factor=8,
+                # scaling_factor=2**10,
                 noise_offset_log2=47,  # may be overprovisioned
                 cache_path=context_cache_path,
             ),
             lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=14,
-                scaling_factor=2**10,
+                scaling_factor=8,
+                # scaling_factor=2**10,
                 noise_offset_log2=47,
                 cache_path=context_cache_path,
             ),
-            disable_encryption=False,
-            disable_masking=False,
-            disable_noise=False,
+            disable_encryption=disable_encryption,
+            disable_masking=disable_masking,
+            disable_noise=disable_noise,
             cache_path=context_cache_path,
         )
 

@@ -35,7 +35,7 @@ class TestModel(tf.test.TestCase):
         x_train, x_test = x_train[:, :512], x_test[:, :512]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-        train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(2**12)
+        train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(2**10)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
@@ -62,20 +62,38 @@ class TestModel(tf.test.TestCase):
             ],
             lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=14,
-                scaling_factor=8,
-                noise_offset_log2=12,
+                scaling_factor=4,
+                noise_offset_log2=54,
+                # Smaller possible scaing factors below.
+                # log2_cleartext_sz=14,
+                # scaling_factor=2,
+                # noise_offset_log2=54,
+                # log2_cleartext_sz=12,
+                # scaling_factor=1,
+                # noise_offset_log2=31,
                 cache_path=context_cache_path,
             ),
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=14,
-                scaling_factor=8,
+                # log2_cleartext_sz=30,
+                # scaling_factor=32,
+                # noise_offset_log2=0,
+                log2_cleartext_sz=32,
+                scaling_factor=16,
                 noise_offset_log2=0,
+                # Smaller possible scaing factors below.
+                # log2_cleartext_sz=30,
+                # scaling_factor=8,
+                # noise_offset_log2=0,
+                # log2_cleartext_sz=30,
+                # scaling_factor=4,
+                # noise_offset_log2=0,
                 cache_path=context_cache_path,
             ),
-            disable_encryption=False,
-            disable_masking=False,
-            disable_noise=False,
+            disable_encryption=disable_encryption,
+            disable_masking=disable_masking,
+            disable_noise=disable_noise,
             cache_path=context_cache_path,
+            # check_overflow_INSECURE=True,
         )
 
         m.compile(
@@ -89,7 +107,7 @@ class TestModel(tf.test.TestCase):
         m.build([None, 512])
         m.summary()
 
-        history = m.fit(train_dataset.take(4), epochs=1, validation_data=val_dataset)
+        history = m.fit(train_dataset.take(2**5), epochs=1, validation_data=val_dataset)
 
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
 

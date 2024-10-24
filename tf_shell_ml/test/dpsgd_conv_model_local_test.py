@@ -80,24 +80,24 @@ class TestModel(tf.test.TestCase):
                 ),
             ],
             backprop_context_fn=lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=26,
-                scaling_factor=2,
-                noise_offset_log2=46,
+                log2_cleartext_sz=24,
+                scaling_factor=1,
+                noise_offset_log2=0,
                 cache_path=context_cache_path,
             ),
             noise_context_fn=lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=26,
-                scaling_factor=2,
-                noise_offset_log2=47,
+                scaling_factor=1,
+                noise_offset_log2=0,
                 cache_path=context_cache_path,
             ),
             disable_encryption=disable_encryption,
             disable_masking=disable_masking,
             disable_noise=disable_noise,
             cache_path=context_cache_path,
-            check_overflow=True,
-            jacobian_pfor=False,
-            jacobian_pfor_iterations=None,
+            # check_overflow_INSECURE=True,
+            # jacobian_pfor=True,
+            # jacobian_pfor_iterations=128,
         )
 
         m.compile(
@@ -110,7 +110,9 @@ class TestModel(tf.test.TestCase):
         m.build([None, 28, 28, 1])
         m.summary()
 
-        history = m.fit(train_dataset.take(9), epochs=1, validation_data=val_dataset)
+        history = m.fit(train_dataset.take(16), epochs=1, validation_data=val_dataset)
+
+        context_cache.cleanup()
 
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
 

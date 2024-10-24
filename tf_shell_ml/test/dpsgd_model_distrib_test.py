@@ -97,13 +97,13 @@ class TestDistribModel(tf.test.TestCase):
                 ),
             ],
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=14,
-                scaling_factor=8,
-                noise_offset_log2=12,
+                log2_cleartext_sz=10,
+                scaling_factor=5,
+                noise_offset_log2=0,
                 cache_path=context_cache_path,
             ),
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=14,
+                log2_cleartext_sz=11,
                 scaling_factor=8,
                 noise_offset_log2=0,
                 cache_path=context_cache_path,
