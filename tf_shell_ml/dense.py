@@ -87,15 +87,12 @@ class ShellDense(keras.layers.Layer):
         if self.activation is not None:
             outputs = self.activation(outputs)
 
-        self._layer_output = outputs
-
         return outputs
 
     def backward(self, dy, rotation_key):
         """dense backward"""
         x = self._layer_input
         z = self._layer_intermediate
-        y = self._layer_output
         kernel = self.weights[0]
         grad_weights = []
 
