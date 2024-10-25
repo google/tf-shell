@@ -72,6 +72,6 @@ class ShellDropout(keras.layers.Layer):
         self.outputs = inputs * dropout_mask
         return self.outputs
 
-    def backward(self, dy, _):
+    def backward(self, dy, rotation_key=None):
         d_x = dy * self._layer_intermediate
         return [], d_x

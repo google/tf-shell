@@ -92,7 +92,7 @@ class ShellDense(keras.layers.Layer):
 
         return outputs
 
-    def backward(self, dy, rotation_key):
+    def backward(self, dy, rotation_key=None):
         """dense backward"""
         x = self._layer_input
         z = self._layer_intermediate

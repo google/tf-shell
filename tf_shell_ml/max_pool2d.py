@@ -68,7 +68,7 @@ class MaxPool2D(keras.layers.Layer):
 
         return outputs
 
-    def backward(self, dy, rotation_key):
+    def backward(self, dy, rotation_key=None):
         """Compute the gradient."""
         indices = self._layer_intermediate
         grad_weights = []

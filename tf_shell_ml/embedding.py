@@ -68,7 +68,7 @@ class ShellEmbedding(keras.layers.Layer):
         outputs = tf.experimental.numpy.take(self.embeddings, inputs, axis=0)
         return outputs
 
-    def backward(self, dy, rotation_key):
+    def backward(self, dy, rotation_key=None):
         """
         dy is shape (batch_size, sentence_length, output_dimension)
         _layer_input is (batch_size, sentence_length)
