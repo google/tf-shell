@@ -117,39 +117,6 @@ class TestShellTensor(tf.test.TestCase):
                         tf.config.run_functions_eagerly(eager)
                         self._test_ct_tf_matmul(test_context)
 
-    # tf-shell matmult has slightly different semantics than plaintext /
-    # Tensorflow. Encrypted matmult affects top and bottom halves independently,
-    # as well as the first dimension repeating the sum of either the halves.
-    # This function emulates this in plaintext.
-    def plaintext_matmul(self, a, b):
-        half_slots = b.shape[0] // 2
-        tf_half_slots = tf.constant([half_slots], dtype=tf.int32)
-
-        a_shape = tf.shape(a)
-        a_top_start = tf.zeros_like(a_shape)
-        a_top_shape = tf.concat([a_shape[:-1], tf_half_slots], axis=0)
-        a_top = tf.slice(a, a_top_start, a_top_shape)
-        a_bottom_start = tf.concat(
-            [tf.zeros_like(a_top_start[:-1]), tf_half_slots], axis=0
-        )
-        a_bottom_shape = tf.concat([a_shape[:-1], tf_half_slots], axis=0)
-        a_bottom = tf.slice(a, a_bottom_start, a_bottom_shape)
-
-        assert len(tf.shape(b)) == 2
-        b_top = b[:half_slots, :]
-        b_bottom = b[half_slots:, :]
-
-        top = tf.matmul(a_top, b_top)
-        bottom = tf.matmul(a_bottom, b_bottom)
-
-        top = tf.expand_dims(top, axis=0)
-        bottom = tf.expand_dims(bottom, axis=0)
-
-        top = tf.repeat(top, repeats=[half_slots], axis=0)
-        bottom = tf.repeat(bottom, repeats=[half_slots], axis=0)
-
-        return tf.concat([top, bottom], axis=0)
-
     def _test_tf_ct_matmul(self, test_context, use_fast_rotation):
         # Generating the following tensors should always succeed since this test
         # uses it's own special context.
@@ -174,7 +141,7 @@ class TestShellTensor(tf.test.TestCase):
             return
 
         eb = tf_shell.to_encrypted(b, test_context.key, test_context.shell_context)
-        check_c = self.plaintext_matmul(a, b)
+        check_c = tf_shell.matmul(a, b, emulate_pt_ct=True)
 
         @tf.function
         def test_functor():

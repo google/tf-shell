@@ -703,7 +703,7 @@ def to_tensorflow(s_tensor, key=None):
     )
 
 
-def roll(x, shift, rotation_key):
+def roll(x, shift, rotation_key=None):
     if isinstance(x, ShellTensor64):
         if not isinstance(rotation_key, ShellRotationKey64):
             raise ValueError(
@@ -734,7 +734,16 @@ def roll(x, shift, rotation_key):
             _is_fast_rotated=x._is_fast_rotated,
         )
     elif isinstance(x, tf.Tensor):
-        return tf.roll(x, shift)
+        # TensorFlow's roll has slightly different semantics than tf-shell's
+        # roll. Encrypted rotation affects top and bottom halves independently.
+        # This function emulates this in plaintext by splitting the tensor in
+        # half, rotating each half, and then concatenating them back together.
+        top, bottom = tf.split(x, num_or_size_splits=2, axis=0)
+        top = tf.roll(top, shift, axis=0)
+        bottom = tf.roll(bottom, shift, axis=0)
+        rotated_tftensor = tf.concat([top, bottom], axis=0)
+        return rotated_tftensor
+
     else:
         raise ValueError(f"Unsupported type for roll. Got {type(x)}.")
 
@@ -786,7 +795,22 @@ def reduce_sum(x, axis, rotation_key=None):
                 _is_fast_rotated=x._is_fast_rotated,
             )
     elif isinstance(x, tf.Tensor):
-        return tf.reduce_sum(x, axis)
+        if axis == 0:
+            # TensorFlow's reduce_sum over axis 0 (the slotting dimension) has
+            # slightly different semantics than tf-shell's reduce_sum. Encrypted
+            # reduce_sum affects top and bottom halves independently, as well as
+            # repeating the sum across the halves. This emulates this in
+            # plaintext.
+            half_slots = x.shape[0] // 2
+            bottom_answer = tf.math.reduce_sum(x[0:half_slots], axis=0, keepdims=True)
+            top_answer = tf.math.reduce_sum(x[half_slots:], axis=0, keepdims=True)
+
+            repeated_bottom_answer = tf.repeat(bottom_answer, repeats=half_slots, axis=0)
+            repeated_top_answer = tf.repeat(top_answer, repeats=half_slots, axis=0)
+
+            return tf.concat([repeated_bottom_answer, repeated_top_answer], 0)
+        else:
+            return tf.reduce_sum(x, axis)
     else:
         raise ValueError(f"Unsupported type for reduce_sum. Got {type(x)}.")
 
@@ -842,7 +866,7 @@ def fast_reduce_sum(x):
     )
 
 
-def matmul(x, y, rotation_key=None, pt_ct_reduction="galois"):
+def matmul(x, y, rotation_key=None, pt_ct_reduction="galois", emulate_pt_ct=False):
     """Matrix multiplication is specialized to whether the operands are
     plaintext or ciphertext.
 
@@ -935,7 +959,26 @@ def matmul(x, y, rotation_key=None, pt_ct_reduction="galois"):
         return NotImplementedError
 
     elif isinstance(x, tf.Tensor) and isinstance(y, tf.Tensor):
-        return tf.matmul(x, y)
+        if emulate_pt_ct:
+            # tf-shell matmult has slightly different semantics than plaintext /
+            # Tensorflow. Encrypted matmult affects top and bottom halves
+            # independently, as well as the first dimension repeating the sum of
+            # either the halves. This function emulates this in plaintext with
+            # element-wise multiplication, and an optional reduction.
+            shape_range = range(len(x.shape))
+            x = tf.transpose(x, perm=[shape_range[-1]] + list(shape_range[:-1]))
+            x = tf.expand_dims(x, axis=-1)
+            for _ in range(len(x.shape) - 2):
+                y = tf.expand_dims(y, axis=-2)
+            res = x * y
+
+            if pt_ct_reduction != "none":
+                res = reduce_sum(res, axis=0)
+
+            return res
+
+        else:
+            return tf.matmul(x, y)
 
     else:
         raise ValueError(
@@ -1098,7 +1141,29 @@ def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"
             reduction_count,
         )
     elif isinstance(x, tf.Tensor):
-        return tf.math.unsorted_segment_sum(x, segments, num_segments)
+        # tf-shell segment functions differs from tensorflow in the following
+        # ways: First, the ciphertext dimension is included in the output, but
+        # only one dimension is valid. For the top half of the ciphertext, the
+        # first dimension is valid, and for the bottom half, the `num_slots //
+        # 2`th dimension is valid.
+        # Second, the reduction only happens across half of the batching
+        # dimension, due to how rotations in tf-shell work. Segment reduction
+        # happens on the top and bottom halves of the ciphertext independently.
+        if reduction == "none":
+            raise ValueError(
+                "Plaintext segment_sum does not support `none` reduction."
+            )
+        half_slots = x.shape[0] // 2
+        padding = tf.zeros_like(x[:half_slots])
+
+        x_top = tf.concat([x[:half_slots], padding], 0)
+        x_bottom = tf.concat([padding, x[half_slots:]], 0)
+
+        top_answer = tf.math.unsorted_segment_sum(x_top, segments, num_segments)
+        bottom_answer = tf.math.unsorted_segment_sum(x_bottom, segments, num_segments)
+
+        return top_answer, bottom_answer
+
     else:
         raise ValueError("Unsupported type for segment_sum")
 

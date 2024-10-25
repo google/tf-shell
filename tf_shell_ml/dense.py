@@ -120,7 +120,11 @@ class ShellDense(keras.layers.Layer):
 
         # Perform the multiplication for dy/dw.
         d_w = tf_shell.matmul(
-            tf.transpose(x), dy, rotation_key, pt_ct_reduction=self.grad_reduction
+            tf.transpose(x),
+            dy,
+            rotation_key,
+            pt_ct_reduction=self.grad_reduction,
+            emulate_pt_ct=True,
         )
         d_ws.append(d_w)
 

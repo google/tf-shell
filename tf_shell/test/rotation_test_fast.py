@@ -80,7 +80,7 @@ class TestShellTensorFastRotation(tf.test.TestCase):
             enc_reduce_sum, key=test_context.fast_rotation_key
         )
         self.assertAllClose(
-            tftensor_out, test_utils.plaintext_reduce_sum_axis_0(tftensor), atol=1e-3
+            tftensor_out, tf_shell.reduce_sum(tftensor, axis=0), atol=1e-3
         )
 
     def test_fast_reduce_sum_axis_0(self):

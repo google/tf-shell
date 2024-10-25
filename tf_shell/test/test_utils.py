@@ -224,30 +224,3 @@ def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
     rand = tf.cast(rand, test_context.plaintext_dtype)
 
     return rand
-
-
-# TensorFlow's roll has slightly different semantics than tf-shell's roll.
-# Encrypted rotation affects top and bottom halves independently.
-# This function emulates this in plaintext by splitting the tensor in half,
-# rotating each half, and then concatenating them back together.
-def plaintext_roll(t, shift):
-    top, bottom = tf.split(t, num_or_size_splits=2, axis=0)
-    top = tf.roll(top, shift, axis=0)
-    bottom = tf.roll(bottom, shift, axis=0)
-    rotated_tftensor = tf.concat([top, bottom], axis=0)
-    return rotated_tftensor
-
-
-# TensorFlow's reduce_sum has slightly different semantics than tf-shell's
-# reduce_sum. Encrypted reduce_sum affects top and bottom halves
-# independently, as well as repeating the sum across the halves. This
-# function emulates this in plaintext.
-def plaintext_reduce_sum_axis_0(t):
-    half_slots = t.shape[0] // 2
-    bottom_answer = tf.math.reduce_sum(t[0:half_slots], axis=0, keepdims=True)
-    top_answer = tf.math.reduce_sum(t[half_slots:], axis=0, keepdims=True)
-
-    repeated_bottom_answer = tf.repeat(bottom_answer, repeats=half_slots, axis=0)
-    repeated_top_answer = tf.repeat(top_answer, repeats=half_slots, axis=0)
-
-    return tf.concat([repeated_bottom_answer, repeated_top_answer], 0)

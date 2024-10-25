@@ -44,42 +44,6 @@ class TestShellTensor(tf.test.TestCase):
     def tearDownClass(cls):
         cls.rotation_test_contexts = None
 
-    # tf-shell segment functions differs from tensorflow in the following ways:
-    # First, the ciphertext dimension is included in the output, but only one
-    # dimension is valid. For the top half of the ciphertext, the first
-    # dimension is valid, and for the bottom half, the `num_slots // 2`th
-    # dimension is valid.
-    # Second, the reduction only happens across half of the batching dimension,
-    # due to how rotations in tf-shell work. Segment reduction happens on the
-    # top and bottom halves of the ciphertext independently.
-    def plaintext_segment_sum(self, x, segments, num_segments, start_segment=0):
-        half_slots = x.shape[0] // 2
-        padding = tf.zeros_like(x[:half_slots])
-
-        x_top = tf.concat([x[:half_slots], padding], 0)
-        x_bottom = tf.concat([padding, x[half_slots:]], 0)
-
-        top_answer = tf.math.unsorted_segment_sum(x_top, segments, num_segments)
-        bottom_answer = tf.math.unsorted_segment_sum(x_bottom, segments, num_segments)
-
-        if start_segment > 0:
-            top_answer = tf.concat(
-                [
-                    tf.zeros_like(top_answer[:start_segment]),
-                    top_answer[start_segment:],
-                ],
-                axis=0,
-            )
-            bottom_answer = tf.concat(
-                [
-                    tf.zeros_like(bottom_answer[:start_segment]),
-                    bottom_answer[start_segment:],
-                ],
-                axis=0,
-            )
-
-        return top_answer, bottom_answer
-
     def create_rand_data(self, test_context, repeats):
         try:
             shape_prod = math.prod(test_context.outer_shape)
@@ -163,7 +127,7 @@ class TestShellTensor(tf.test.TestCase):
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
-        pt_ss_top, pt_ss_bottom = self.plaintext_segment_sum(a, segments, num_segments)
+        pt_ss_top, pt_ss_bottom = tf_shell.segment_sum(a, segments, num_segments)
 
         # Ensure the reduced data is correct.
         self.assertAllClose(pt_ss_top, ss[0][0])
@@ -315,7 +279,7 @@ class TestShellTensor(tf.test.TestCase):
 
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
-        pt_ss_top, pt_ss_bottom = self.plaintext_segment_sum(a, segments, num_segments)
+        pt_ss_top, pt_ss_bottom = tf_shell.segment_sum(a, segments, num_segments)
 
         # Ensure the data is correctly reduced.
         self.assertAllClose(pt_ss_top, ss[0][0])

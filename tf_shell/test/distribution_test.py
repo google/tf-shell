@@ -98,7 +98,7 @@ class TestDistributed(tf.test.TestCase):
         self.assertAllClose(c, a + b, atol=1)
         self.assertAllClose(e, a + d, atol=1)
         self.assertAllClose(
-            f, test_utils.plaintext_reduce_sum_axis_0(a + d), atol=1, rtol=1e-2
+            f, tf_shell.reduce_sum(a + d, axis=0), atol=1, rtol=1e-2
         )
 
 

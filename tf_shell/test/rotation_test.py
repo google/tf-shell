@@ -93,7 +93,7 @@ class TestShellTensorRotation(tf.test.TestCase):
                 tftensor, multiples=[1] * (i + 1) + [test_context.outer_shape[i]]
             )
 
-        rolled_tftensor = test_utils.plaintext_roll(tftensor, roll_num)
+        rolled_tftensor = tf_shell.roll(tftensor, roll_num)
 
         s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
         enc = tf_shell.to_encrypted(s, test_context.key)
@@ -148,7 +148,7 @@ class TestShellTensorRotation(tf.test.TestCase):
                 tftensor, multiples=[1] * (i + 1) + [test_context.outer_shape[i]]
             )
 
-        rolled_tftensor = test_utils.plaintext_roll(tftensor, roll_num)
+        rolled_tftensor = tf_shell.roll(tftensor, roll_num)
 
         s = tf_shell.to_shell_plaintext(tftensor, test_context.shell_context)
         enc = tf_shell.to_encrypted(s, test_context.key)
@@ -205,7 +205,7 @@ class TestShellTensorRotation(tf.test.TestCase):
 
         tftensor_out = tf_shell.to_tensorflow(enc_reduce_sum, test_context.key)
         self.assertAllClose(
-            tftensor_out, test_utils.plaintext_reduce_sum_axis_0(tftensor), atol=1e-3
+            tftensor_out, tf_shell.reduce_sum(tftensor, axis=0), atol=1e-3
         )
 
     def test_reduce_sum_axis_0(self):
