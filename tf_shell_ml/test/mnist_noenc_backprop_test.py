@@ -98,6 +98,14 @@ class TestMNISTBackprop(tf.test.TestCase):
                     # Plaintext backprop splitting the batch in half vertically.
                     output_layer_grad, hidden_layer_grad = train_step(x_batch, y_batch)
 
+                    # Reduce sum the gradients.
+                    output_layer_grad = [
+                        tf.reduce_sum(g, axis=0) for g in output_layer_grad
+                    ]
+                    hidden_layer_grad = [
+                        tf.reduce_sum(g, axis=0) for g in hidden_layer_grad
+                    ]
+
                     # To directly apply the weights, use the following:
                     # output_layer.weights[0] = output_layer.weights[0] - 0.01 * output_layer_grad[0]
                     # hidden_layer.weights[0] = hidden_layer.weights[0] - 0.01 * hidden_layer_grad[0]

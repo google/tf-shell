@@ -16,6 +16,7 @@
 # import unittest
 import os
 import tensorflow as tf
+import tempfile
 
 job_prefix = "tfshell"
 features_party_job = f"{job_prefix}features"
@@ -71,7 +72,7 @@ class TestDistribModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :350], x_test[:, :350]
+        x_train, x_test = x_train[:, :250], x_test[:, :250]
 
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
         train_dataset = train_dataset.shuffle(buffer_size=2**14).batch(2**12)
@@ -79,8 +80,8 @@ class TestDistribModel(tf.test.TestCase):
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
-        context_cache_path = "/tmp/dpsgd_model_distrib_test_cache/"
-        os.makedirs(context_cache_path, exist_ok=True)
+        cache_dir = tempfile.TemporaryDirectory()
+        cache = cache_dir.name
 
         m = tf_shell_ml.DpSgdSequential(
             [
@@ -95,20 +96,22 @@ class TestDistribModel(tf.test.TestCase):
                 ),
             ],
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=10,
-                scaling_factor=5,
-                noise_offset_log2=0,
-                cache_path=context_cache_path,
+                log2_cleartext_sz=23,
+                scaling_factor=32,
+                noise_offset_log2=14,
+                cache_path=cache,
             ),
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=11,
-                scaling_factor=8,
+                log2_cleartext_sz=24,
+                scaling_factor=1,
                 noise_offset_log2=0,
-                cache_path=context_cache_path,
+                cache_path=cache,
             ),
             labels_party_dev=labels_party_dev,
             features_party_dev=features_party_dev,
-            cache_path=context_cache_path,
+            cache_path=cache,
+            # check_overflow_INSECURE=True,
+            # disable_noise=True,
         )
 
         m.compile(
@@ -123,6 +126,8 @@ class TestDistribModel(tf.test.TestCase):
             epochs=1,
             validation_data=val_dataset,
         )
+
+        cache_dir.cleanup()
 
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.3)
 

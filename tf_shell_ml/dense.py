@@ -134,10 +134,7 @@ class ShellDense(keras.layers.Layer):
             elif self.grad_reduction == "fast":
                 d_bias = tf_shell.fast_reduce_sum(dy)
             else:
-                if not isinstance(dy, tf_shell.ShellTensor64):
-                    d_bias = tf.reduce_sum(dy, axis=0)
-                else:
-                    d_bias = dy
+                d_bias = dy
 
             d_ws.append(d_bias)
 

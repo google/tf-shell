@@ -100,7 +100,7 @@ class TestShellTensor(tf.test.TestCase):
         # in this case eb will be scaled up with a ct_pt multiplication to match
         # ec. tf-shell will handle this automatically.
         ed = ec * eb
-        self.assertEqual(ed._scaling_factor, (ea._scaling_factor**2)**2)
+        self.assertEqual(ed._scaling_factor, (ea._scaling_factor**2) ** 2)
         self.assertAllClose(
             a * b * b, tf_shell.to_tensorflow(ed, test_context.key), atol=1e-3
         )

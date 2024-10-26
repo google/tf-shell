@@ -139,15 +139,9 @@ def train_step(x, y):
         scaled_grad = tf_shell.reshape(scaled_grad, [batch_sz] + grad_shape)
         # ^  batch_size x weights
 
-        # Sum over the batch.
-        scaled_grad = tf_shell.reduce_sum(
-            scaled_grad, axis=0, rotation_key=rotation_key
-        )
-        # ^  batch_size x flattened weights
-
         # Decrypt.
         if isinstance(scaled_grad, tf_shell.ShellTensor64):
-            scaled_grad = tf_shell.to_tensorflow(scaled_grad, key)[0]
+            scaled_grad = tf_shell.to_tensorflow(scaled_grad, key)
 
         ps_grads.append(scaled_grad)
 

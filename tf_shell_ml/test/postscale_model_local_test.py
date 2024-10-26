@@ -49,17 +49,15 @@ class TestModel(tf.test.TestCase):
                 tf.keras.layers.Dense(10, activation="sigmoid"),
             ],
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=14,
-                scaling_factor=8,
-                # scaling_factor=2**10,
-                noise_offset_log2=47,  # may be overprovisioned
+                log2_cleartext_sz=23,
+                scaling_factor=32,
+                noise_offset_log2=14,
                 cache_path=context_cache_path,
             ),
             lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=14,
-                scaling_factor=8,
-                # scaling_factor=2**10,
-                noise_offset_log2=47,
+                log2_cleartext_sz=24,
+                scaling_factor=1,
+                noise_offset_log2=0,
                 cache_path=context_cache_path,
             ),
             disable_encryption=disable_encryption,

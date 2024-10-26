@@ -28,7 +28,6 @@ class DpSgdSequential(SequentialBase):
         noise_context_fn,
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
-        needs_public_rotation_key=False,
         noise_multiplier=1.0,
         disable_encryption=False,
         disable_masking=False,
@@ -57,7 +56,6 @@ class DpSgdSequential(SequentialBase):
         self.noise_context_fn = noise_context_fn
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
-        self.needs_public_rotation_key = needs_public_rotation_key
         self.noise_multiplier = noise_multiplier
         self.disable_encryption = disable_encryption
         self.disable_masking = disable_masking
@@ -111,21 +109,11 @@ class DpSgdSequential(SequentialBase):
         with tf.device(self.labels_party_dev):
             if self.disable_encryption:
                 enc_y = y
-                public_backprop_rotation_key = None
             else:
                 backprop_context = self.backprop_context_fn()
                 backprop_secret_key = tf_shell.create_key64(
                     backprop_context, self.cache_path
                 )
-                backprop_secret_fastrot_key = tf_shell.create_fast_rotation_key64(
-                    backprop_context, backprop_secret_key, self.cache_path
-                )
-                if self.needs_public_rotation_key:
-                    public_backprop_rotation_key = tf_shell.create_rotation_key64(
-                        backprop_context, backprop_secret_key, self.cache_path
-                    )
-                else:
-                    public_backprop_rotation_key = None
                 # Encrypt the batch of secret labels y.
                 enc_y = tf_shell.to_encrypted(y, backprop_secret_key, backprop_context)
 
@@ -140,10 +128,7 @@ class DpSgdSequential(SequentialBase):
             dJ_dw = []  # Derivatives of the loss with respect to the weights.
             dJ_dx = [dx]  # Derivatives of the loss with respect to the inputs.
             for l in reversed(self.layers):
-                if isinstance(l, tf_shell_ml.GlobalAveragePooling1D):
-                    dw, dx = l.backward(dJ_dx[-1])
-                else:
-                    dw, dx = l.backward(dJ_dx[-1], public_backprop_rotation_key)
+                dw, dx = l.backward(dJ_dx[-1])
                 dJ_dw.extend(dw)
                 dJ_dx.append(dx)
 
@@ -153,15 +138,7 @@ class DpSgdSequential(SequentialBase):
                 # on the features party which breaks security of the protocol.
                 bp_scaling_factors = [g._scaling_factor for g in dJ_dw]
                 dec_dJ_dw = [
-                    tf_shell.to_tensorflow(
-                        g,
-                        (
-                            backprop_secret_fastrot_key
-                            if g._is_fast_rotated
-                            else backprop_secret_key
-                        ),
-                    )
-                    for g in dJ_dw
+                    tf_shell.to_tensorflow(g, backprop_secret_key) for g in dJ_dw
                 ]
                 self.warn_on_overflow(
                     dec_dJ_dw,
@@ -209,21 +186,12 @@ class DpSgdSequential(SequentialBase):
         with tf.device(self.labels_party_dev):
             if not self.disable_encryption:
                 # Decrypt the weight gradients with the backprop key.
-                grads = [
-                    tf_shell.to_tensorflow(
-                        g,
-                        (
-                            backprop_secret_fastrot_key
-                            if g._is_fast_rotated
-                            else backprop_secret_key
-                        ),
-                    )
-                    for g in grads
-                ]
+                grads = [tf_shell.to_tensorflow(g, backprop_secret_key) for g in grads]
 
             # Sum the masked gradients over the batch.
-            if self.disable_masking or self.disable_encryption:
-                grads = [tf.reduce_sum(g, 0) for g in grads]
+            if self.disable_encryption or self.disable_masking:
+                # No mask, only sum required.
+                grads = [tf.reduce_sum(g, axis=0) for g in grads]
             else:
                 grads = [
                     tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
@@ -231,11 +199,12 @@ class DpSgdSequential(SequentialBase):
                 ]
 
             if not self.disable_noise:
-                tf.assert_equal(
-                    backprop_context.num_slots,
-                    noise_context.num_slots,
-                    message="Backprop and noise contexts must have the same number of slots.",
-                )
+                if not self.disable_encryption:
+                    tf.assert_equal(
+                        backprop_context.num_slots,
+                        noise_context.num_slots,
+                        message="Backprop and noise contexts must have the same number of slots.",
+                    )
 
                 # Efficiently pack the masked gradients to prepare for adding
                 # the encrypted noise. This is special because the masked
@@ -274,7 +243,7 @@ class DpSgdSequential(SequentialBase):
                         "WARNING: Noised gradient may have overflowed.",
                     )
 
-                # Unpack the noise after decryption.
+                # Unpack the noised grads after decryption.
                 grads = self.unflatten_and_unpad_grad(
                     flat_grads,
                     grad_shapes,
@@ -295,7 +264,8 @@ class DpSgdSequential(SequentialBase):
                 # SHELL represents floats as integers between [0, t) where t is
                 # the plaintext modulus. To mimic SHELL's modulo operations in
                 # TensorFlow, numbers which exceed the range [-t/2, t/2] are
-                # shifted back into the range.
+                # shifted back into the range. Note, this could be done as a
+                # custom op with tf-shell, but this is simpler for now.
                 epsilon = tf.constant(1e-6, dtype=float)
 
                 def rebalance(x, s):

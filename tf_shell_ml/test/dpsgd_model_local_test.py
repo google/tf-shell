@@ -20,28 +20,22 @@ import numpy as np
 import tf_shell
 import tf_shell_ml
 import os
+import tempfile
 
 
 class TestModel(tf.test.TestCase):
-    def _test_model(self, disable_encryption, disable_masking, disable_noise):
+    def _test_model(self, disable_encryption, disable_masking, disable_noise, cache):
         # Prepare the dataset.
         (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
         x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
         x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
         y_train, y_test = tf.one_hot(y_train, 10), tf.one_hot(y_test, 10)
 
-        # Clip dataset images to limit memory usage. The model accuracy will be
-        # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :512], x_test[:, :512]
-
         train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-        train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(2**10)
+        train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(2**12)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
-
-        context_cache_path = "/tmp/dpsgd_model_local_test_cache/"
-        os.makedirs(context_cache_path, exist_ok=True)
 
         # Turn on the shell optimizer to use autocontext.
         tf_shell.enable_optimization()
@@ -58,40 +52,23 @@ class TestModel(tf.test.TestCase):
                     activation=tf.nn.softmax,
                 ),
             ],
-            lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=14,
-                scaling_factor=4,
-                noise_offset_log2=54,
-                # Smaller possible scaing factors below.
-                # log2_cleartext_sz=14,
-                # scaling_factor=2,
-                # noise_offset_log2=54,
-                # log2_cleartext_sz=12,
-                # scaling_factor=1,
-                # noise_offset_log2=31,
-                cache_path=context_cache_path,
+            backprop_context_fn=lambda: tf_shell.create_autocontext64(
+                log2_cleartext_sz=23,
+                scaling_factor=32,
+                noise_offset_log2=14,
+                cache_path=cache,
             ),
-            lambda: tf_shell.create_autocontext64(
-                # log2_cleartext_sz=30,
-                # scaling_factor=32,
-                # noise_offset_log2=0,
-                log2_cleartext_sz=32,
-                scaling_factor=16,
+            noise_context_fn=lambda: tf_shell.create_autocontext64(
+                log2_cleartext_sz=24,
+                scaling_factor=1,
                 noise_offset_log2=0,
-                # Smaller possible scaing factors below.
-                # log2_cleartext_sz=30,
-                # scaling_factor=8,
-                # noise_offset_log2=0,
-                # log2_cleartext_sz=30,
-                # scaling_factor=4,
-                # noise_offset_log2=0,
-                cache_path=context_cache_path,
+                cache_path=cache,
             ),
             disable_encryption=disable_encryption,
             disable_masking=disable_masking,
             disable_noise=disable_noise,
-            cache_path=context_cache_path,
-            # check_overflow_INSECURE=True,
+            cache_path=cache,
+            check_overflow_INSECURE=True,
         )
 
         m.compile(
@@ -101,19 +78,19 @@ class TestModel(tf.test.TestCase):
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
-        # m.build([None, 784])
-        m.build([None, 512])
+        m.build([None, 784])
         m.summary()
 
-        history = m.fit(train_dataset.take(2**5), epochs=1, validation_data=val_dataset)
+        history = m.fit(train_dataset.take(4), epochs=1, validation_data=val_dataset)
 
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
 
     def test_model(self):
-        self._test_model(False, False, False)
-        self._test_model(True, False, False)
-        self._test_model(False, True, False)
-        self._test_model(False, False, True)
+        with tempfile.TemporaryDirectory() as cache_dir:
+            self._test_model(False, False, False, cache_dir)
+            self._test_model(True, False, False, cache_dir)
+            self._test_model(False, True, False, cache_dir)
+            self._test_model(False, False, True, cache_dir)
 
 
 if __name__ == "__main__":

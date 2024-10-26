@@ -361,7 +361,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 _level=matched_self._level,
                 _num_mod_reductions=matched_self._num_mod_reductions,
                 _underlying_dtype=self._underlying_dtype,
-                _scaling_factor=matched_self._scaling_factor * matched_other._scaling_factor,
+                _scaling_factor=matched_self._scaling_factor
+                * matched_other._scaling_factor,
                 _is_enc=self._is_enc or other._is_enc,
                 _is_fast_rotated=self._is_fast_rotated or other._is_fast_rotated,
             )
@@ -472,6 +473,7 @@ def mod_reduce_tensor64(shell_tensor):
 
     return reduced_self
 
+
 def _match_moduli(x, y):
     with tf.name_scope("match_moduli"):
         # Mod switch to the smaller modulus of the two.
@@ -481,6 +483,7 @@ def _match_moduli(x, y):
             y = mod_reduce_tensor64(y)
 
     return x, y
+
 
 def _match_moduli_and_scaling(x, y):
     with tf.name_scope("match_moduli_and_scaling"):
@@ -494,7 +497,7 @@ def _match_moduli_and_scaling(x, y):
             x = x.__mul__(gcd / x._scaling_factor)
         if lcm > y._scaling_factor:
             y = y.__mul__(gcd / y._scaling_factor)
-        
+
     return x, y
 
 
@@ -808,7 +811,9 @@ def reduce_sum(x, axis, rotation_key=None):
             bottom_answer = tf.math.reduce_sum(x[0:half_slots], axis=0, keepdims=True)
             top_answer = tf.math.reduce_sum(x[half_slots:], axis=0, keepdims=True)
 
-            repeated_bottom_answer = tf.repeat(bottom_answer, repeats=half_slots, axis=0)
+            repeated_bottom_answer = tf.repeat(
+                bottom_answer, repeats=half_slots, axis=0
+            )
             repeated_top_answer = tf.repeat(top_answer, repeats=half_slots, axis=0)
 
             return tf.concat([repeated_bottom_answer, repeated_top_answer], 0)
@@ -1154,9 +1159,7 @@ def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"
         # dimension, due to how rotations in tf-shell work. Segment reduction
         # happens on the top and bottom halves of the ciphertext independently.
         if reduction == "none":
-            raise ValueError(
-                "Plaintext segment_sum does not support `none` reduction."
-            )
+            raise ValueError("Plaintext segment_sum does not support `none` reduction.")
         half_slots = x.shape[0] // 2
         padding = tf.zeros_like(x[:half_slots])
 

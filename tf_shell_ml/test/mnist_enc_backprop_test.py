@@ -102,7 +102,7 @@ class TestMNISTBackprop(tf.test.TestCase):
             # to compute than each of them individually). So instead just let the
             # loss function derivative incorporate y_pred - y and let the derivative
             # of this last layer's activation be a no-op.
-            reduction="fast" if use_fast_reduce_sum else "galois",
+            grad_reduction="fast" if use_fast_reduce_sum else "galois",
         )
 
         # Call the layers once to create the weights.
@@ -113,37 +113,15 @@ class TestMNISTBackprop(tf.test.TestCase):
 
         (x_batch, y_batch) = next(iter(train_dataset))
 
-        # Plaintext backprop splitting the batch in half vertically.
-        top_x_batch, bottom_x_batch = tf.split(x_batch, num_or_size_splits=2, axis=0)
-        top_y_batch, bottom_y_batch = tf.split(y_batch, num_or_size_splits=2, axis=0)
-        top_output_layer_grad, top_hidden_layer_grad = train_step(
-            top_x_batch, top_y_batch, hidden_layer, output_layer, loss_fn
-        )
-        bottom_output_layer_grad, bottom_hidden_layer_grad = train_step(
-            bottom_x_batch, bottom_y_batch, hidden_layer, output_layer, loss_fn
-        )
-
-        # Stack the top and bottom gradients back together along a new
-        # outer dimension.
-        output_layer_grad = tf.concat(
-            [
-                tf.expand_dims(top_output_layer_grad, axis=0),
-                tf.expand_dims(bottom_output_layer_grad, axis=0),
-            ],
-            axis=0,
-        )
-        hidden_layer_grad = tf.concat(
-            [
-                tf.expand_dims(top_hidden_layer_grad, axis=0),
-                tf.expand_dims(bottom_hidden_layer_grad, axis=0),
-            ],
-            axis=0,
+        # Plaintext backprop.
+        output_layer_grad, hidden_layer_grad = train_step(
+            x_batch, y_batch, hidden_layer, output_layer, loss_fn
         )
 
         # Encrypt y.
         enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
 
-        # Backprop.
+        # Encrypted Backprop.
         enc_output_layer_grad, enc_hidden_layer_grad = train_step(
             x_batch, enc_y_batch, hidden_layer, output_layer, loss_fn
         )
@@ -151,34 +129,15 @@ class TestMNISTBackprop(tf.test.TestCase):
         # Decrypt the gradients.
         if use_fast_reduce_sum:
             fast_rotation_key = tf_shell.create_fast_rotation_key64(context, key)
-            repeated_output_layer_grad = tf_shell.to_tensorflow(
+            shell_output_layer_grad = tf_shell.to_tensorflow(
                 enc_output_layer_grad, fast_rotation_key
             )
-            repeated_hidden_layer_grad = tf_shell.to_tensorflow(
+            shell_hidden_layer_grad = tf_shell.to_tensorflow(
                 enc_hidden_layer_grad, fast_rotation_key
             )
         else:
-            repeated_output_layer_grad = tf_shell.to_tensorflow(
-                enc_output_layer_grad, key
-            )
-            repeated_hidden_layer_grad = tf_shell.to_tensorflow(
-                enc_hidden_layer_grad, key
-            )
-
-        shell_output_layer_grad = tf.concat(
-            [
-                tf.expand_dims(repeated_output_layer_grad[0, ...], 0),
-                tf.expand_dims(repeated_output_layer_grad[batch_size // 2, ...], 0),
-            ],
-            axis=0,
-        )
-        shell_hidden_layer_grad = tf.concat(
-            [
-                tf.expand_dims(repeated_hidden_layer_grad[0, ...], 0),
-                tf.expand_dims(repeated_hidden_layer_grad[batch_size // 2, ...], 0),
-            ],
-            axis=0,
-        )
+            shell_output_layer_grad = tf_shell.to_tensorflow(enc_output_layer_grad, key)
+            shell_hidden_layer_grad = tf_shell.to_tensorflow(enc_hidden_layer_grad, key)
 
         # Compare the gradients.
         self.assertAllClose(

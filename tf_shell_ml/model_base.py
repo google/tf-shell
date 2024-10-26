@@ -264,6 +264,8 @@ class SequentialBase(keras.Sequential):
                 "Overflowed by",
                 over_by,
                 "(positive number indicates overflow amount).",
+                "Values should be less than",
+                [t_half / 2 / s for s in scaling_factors],
             ),
             lambda: tf.identity(overflowed),
         )

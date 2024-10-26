@@ -216,11 +216,12 @@ class PostScaleSequential(SequentialBase):
                 ]
 
             if not self.disable_noise:
-                tf.assert_equal(
-                    backprop_context.num_slots,
-                    noise_context.num_slots,
-                    message="Backprop and noise contexts must have the same number of slots.",
-                )
+                if not self.disable_encryption:
+                    tf.assert_equal(
+                        backprop_context.num_slots,
+                        noise_context.num_slots,
+                        message="Backprop and noise contexts must have the same number of slots.",
+                    )
 
                 # Efficiently pack the masked gradients to prepare for
                 # encryption. This is special because the masked gradients are
