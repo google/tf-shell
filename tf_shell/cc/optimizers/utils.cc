@@ -80,10 +80,33 @@ bool IsCtPtConv2d(NodeDef const& node) {
 bool IsCtCtConv2d(NodeDef const& node) {
   return node.op() == kConv2dCtCt64 || node.op() == kConv2dWithChanCtCt64;
 }
+bool IsPtCtConv2dTranspose(NodeDef const& node) {
+  return node.op() == kConv2dTransposePtCt64 ||
+         node.op() == kConv2dTransposeWithChanPtCt64;
+}
+bool IsCtPtConv2dTranspose(NodeDef const& node) {
+  return node.op() == kConv2dTransposeCtPt64 ||
+         node.op() == kConv2dTransposeWithChanCtPt64;
+}
+bool IsCtCtConv2dTranspose(NodeDef const& node) {
+  return node.op() == kConv2dTransposeCtCt64 ||
+         node.op() == kConv2dTransposeWithChanCtCt64;
+}
+bool IsPtCtConv2dOrTranspose(NodeDef const& node) {
+  return IsPtCtConv2d(node) || IsPtCtConv2dTranspose(node);
+}
+bool IsCtPtConv2dOrTranspose(NodeDef const& node) {
+  return IsCtPtConv2d(node) || IsCtPtConv2dTranspose(node);
+}
+bool IsCtCtConv2dOrTranspose(NodeDef const& node) {
+  return IsCtCtConv2d(node) || IsCtCtConv2dTranspose(node);
+}
 bool IsConv2d(NodeDef const& node) {
-  return IsPtCtConv2d(node) || IsCtPtConv2d(node) || IsCtCtConv2d(node);
+  return IsPtCtConv2dOrTranspose(node) || IsCtPtConv2dOrTranspose(node) ||
+         IsCtCtConv2dOrTranspose(node);
 }
 
+// Max unpooling ops.
 bool IsMaxUnpool2d(NodeDef const& node) {
   return node.op() == kMaxUnpool2dCt64;
 }

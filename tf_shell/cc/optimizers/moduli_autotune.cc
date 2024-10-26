@@ -44,7 +44,7 @@ struct ShellParams {
 struct ShellAutoParams {
   uint64_t cleartext_bits;
   uint64_t scaling_factor;
-  uint64_t noise_offset_bits;
+  int64_t noise_offset_bits;
   uint64_t noise_variance;
   std::string seed;
 };
@@ -108,7 +108,8 @@ Status AddScalarConstNode(T value, utils::Mutation* mutation,
   } else {
     []<bool flag = false>() {
       static_assert(flag, "AddScalarConstNode does not support this type");
-    }();
+    }
+    ();
   }
   tensor->set_allocated_tensor_shape(tensor_shape.release());
   (*node.mutable_attr())["value"].set_allocated_tensor(tensor.release());
@@ -149,7 +150,7 @@ Status GetAutoShellContextParams(utils::MutableNodeView* autocontext,
 
   auto const* noise_offset_node =
       autocontext->GetRegularFanin(2).node_view()->node();
-  TF_RETURN_IF_ERROR(GetScalarConstValue<uint64_t, DT_UINT64>(
+  TF_RETURN_IF_ERROR(GetScalarConstValue<int64_t, DT_INT64>(
       *noise_offset_node, &params.noise_offset_bits));
 
   auto const* noise_variance_node =
@@ -557,19 +558,17 @@ Status EstimateNodeNoise(
   }
 
   // CtCt operations.
-  else if (IsArithmetic(*node_def)) {
-    if (IsAddCtCt(*node_def) || IsSubCtCt(*node_def)) {
-      *this_noise = std::max(noise_a, noise_b) + 1;
-    } else if (IsMulCtCt(*node_def)) {
-      *this_noise = noise_a + noise_b;
-    }
+  else if (IsAddCtCt(*node_def) || IsSubCtCt(*node_def)) {
+    *this_noise = std::max(noise_a, noise_b) + 1;
+  } else if (IsMulCtCt(*node_def)) {
+    *this_noise = noise_a + noise_b;
+  }
 
-    // CtPt operations.
-    else if (IsAddCtPt(*node_def) || IsSubCtPt(*node_def)) {
-      *this_noise = noise_a;
-    } else if (IsMulCtPt(*node_def)) {
-      *this_noise = noise_a + BitWidth(error_params.B_plaintext());
-    }
+  // CtPt operations.
+  else if (IsAddCtPt(*node_def) || IsSubCtPt(*node_def)) {
+    *this_noise = noise_a;
+  } else if (IsMulCtPt(*node_def)) {
+    *this_noise = noise_a + BitWidth(error_params.B_plaintext());
   }
 
   // Negation operations.
@@ -602,13 +601,48 @@ Status EstimateNodeNoise(
 
   // Matrix multiplication operations.
   else if (IsMatMulCtPt(*node_def)) {
-    *this_noise = noise_a + BitWidth(error_params.B_plaintext());
-  } else if (IsMatMulPtCt(*node_def) || IsFastMatMulPtCt(*node_def)) {
     uint64_t mul_noise = noise_a + BitWidth(error_params.B_plaintext());
-    uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
-        kNumComponents, kLogGadgetBase, gadget_dimension));
-    rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
-    *this_noise = std::max(mul_noise, rot_noise) + 1;
+
+    int32 reduce_dim_size = 0;
+    if (!TryGetNodeAttr(*node_def, "reduce_dim_size", &reduce_dim_size)) {
+      std::cout << "WARNING: Could not determine dimension size to reduce in "
+                   "MatMulCtPt. Noise budget may be under-provisioned."
+                << std::endl;
+      *this_noise = mul_noise;
+    } else {
+      *this_noise = mul_noise + BitWidth(reduce_dim_size);
+    }
+  } else if (IsMatMulPtCt(*node_def) || IsFastMatMulPtCt(*node_def)) {
+    uint64_t mul_noise = noise_b + BitWidth(error_params.B_plaintext());
+
+    std::string reduction;
+    if (!TryGetNodeAttr(*node_def, "reduction", &reduction)) {
+      std::cout << "WARNING: Could not determine reduction type for "
+                   "MatMulPtCt. Noise budget may be under-provisioned."
+                << std::endl;
+      *this_noise = mul_noise;
+    } else {
+      if (reduction == "none") {
+        *this_noise = mul_noise;
+      } else if (reduction == "fast") {
+        *this_noise =
+            mul_noise +
+            BitWidth(params.log_n);  // There are log_n ct-ct additions.
+      } else if (reduction == "galois") {
+        uint64_t rot_noise =
+            BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
+                kNumComponents, kLogGadgetBase, gadget_dimension));
+        rot_noise = std::max(mul_noise, rot_noise) + 1;
+        rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
+        rot_noise += BitWidth(params.log_n);  // There are log_n additions.
+        *this_noise = rot_noise;
+      } else {
+        std::cout << "WARNING: Unknown reduction type for MatMulPtCt. Noise "
+                     "budget may be under-provisioned."
+                  << std::endl;
+        *this_noise = mul_noise;
+      }
+    }
   }
 
   // Rotation operations.
@@ -619,34 +653,22 @@ Status EstimateNodeNoise(
   } else if (IsReduceSumByRotation(*node_def)) {
     uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
         kNumComponents, kLogGadgetBase, gadget_dimension));
+    rot_noise = std::max(noise_b, rot_noise) + 1;
     rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
-    *this_noise = std::max(noise_b, rot_noise) + 1;
+    rot_noise += BitWidth(params.log_n);  // There are log_n ct-ct additions.
+    *this_noise = rot_noise;
   } else if (IsFastReduceSumByRotation(*node_def)) {
-    uint64_t rot_noise = BitWidth(error_params.BoundOnGadgetBasedKeySwitching(
-        kNumComponents, kLogGadgetBase, gadget_dimension));
-    rot_noise += BitWidth(params.log_n);  // There are log_n rotations.
-    *this_noise = std::max(noise_a, rot_noise) + 1;
+    *this_noise =
+        noise_a + BitWidth(params.log_n);  // There are log_n ct-ct additions.
   } else if (IsReduceSum(*node_def)) {
-    int32 axis = 0;
-    if (!TryGetNodeAttr(*node_def, "axis", &axis)) {
+    int32 reduce_dim_size = 0;
+    if (!TryGetNodeAttr(*node_def, "reduce_dim_size", &reduce_dim_size)) {
       std::cout
           << "WARNING: Could not determine axis in reduce sum (ciphertext)."
           << std::endl;
       *this_noise = noise_a;
     } else {
-      // TODO: Infer the shape of the input tensor and using the axis, determine
-      // the noise. Below is an example of shape inference during graph
-      // optimization. It doesn't appear to work very well, so it is ignored for
-      // now.
-      // GraphProperties graph_properties(mutable_item);
-      // TF_RETURN_IF_ERROR(graph_properties.InferStatically(false, true, false,
-      // false)); auto props =
-      // graph_properties.GetInputProperties("ReduceSumCt64"); for (auto const&
-      // prop : props) {
-      //   std::cout << "JIM: " << prop.DebugString() << std::endl;
-      // }
-
-      *this_noise = noise_a;
+      *this_noise = noise_a + BitWidth(reduce_dim_size);
     }
   }
 
@@ -666,11 +688,11 @@ Status EstimateNodeNoise(
   // additions, where n is the number of elements in the filter.
   else if (IsConv2d(*node_def)) {
     // Convolution performs one multiplication.
-    if (IsCtPtConv2d(*node_def)) {
+    if (IsCtPtConv2dOrTranspose(*node_def)) {
       *this_noise = noise_a + BitWidth(error_params.B_plaintext());
-    } else if (IsPtCtConv2d(*node_def)) {
+    } else if (IsPtCtConv2dOrTranspose(*node_def)) {
       *this_noise = BitWidth(error_params.B_plaintext()) + noise_b;
-    } else if (IsCtCtConv2d(*node_def)) {
+    } else if (IsCtCtConv2dOrTranspose(*node_def)) {
       *this_noise = noise_a + noise_b;
     }
     // Convolution performs n - 1 additions where n is the number of elements
@@ -701,6 +723,15 @@ Status EstimateNodeNoise(
       }
       *this_noise += BitWidth(total_pool_size - 1);
     }
+  }
+
+  else if (IsExpandDimsVariant(*node_def)) {
+    *this_noise = node_noise[node_view->GetRegularFanin(0).node_index()];
+  }
+
+  // Tensorflow Ops.
+  else if (IsReshape(*node_def)) {
+    *this_noise = node_noise[node_view->GetRegularFanin(0).node_index()];
   }
 
   else if (IsDecrypt(*node_def)) {
@@ -906,7 +937,7 @@ Status OptimizeAutocontext(utils::MutableGraphView& graph_view,
   uint64_t log_q_r = total_plaintext_bits + 210;
   uint64_t log_q = (log_q_r + log_q_l) / 2;
   uint64_t log_max_noise = 0;
-  uint64_t total_ct_bits = 0;
+  int64_t total_ct_bits = 0;
   ShellParams params;
 
   while (log_q_l <= log_q_r && log_q < log_q_r + 10) {

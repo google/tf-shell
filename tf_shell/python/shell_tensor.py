@@ -784,7 +784,10 @@ def reduce_sum(x, axis, rotation_key=None):
         else:
             return ShellTensor64(
                 _raw_tensor=shell_ops.reduce_sum_ct64(
-                    x._context._get_context_at_level(x._level), x._raw_tensor, axis=axis
+                    x._context._get_context_at_level(x._level),
+                    x._raw_tensor,
+                    axis=axis,
+                    reduce_dim_size=x.shape[axis],
                 ),
                 _context=x._context,
                 _level=x._level,
@@ -896,6 +899,7 @@ def matmul(x, y, rotation_key=None, pt_ct_reduction="galois", emulate_pt_ct=Fals
                 x._context._get_context_at_level(x._level),
                 x._raw_tensor,
                 scaled_y,
+                reduce_dim_size=x.shape[-1],
             ),
             _context=x._context,
             _level=x._level,

@@ -57,6 +57,15 @@ constexpr char kConv2dCtCt64[] = "Conv2dCtCt64";
 constexpr char kConv2dWithChanPtCt64[] = "Conv2dWithChanPtCt64";
 constexpr char kConv2dWithChanCtPt64[] = "Conv2dWithChanCtPt64";
 constexpr char kConv2dWithChanCtCt64[] = "Conv2dWithChanCtCt64";
+constexpr char kConv2dTransposePtCt64[] = "Conv2dTransposePtCt64";
+constexpr char kConv2dTransposeCtPt64[] = "Conv2dTransposeCtPt64";
+constexpr char kConv2dTransposeCtCt64[] = "Conv2dTransposeCtCt64";
+constexpr char kConv2dTransposeWithChanPtCt64[] =
+    "Conv2dTransposeWithChanPtCt64";
+constexpr char kConv2dTransposeWithChanCtPt64[] =
+    "Conv2dTransposeWithChanCtPt64";
+constexpr char kConv2dTransposeWithChanCtCt64[] =
+    "Conv2dTransposeWithChanCtCt64";
 
 constexpr char kMaxUnpool2dCt64[] = "MaxUnpool2dCt64";
 
@@ -110,6 +119,12 @@ bool IsUnsortedCtSegmentSum(NodeDef const& node);
 bool IsPtCtConv2d(NodeDef const& node);
 bool IsCtPtConv2d(NodeDef const& node);
 bool IsCtCtConv2d(NodeDef const& node);
+bool IsPtCtConv2dTranspose(NodeDef const& node);
+bool IsCtPtConv2dTranspose(NodeDef const& node);
+bool IsCtCtConv2dTranspose(NodeDef const& node);
+bool IsPtCtConv2dOrTranspose(NodeDef const& node);
+bool IsCtPtConv2dOrTranspose(NodeDef const& node);
+bool IsCtCtConv2dOrTranspose(NodeDef const& node);
 bool IsConv2d(NodeDef const& node);
 
 bool IsMaxUnpool2d(NodeDef const& node);

@@ -32,9 +32,7 @@ def gen_context(scaling_factor=1):
 @tf.function
 def ct_ct_add(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits + 1, 0)
-        if use_auto_context
-        else gen_context()
+        gen_autocontext(test_values_num_bits, 0) if use_auto_context else gen_context()
     )
     key = tf_shell.create_key64(shell_context)
     a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
@@ -48,7 +46,7 @@ def ct_ct_add(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def ct_ct_mul(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 0)
+        gen_autocontext(test_values_num_bits * 2, 0)
         if use_auto_context
         else gen_context()
     )
@@ -64,7 +62,7 @@ def ct_ct_mul(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def ct_pt_add(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 0)
+        gen_autocontext(test_values_num_bits * 2, 0)
         if use_auto_context
         else gen_context()
     )
@@ -80,7 +78,7 @@ def ct_pt_add(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def ct_pt_mul(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 0)
+        gen_autocontext(test_values_num_bits * 2, 0)
         if use_auto_context
         else gen_context()
     )
@@ -96,7 +94,7 @@ def ct_pt_mul(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def long_arith(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 3, 0)
+        gen_autocontext(test_values_num_bits * 2, 0)
         if use_auto_context
         else gen_context()
     )
@@ -113,7 +111,9 @@ def long_arith(cleartext_a, cleartext_b, use_auto_context=False):
 def long_arith_with_scaling(cleartext_a, cleartext_b, use_auto_context=False):
     scaling_factor = 3
     shell_context = (
-        gen_autocontext(test_values_num_bits * 2 + 3, 0, scaling_factor)
+        gen_autocontext(
+            test_values_num_bits * 2 + scaling_factor.bit_length(), 0, scaling_factor
+        )
         if use_auto_context
         else gen_context(scaling_factor)
     )
@@ -145,7 +145,7 @@ def reduce_sum_axis_1(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(test_values_num_bits + cleartext_a.shape[0].bit_length(), 5)
+        gen_autocontext(test_values_num_bits + cleartext_a.shape[0].bit_length(), 0)
         if use_auto_context
         else gen_context()
     )
@@ -162,9 +162,7 @@ def reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def fast_reduce_sum_axis_0(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context = (
-        gen_autocontext(
-            test_values_num_bits + cleartext_a.shape[0].bit_length() + 14, 0
-        )
+        gen_autocontext(test_values_num_bits + cleartext_a.shape[0].bit_length(), 0)
         if use_auto_context
         else gen_context()
     )
@@ -197,7 +195,7 @@ def ct_roll(cleartext_a, cleartext_b, use_auto_context=False):
 @tf.function
 def multi_context(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context1 = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 0)
+        gen_autocontext(test_values_num_bits * 2, 10)  # Add noise so log_n matched
         if use_auto_context
         else gen_context()
     )
@@ -209,7 +207,7 @@ def multi_context(cleartext_a, cleartext_b, use_auto_context=False):
     result1 = tf_shell.to_tensorflow(intermediate1, key1)
 
     shell_context2 = (
-        gen_autocontext(test_values_num_bits * 2 + 1, 1)
+        gen_autocontext(test_values_num_bits * 4, 0)
         if use_auto_context
         else gen_context()
     )  # Use an offset of 1 so the contexts are different and can't be shared.
