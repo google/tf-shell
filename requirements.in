@@ -5,13 +5,6 @@
 # There is an open PR in TensorFlow to remove the dependency on distutils:
 #   https://github.com/tensorflow/tensorflow/pull/74090
 # When the TensorFlow PR is merged, builds for python 3.12 can be re-enabled.
-#
-# If tf-shell is to be used with tensorflow-privacy, there are additional
-# constraints. The lastest version that tensorflow-privacy allows is
-# tensorflow==2.15.0. Until tensorflow-privacy is updated, the version of
-# tensorflow-cpu must be pinned to 2.15.0. Note that certain dependencies like
-# abseil change across tensorflow versions, e.g. 2.15 to 2.16, preventing this
-# library from compiling across a wide range of tensorflow versions.
-tensorflow-cpu==2.15.0  # See also: top level BUILD, wheel target.
-
-black==24.8.0
+# Note this is not the case as of TensorFlow 2.18.0.
+tensorflow-cpu==2.18.0  # See also: top level BUILD, wheel target.
+black==24.10.0
