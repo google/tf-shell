@@ -44,8 +44,10 @@ class MaxPool2D(keras.layers.Layer):
         config = super().get_config()
         config.update(
             {
-                "activation": self.activation,
-                "activation_deriv": self.activation_deriv,
+                "pool_size": self.pool_size,
+                "strides": self.strides,
+                "padding": self.padding_str,
+                "is_first_layer": self.is_first_layer,
             }
         )
         return config

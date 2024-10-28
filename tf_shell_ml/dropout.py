@@ -43,8 +43,10 @@ class ShellDropout(keras.layers.Layer):
         config = super().get_config()
         config.update(
             {
-                "activation": self.activation,
-                "activation_deriv": self.activation_deriv,
+                "rate": self.rate,
+                "noise_shape": self.noise_shape,
+                "seed": self.seed,
+                "per_batch": self.per_batch,
             }
         )
         return config

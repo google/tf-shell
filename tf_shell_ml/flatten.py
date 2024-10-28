@@ -24,17 +24,8 @@ class Flatten(keras.layers.Layer):
     def __init__(self):
         super().__init__()
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "activation": self.activation,
-                "activation_deriv": self.activation_deriv,
-            }
-        )
-        return config
-
     def build(self, input_shape):
+        self.input_shape = input_shape
         self.flat_shape = [prod(input_shape[1:])]
 
     def call(self, inputs, training=False):

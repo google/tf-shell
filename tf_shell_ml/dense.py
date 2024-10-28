@@ -17,6 +17,10 @@ import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.python.keras import initializers
 import tf_shell
+from tf_shell_ml.activation import (
+    serialize_activation,
+    deserialize_activation,
+)
 
 
 class ShellDense(keras.layers.Layer):
@@ -34,8 +38,8 @@ class ShellDense(keras.layers.Layer):
     ):
         super().__init__()
         self.units = int(units)
-        self.activation = activation
-        self.activation_deriv = activation_deriv
+        self.activation = deserialize_activation(activation)
+        self.activation_deriv = deserialize_activation(activation_deriv)
         self.use_bias = use_bias
 
         self.kernel_initializer = initializers.get(kernel_initializer)
@@ -53,8 +57,15 @@ class ShellDense(keras.layers.Layer):
         config = super().get_config()
         config.update(
             {
-                "activation": self.activation,
-                "activation_deriv": self.activation_deriv,
+                "units": self.units,
+                "activation": serialize_activation(self.activation),
+                "activation_deriv": serialize_activation(self.activation_deriv),
+                "use_bias": self.use_bias,
+                "kernel_initializer": initializers.serialize(self.kernel_initializer),
+                "bias_initializer": initializers.serialize(self.bias_initializer),
+                "weight_dtype": self.weight_dtype,
+                "is_first_layer": self.is_first_layer,
+                "grad_reduction": self.grad_reduction,
             }
         )
         return config

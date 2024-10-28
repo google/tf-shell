@@ -44,8 +44,13 @@ class ShellEmbedding(keras.layers.Layer):
         config = super().get_config()
         config.update(
             {
-                "activation": self.activation,
-                "activation_deriv": self.activation_deriv,
+                "input_dim": self.input_dim,
+                "output_dim": self.output_dim,
+                "embeddings_initializer": initializers.serialize(
+                    self.embeddings_initializer
+                ),
+                "skip_embeddings_below_index": self.skip_embeddings_below_index,
+                "grad_reduction": self.grad_reduction,
             }
         )
         return config

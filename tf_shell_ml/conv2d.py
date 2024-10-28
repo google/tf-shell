@@ -17,6 +17,10 @@ import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.python.keras import initializers
 import tf_shell
+from tf_shell_ml.activation import (
+    serialize_activation,
+    deserialize_activation,
+)
 
 
 # For details see https://pavisj.medium.com/convolutions-and-backpropagations-46026a8f5d2c
@@ -54,8 +58,8 @@ class Conv2D(keras.layers.Layer):
             raise ValueError(
                 f"Invalid padding type: {padding} (must be 'SAME' or 'VALID')"
             )
-        self.activation = activation
-        self.activation_deriv = activation_deriv
+        self.activation = deserialize_activation(activation)
+        self.activation_deriv = deserialize_activation(activation_deriv)
 
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.weight_dtype = weight_dtype
@@ -71,8 +75,16 @@ class Conv2D(keras.layers.Layer):
         config = super().get_config()
         config.update(
             {
-                "activation": self.activation,
-                "activation_deriv": self.activation_deriv,
+                "filters": self.filters,
+                "kernel_size": self.kernel_size,
+                "strides": self.strides[1],
+                "padding": self.padding,
+                "activation": serialize_activation(self.activation),
+                "activation_deriv": serialize_activation(self.activation_deriv),
+                "kernel_initializer": self.kernel_initializer,
+                "weight_dtype": self.weight_dtype,
+                "is_first_layer": self.is_first_layer,
+                "grad_reduction": self.grad_reduction,
             }
         )
         return config

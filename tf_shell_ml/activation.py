@@ -40,3 +40,23 @@ def sigmoid(x):
 
 def sigmoid_deriv(y, d_y):
     return d_y * (y * (1 - y))
+
+
+def serialize_activation(activation):
+    if activation is None:
+        return None
+    elif isinstance(activation, str):
+        return activation
+    elif callable(activation):
+        return activation.__name__
+    raise ValueError(f"Invalid activation: {activation}")
+
+
+def deserialize_activation(activation):
+    if activation is None:
+        return None
+    elif isinstance(activation, str):
+        return globals()[activation]
+    elif callable(activation):
+        return activation
+    raise ValueError(f"Invalid activation: {activation}")

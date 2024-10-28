@@ -15,7 +15,14 @@
 # limitations under the License.
 from __future__ import absolute_import
 
-from tf_shell_ml.activation import relu, relu_deriv, sigmoid, sigmoid_deriv
+from tf_shell_ml.activation import (
+    relu,
+    relu_deriv,
+    sigmoid,
+    sigmoid_deriv,
+    serialize_activation,
+    deserialize_activation,
+)
 from tf_shell_ml.dense import ShellDense
 from tf_shell_ml.dropout import ShellDropout
 from tf_shell_ml.embedding import ShellEmbedding

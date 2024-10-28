@@ -32,16 +32,6 @@ class GlobalAveragePooling1D(keras.layers.Layer):
 
         return outputs
 
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "activation": self.activation,
-                "activation_deriv": self.activation_deriv,
-            }
-        )
-        return config
-
     def backward(self, dy, rotation_key=None):
         dx = tf_shell.expand_dims(dy, axis=1)
         dx = tf_shell.broadcast_to(
