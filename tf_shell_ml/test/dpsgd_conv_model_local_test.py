@@ -69,7 +69,8 @@ class TestModel(tf.test.TestCase):
                 tf_shell_ml.Flatten(),
                 tf_shell_ml.ShellDense(
                     16,
-                    activation=tf.nn.softmax,
+                    activation=tf_shell_ml.relu,
+                    activation_deriv=tf_shell_ml.relu_deriv,
                 ),
                 tf_shell_ml.ShellDense(
                     10,
