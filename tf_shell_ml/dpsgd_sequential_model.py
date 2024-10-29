@@ -24,18 +24,6 @@ class DpSgdSequential(SequentialBase):
     def __init__(
         self,
         layers,
-        backprop_context_fn,
-        noise_context_fn,
-        labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
-        features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
-        noise_multiplier=1.0,
-        disable_encryption=False,
-        disable_masking=False,
-        disable_noise=False,
-        check_overflow_INSECURE=False,
-        cache_path=None,
-        jacobian_pfor=False,
-        jacobian_pfor_iterations=None,
         *args,
         **kwargs,
     ):
@@ -51,31 +39,6 @@ class DpSgdSequential(SequentialBase):
             # y_pred - y and let the derivative of this last layer's activation
             # be a no-op.
             self.layers[-1].activation_deriv = None
-
-        self.backprop_context_fn = backprop_context_fn
-        self.noise_context_fn = noise_context_fn
-        self.labels_party_dev = labels_party_dev
-        self.features_party_dev = features_party_dev
-        self.noise_multiplier = noise_multiplier
-        self.disable_encryption = disable_encryption
-        self.disable_masking = disable_masking
-        self.disable_noise = disable_noise
-        self.check_overflow_INSECURE = check_overflow_INSECURE
-        self.cache_path = cache_path
-        self.jacobian_pfor = jacobian_pfor
-        self.jacobian_pfor_iterations = jacobian_pfor_iterations
-
-    def compile(self, optimizer, shell_loss, loss, metrics=[], **kwargs):
-        super().compile(optimizer=optimizer, loss=loss, metrics=metrics, **kwargs)
-
-        if shell_loss is None:
-            raise ValueError("shell_loss must be provided")
-        self.loss_fn = shell_loss
-
-        # Keras ignores metrics that are not used during training. When training
-        # with encryption, the metrics are not updated. Store the metrics so
-        # they can be recovered during validation.
-        self.val_metrics = metrics
 
     def call(self, x, training=False):
         for l in self.layers:
@@ -103,7 +66,7 @@ class DpSgdSequential(SequentialBase):
 
         return y_pred, max_two_norm
 
-    def train_step(self, data):
+    def shell_train_step(self, data):
         x, y = data
 
         with tf.device(self.labels_party_dev):
@@ -281,36 +244,32 @@ class DpSgdSequential(SequentialBase):
             # Apply the gradients to the model.
             self.optimizer.apply_gradients(zip(grads, self.weights))
 
-        # Do not update metrics during secure training.
-        if self.disable_encryption:
-            # Update metrics (includes the metric that tracks the loss)
-            for metric in self.metrics:
-                if metric.name == "loss":
+        for metric in self.metrics:
+            if metric.name == "loss":
+                if self.disable_encryption:
+                    metric.update_state(0)  # Loss is not known when encrypted.
+                else:
                     loss = self.loss_fn(y, y_pred)
                     metric.update_state(loss)
-                else:
+            else:
+                if self.disable_encryption:
                     metric.update_state(y, y_pred)
+                else:
+                    zeros = tf.broadcast_to(0, tf.shape(y_pred))
+                    metric.update_state(
+                        zeros, zeros
+                    )  # No other metrics when encrypted.
 
-            metric_results = {m.name: m.result() for m in self.metrics}
-        else:
-            metric_results = {"num_slots": backprop_context.num_slots}
+        metric_results = {m.name: m.result() for m in self.metrics}
 
-        return metric_results
+        # TensorFlow 2.18.0 added a "CompiledMetrics" metric which holds metrics
+        # passed to compile in it's own dictionary. Keras wants all metrics to
+        # be returned as a flat dictionary. Here we flatten the dictionary.
+        result = {}
+        for key, value in metric_results.items():
+            if isinstance(value, dict):
+                result.update(value)  # add subdict directly into the dict
+            else:
+                result[key] = value  # non-subdict elements are just copied
 
-    def test_step(self, data):
-        x, y = data
-
-        # Forward pass.
-        y_pred = self(x, training=False)
-
-        # Updates the metrics tracking the loss.
-        self.compute_loss(y=y, y_pred=y_pred)
-
-        # Update the other metrics.
-        for metric in self.val_metrics:
-            if metric.name != "loss" and metric.name != "num_slots":
-                metric.update_state(y, y_pred)
-
-        # Return a dict mapping metric names to current value.
-        # Note that it will include the loss (tracked in self.metrics).
-        return {m.name: m.result() for m in self.val_metrics}
+        return result, None if self.disable_encryption else backprop_context.num_slots

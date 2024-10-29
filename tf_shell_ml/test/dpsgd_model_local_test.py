@@ -74,14 +74,19 @@ class TestModel(tf.test.TestCase):
         m.compile(
             shell_loss=tf_shell_ml.CategoricalCrossentropy(),
             optimizer=tf.keras.optimizers.Adam(0.1),
-            loss=tf.keras.losses.CategoricalCrossentropy(),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
         m.build([None, 784])
         m.summary()
 
-        history = m.fit(train_dataset.take(4), epochs=1, validation_data=val_dataset)
+        history = m.fit(
+            train_dataset,
+            steps_per_epoch=8,
+            epochs=1,
+            verbose=2,
+            validation_data=val_dataset,
+        )
 
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
 

@@ -78,7 +78,7 @@ class TestModel(tf.test.TestCase):
                 ),
             ],
             backprop_context_fn=lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=22,
+                log2_cleartext_sz=18,
                 scaling_factor=2,
                 noise_offset_log2=-20,
                 cache_path=cache,
@@ -93,7 +93,7 @@ class TestModel(tf.test.TestCase):
             disable_masking=disable_masking,
             disable_noise=disable_noise,
             cache_path=cache,
-            check_overflow_INSECURE=True,
+            # check_overflow_INSECURE=True,
             # jacobian_pfor=True,
             # jacobian_pfor_iterations=128,
         )
@@ -101,23 +101,28 @@ class TestModel(tf.test.TestCase):
         m.compile(
             shell_loss=tf_shell_ml.CategoricalCrossentropy(),
             optimizer=tf.keras.optimizers.Adam(0.1),
-            loss=tf.keras.losses.CategoricalCrossentropy(),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
         m.build([None, 28, 28, 1])
         m.summary()
 
-        history = m.fit(train_dataset.take(8), epochs=1, validation_data=val_dataset)
+        history = m.fit(
+            train_dataset,
+            steps_per_epoch=8,
+            epochs=1,
+            verbose=2,
+            validation_data=val_dataset,
+        )
 
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.13)
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
             self._test_model(False, False, False, cache_dir)
-            # self._test_model(True, False, False, cache_dir)
-            # self._test_model(False, True, False, cache_dir)
-            # self._test_model(False, False, True, cache_dir)
+            self._test_model(True, False, False, cache_dir)
+            self._test_model(False, True, False, cache_dir)
+            self._test_model(False, False, True, cache_dir)
 
 
 if __name__ == "__main__":

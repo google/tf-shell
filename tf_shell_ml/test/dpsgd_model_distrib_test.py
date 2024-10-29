@@ -110,20 +110,19 @@ class TestDistribModel(tf.test.TestCase):
             labels_party_dev=labels_party_dev,
             features_party_dev=features_party_dev,
             cache_path=cache,
-            # check_overflow_INSECURE=True,
-            # disable_noise=True,
         )
 
         m.compile(
             shell_loss=tf_shell_ml.CategoricalCrossentropy(),
             optimizer=tf.keras.optimizers.Adam(0.1),
-            loss=tf.keras.losses.CategoricalCrossentropy(),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
         history = m.fit(
-            train_dataset.take(4),
+            train_dataset,
+            steps_per_epoch=8,
             epochs=1,
+            verbose=2,
             validation_data=val_dataset,
         )
 

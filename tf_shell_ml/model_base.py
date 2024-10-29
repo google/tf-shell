@@ -16,6 +16,7 @@
 import tensorflow as tf
 import tensorflow.keras as keras
 import tf_shell
+import tf_shell_ml
 
 
 class SequentialBase(keras.Sequential):
@@ -23,15 +24,67 @@ class SequentialBase(keras.Sequential):
     def __init__(
         self,
         layers,
+        backprop_context_fn,
+        noise_context_fn,
+        labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
+        features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
+        noise_multiplier=1.0,
+        cache_path=None,
+        jacobian_pfor=False,
+        jacobian_pfor_iterations=None,
+        disable_encryption=False,
+        disable_masking=False,
+        disable_noise=False,
+        check_overflow_INSECURE=False,
         *args,
         **kwargs,
     ):
         super().__init__(layers, *args, **kwargs)
+        self.backprop_context_fn = backprop_context_fn
+        self.noise_context_fn = noise_context_fn
+        self.labels_party_dev = labels_party_dev
+        self.features_party_dev = features_party_dev
+        self.noise_multiplier = noise_multiplier
+        self.cache_path = cache_path
+        self.jacobian_pfor = jacobian_pfor
+        self.jacobian_pfor_iterations = jacobian_pfor_iterations
+        self.disable_encryption = disable_encryption
+        self.disable_masking = disable_masking
+        self.disable_noise = disable_noise
+        self.check_overflow_INSECURE = check_overflow_INSECURE
         self.dataset_prepped = False
+
+    def compile(self, shell_loss, **kwargs):
+        if not isinstance(shell_loss, tf_shell_ml.CategoricalCrossentropy):
+            raise ValueError(
+                "The model must be used with the tf-shell version of CategoricalCrossentropy loss function. Saw",
+                shell_loss,
+            )
+        if len(self.layers) > 0 and not (
+            self.layers[-1].activation is tf.keras.activations.softmax
+            or self.layers[-1].activation is tf.nn.softmax
+        ):
+            raise ValueError(
+                "The model must have a softmax activation function on the final layer. Saw",
+                self.layers[-1].activation,
+            )
+
+        if shell_loss is None:
+            raise ValueError("shell_loss must be provided")
+        self.loss_fn = shell_loss
+
+        super().compile(loss=tf.keras.losses.CategoricalCrossentropy(), **kwargs)
+
+    def train_step(self, data):
+        metrics, num_slots = self.shell_train_step(data)
+        return metrics
 
     @tf.function
     def train_step_tf_func(self, data):
-        return self.train_step(data)
+        return self.shell_train_step(data)
+
+    def shell_train_step(self, data):
+        raise NotImplementedError()  # Should be overloaded by the subclass.
 
     # Prepare the dataset for training with encryption by setting the batch size
     # to the same value as the encryption ring degree. Run the training loop once
@@ -43,21 +96,9 @@ class SequentialBase(keras.Sequential):
 
         # Run the training loop once on dummy data to figure out the batch size.
         tf.config.run_functions_eagerly(False)
-        metrics = self.train_step_tf_func(next(iter(train_dataset)))
+        metrics, num_slots = self.train_step_tf_func(next(iter(train_dataset)))
 
-        if not isinstance(metrics, dict):
-            raise ValueError(
-                f"Expected train_step to return a dict, got {type(metrics)}."
-            )
-
-        if "num_slots" not in metrics:
-            raise ValueError(
-                f"Expected train_step to return a dict with key 'num_slots', got {metrics.keys()}."
-            )
-
-        train_dataset = train_dataset.rebatch(
-            metrics["num_slots"].numpy(), drop_remainder=True
-        )
+        train_dataset = train_dataset.rebatch(num_slots.numpy(), drop_remainder=True)
 
         self.dataset_prepped = True
         return train_dataset
@@ -65,9 +106,11 @@ class SequentialBase(keras.Sequential):
     # Prepare the dataset for training with encryption by setting the batch size
     # to the same value as the encryption ring degree. It is faster than
     # `prep_dataset_for_model` because it does not execute the graph, instead
-    # tracing and optimizing the graph and extracting the required parameters.
+    # tracing and optimizing the graph and extracting the required parameters
+    # without actually executing the graph.
     def fast_prep_dataset_for_model(self, train_dataset):
-        if not self.disable_encryption:
+        if self.disable_encryption:
+            self.dataset_prepped = True
             return train_dataset
 
         # Call the training step with keygen to trace the graph. Use a copy
@@ -101,7 +144,7 @@ class SequentialBase(keras.Sequential):
 
         log_n = get_tensor_by_name(optimized_graph, context_node.input[0]).tolist()
 
-        train_dataset = train_dataset.rebatch(2**log_n, drop_remainder=True)
+        train_dataset = train_dataset.unbatch().batch(2**log_n, drop_remainder=True)
         self.dataset_prepped = True
         return train_dataset
 

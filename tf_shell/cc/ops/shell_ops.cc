@@ -241,6 +241,10 @@ REGISTER_OP("ReduceSumWithModulusPt64")
     .Output("reduced: dtype")
     .SetShapeFn([](InferenceContext* c) {
       tsl::int32 rank = c->Rank(c->input(1));
+      if (rank == -1) {
+        c->set_output(0, c->UnknownShape());
+        return OkStatus();
+      }
 
       tsl::int32 axis;
       TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
@@ -250,8 +254,8 @@ REGISTER_OP("ReduceSumWithModulusPt64")
         clamped_axis += rank;
       }
       if (clamped_axis < 0 || clamped_axis > rank) {
-        return InvalidArgument("axis must be in the range [0, rank], got ",
-                               clamped_axis);
+        return InvalidArgument("axis must be in the range [0, rank], got axis ",
+                               clamped_axis, " and rank ", rank);
       }
 
       ShapeHandle output;

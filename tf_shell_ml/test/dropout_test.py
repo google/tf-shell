@@ -66,14 +66,14 @@ class TestDropout(tf.test.TestCase):
         enc_x = tf_shell.to_encrypted(x, key, context)
         dropout_layer = tf_shell_ml.ShellDropout(0.2, per_batch=per_batch)
 
-        notrain_enc_y = dropout_layer(enc_x, training=False)
+        notrain_enc_y = dropout_layer.call(enc_x, training=False)
         self.assertAllClose(
             tf_shell.to_tensorflow(notrain_enc_y, key),
             x,
             atol=1 / context.scaling_factor,
         )
 
-        enc_train_y = dropout_layer(enc_x, training=True)
+        enc_train_y = dropout_layer.call(enc_x, training=True)
         dec_train_y = tf_shell.to_tensorflow(enc_train_y, key)
         self.assertLess(
             tf.math.count_nonzero(dec_train_y), tf.size(dec_train_y, out_type=tf.int64)
@@ -84,7 +84,7 @@ class TestDropout(tf.test.TestCase):
 
         dropout_layer = tf_shell_ml.ShellDropout(0.2, per_batch=per_batch)
 
-        notrain_y = dropout_layer(x, training=True)
+        notrain_y = dropout_layer.call(x, training=True)
         dy = tf.ones_like(notrain_y)
 
         dw, dx = dropout_layer.backward(dy, None)
