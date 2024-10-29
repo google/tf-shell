@@ -63,9 +63,9 @@ class ShellEmbedding(keras.layers.Layer):
 
     def call(self, inputs):
         if inputs.dtype != tf.int64:
-            raise ValueError(
-                f"Embedding layer expects int64 input. Got {inputs.dtype}."
-            )
+            # When using model.fit() keras will cast the input to float32.
+            inputs = tf.cast(inputs, tf.int64)
+
         if inputs.ndim != 2:
             raise ValueError(f"Embedding layer expects rank 2 input. Got {inputs}.")
 
