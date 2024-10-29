@@ -63,7 +63,11 @@ class ShellTensor64(tf.experimental.ExtensionType):
 
     @property
     def level(self):
-        return self.level
+        return self._level
+
+    @property
+    def scaling_factor(self):
+        return self._scaling_factor
 
     def __getitem__(self, slice):
         slots = slice[0]
@@ -377,9 +381,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
                     assert other.shape[0] == 1
                     other = tf.reshape(other, other.shape[1:])
 
-                # Encode the other scalar tensor to the same scaling factor as
-                # self.
-                other = _encode_scaling(other, self._scaling_factor)
+                # Encode the other scalar tensor to the context scaling factor.
+                other = _encode_scaling(other, self._context.scaling_factor)
 
                 if self.is_encrypted:
                     raw_result = shell_ops.mul_ct_tf_scalar64(
@@ -400,7 +403,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                     _level=self._level,
                     _num_mod_reductions=self._num_mod_reductions,
                     _underlying_dtype=self._underlying_dtype,
-                    _scaling_factor=self._scaling_factor**2,
+                    _scaling_factor=self._scaling_factor * self._context.scaling_factor,
                     _is_enc=self._is_enc,
                     _is_fast_rotated=self._is_fast_rotated,
                 )
