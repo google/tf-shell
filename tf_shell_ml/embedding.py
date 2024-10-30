@@ -102,7 +102,7 @@ class ShellEmbedding(keras.layers.Layer):
         with (2*batch_size) slots. tf_shell.segment_sum must pull apart the
         packing dimension of the values by masking with a one-hot.
         """
-        batch_size = tf.shape(self._layer_input.shape)[0] // 2
+        batch_size = tf.shape(self._layer_input)[0] // 2
 
         if dy.ndim != self._layer_input.ndim + 1:
             raise ValueError(
