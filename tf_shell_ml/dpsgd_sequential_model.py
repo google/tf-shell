@@ -247,18 +247,18 @@ class DpSgdSequential(SequentialBase):
         for metric in self.metrics:
             if metric.name == "loss":
                 if self.disable_encryption:
-                    metric.update_state(0)  # Loss is not known when encrypted.
-                else:
                     loss = self.loss_fn(y, y_pred)
                     metric.update_state(loss)
+                else:
+                    # Loss is unknown when encrypted.
+                    metric.update_state(0.0)
             else:
                 if self.disable_encryption:
                     metric.update_state(y, y_pred)
                 else:
+                    # Other metrics are uknown when encrypted.
                     zeros = tf.broadcast_to(0, tf.shape(y_pred))
-                    metric.update_state(
-                        zeros, zeros
-                    )  # No other metrics when encrypted.
+                    metric.update_state(zeros, zeros)
 
         metric_results = {m.name: m.result() for m in self.metrics}
 

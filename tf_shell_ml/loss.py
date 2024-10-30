@@ -16,7 +16,7 @@
 from tensorflow.nn import softmax
 from tensorflow.nn import sigmoid
 from tensorflow.math import log
-import tf_shell
+import tensorflow as tf
 
 
 class CategoricalCrossentropy:
@@ -27,10 +27,9 @@ class CategoricalCrossentropy:
     def __call__(self, y_true, y_pred):
         if self.from_logits:
             y_pred = softmax(y_pred)
-        batch_size = y_true.shape.as_list()[0]
-        batch_size_inv = 1 / batch_size
+        batch_size = tf.shape(y_true)[0]
         out = -y_true * log(y_pred)
-        cce = tf_shell.reduce_sum(out, axis=0) * batch_size_inv
+        cce = tf.reduce_sum(out, axis=0) / tf.cast(batch_size, out.dtype)
         return cce
 
     def grad(self, y_true, y_pred):
@@ -61,10 +60,9 @@ class BinaryCrossentropy:
         if self.from_logits:
             y_pred = sigmoid(y_pred)
 
-        batch_size = y_true.shape.as_list()[0]
-        batch_size_inv = 1 / batch_size
+        batch_size = tf.shape(y_true)[0]
         out = -(y_true * log(y_pred) + (1 - y_true) * log(1 - y_pred))
-        bce = tf_shell.reduce_sum(out, axis=0) * batch_size_inv
+        bce = tf.reduce_sum(out, axis=0) / tf.cast(batch_size, out.dtype)
         return bce
 
     def grad(self, y_true, y_pred):
