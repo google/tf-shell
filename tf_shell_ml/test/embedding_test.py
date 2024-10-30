@@ -59,10 +59,15 @@ class TestEmbedding(tf.test.TestCase):
                 "Embedding layer forward with encrypted value should fail."
             )
 
-    def _test_embedding(self):
+    def _test_embedding(self, reduction):
         input_dim = 100
-        output_dim = 10
-        embedding_layer = tf_shell_ml.ShellEmbedding(input_dim, output_dim)
+        output_dim = 16
+        embedding_layer = tf_shell_ml.ShellEmbedding(
+            input_dim,
+            output_dim,
+            skip_embeddings_below_index=1,
+            grad_reduction=reduction,
+        )
 
         sentence_length = 3
         special_index = 2
@@ -80,14 +85,24 @@ class TestEmbedding(tf.test.TestCase):
 
             enc_dw, _ = embedding_layer.backward(enc_dy, rotation_key)
             dw = tf_shell.to_tensorflow(enc_dw[0], key)
-            # dw = embedding_layer.unpack(packed_dw)
-            dw = tf.reduce_sum(dw, axis=0)
-            return dw
+            if reduction == "none":
+                dw = tf.reduce_sum(dw, axis=0)
+            else:
+                dw = embedding_layer.unpack(dw)
+            return dw, enc_dw[0].shape
 
-        dw = forward_backward(x)
+        dw, shape_inf = forward_backward(x)
+
+        # Check the inferred shape of the gradient is correct.
+        if reduction == "none":
+            self.assertAllEqual(shape_inf, [context.num_slots, input_dim, output_dim])
+        else:
+            self.assertAllEqual(
+                shape_inf, [context.num_slots, 2, input_dim, output_dim]
+            )
 
         for i in range(0, input_dim):
-            # Check dw[ special_index] has counted the number of elements.
+            # Check dw[special_index] has counted the number of elements.
             if i == special_index:
                 self.assertAllEqual(
                     dw[special_index, :],
@@ -101,11 +116,13 @@ class TestEmbedding(tf.test.TestCase):
 
     def test_embedding_eager(self):
         tf.config.run_functions_eagerly(True)
-        self._test_embedding()
+        self._test_embedding("galois")
+        self._test_embedding("none")
 
     def test_embedding_defer(self):
         tf.config.run_functions_eagerly(False)
-        self._test_embedding()
+        self._test_embedding("galois")
+        self._test_embedding("none")
 
 
 if __name__ == "__main__":

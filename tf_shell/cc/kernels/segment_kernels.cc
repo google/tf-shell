@@ -175,10 +175,7 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
       }
     }
 
-    // Nothing to reduce. All output values equal to `InitialValueF()`.
-    if (trivial_reduction) {
-      return;
-    }
+    auto thread_pool = ctx->device()->tensorflow_cpu_worker_threads()->workers;
 
     // Step 1: Reduce over the ciphertext dimension. There are many slots in a
     // ciphertext, and some slots may be assigned to the same output. The
@@ -269,14 +266,16 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
         }
       }
     };
-    auto thread_pool = ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    // Use a fixed block size to avoid stragglers in the reduction.
-    int64_t const reduction_block_size = 4;
-    tsl::thread::ThreadPool::SchedulingParams reduction_scheduling_params(
-        tsl::thread::ThreadPool::SchedulingStrategy::kFixedBlockSize,
-        std::nullopt, reduction_block_size);
-    thread_pool->ParallelFor(num_segments, reduction_scheduling_params,
-                             reductionWorker);
+    // The reduction (step 1) can be skipped if there is nothing to reduce.
+    if (!trivial_reduction) {
+      // Use a fixed block size to avoid stragglers in the reduction.
+      int64_t const reduction_block_size = 4;
+      tsl::thread::ThreadPool::SchedulingParams reduction_scheduling_params(
+          tsl::thread::ThreadPool::SchedulingStrategy::kFixedBlockSize,
+          std::nullopt, reduction_block_size);
+      thread_pool->ParallelFor(num_segments, reduction_scheduling_params,
+                               reductionWorker);
+    }
 
     // Step 2: Reduce over the slotting dimension. This requires rotating any
     // non-empty slots in the output ciphertexts to the first slot using
@@ -333,16 +332,35 @@ struct UnsortedSegmentFunctor<CPUDevice, T, Index, InitialValueF, ReductionF> {
         }
       }
     };
-
-    if (reduction_type == "galois") {
-      // Use a fixed block size to avoid stragglers in the reduction.
-      int64_t const batchaxis_block_size = 2;
-      tsl::thread::ThreadPool::SchedulingParams batchaxis_scheduling_params(
-          tsl::thread::ThreadPool::SchedulingStrategy::kFixedBlockSize,
-          std::nullopt, batchaxis_block_size);
-      thread_pool->ParallelFor(num_segments, batchaxis_scheduling_params,
+    if (!trivial_reduction && reduction_type == "galois") {
+      // Reduction does not generally have long stragglers, so a variable block
+      // size is best to mimiize overhead of parallelization.
+      int const cost_per_reduce = 18000 * num_slots;  // ns
+      thread_pool->ParallelFor(num_segments, cost_per_reduce,
                                batchAxisReductionWorker);
     }
+
+    // Step 3: For any ciphertexts in the output which are empty, fill in zeros.
+    // Create a zero ciphertext by subtracting one of the inputs from itself.
+    SymmetricCt zero_ct = data(0, 0).get<SymmetricCtVariant<T>>()->ct;
+    OP_REQUIRES_OK(ctx, zero_ct.SubInPlace(zero_ct));
+    auto fillInZerosWorker = [&](int64_t begin, int64_t end) -> void {
+      for (int64_t i = 0; i < output.dimension(0); ++i) {
+        for (int64_t j = begin; j < end; ++j) {
+          for (int64_t chip = 0; chip < inner_dim; ++chip) {
+            SymmetricCt& ct =
+                output(i, j, chip).get<SymmetricCtVariant<T>>()->ct;
+
+            // If the ciphertext degree is zero, it has no moduli and is empty.
+            if (ct.Degree() == -1) {
+              output(i, j, chip).get<SymmetricCtVariant<T>>()->ct = zero_ct;
+            }
+          }
+        }
+      }
+    };
+    int const cost_per_zero = 900;
+    thread_pool->ParallelFor(num_segments, cost_per_zero, fillInZerosWorker);
   }
 };
 
