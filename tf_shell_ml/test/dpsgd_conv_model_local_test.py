@@ -94,8 +94,6 @@ class TestModel(tf.test.TestCase):
             disable_noise=disable_noise,
             cache_path=cache,
             # check_overflow_INSECURE=True,
-            # jacobian_pfor=True,
-            # jacobian_pfor_iterations=128,
         )
 
         m.compile(

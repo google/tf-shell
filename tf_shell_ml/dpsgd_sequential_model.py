@@ -46,14 +46,14 @@ class DpSgdSequential(SequentialBase):
         return x
 
     def compute_max_two_norm_and_pred(self, features, skip_two_norm):
-        with tf.GradientTape(persistent=tf.executing_eagerly()) as tape:
+        with tf.GradientTape(persistent=tf.executing_eagerly() or self.jacobian_pfor) as tape:
             y_pred = self(features, training=True)  # forward pass
 
         if not skip_two_norm:
             grads = tape.jacobian(
                 y_pred,
                 self.trainable_variables,
-                unconnected_gradients="zero",
+                # unconnected_gradients=tf.UnconnectedGradients.ZERO, broken with pfor
                 parallel_iterations=self.jacobian_pfor_iterations,
                 experimental_use_pfor=self.jacobian_pfor,
             )
@@ -244,32 +244,32 @@ class DpSgdSequential(SequentialBase):
             # Apply the gradients to the model.
             self.optimizer.apply_gradients(zip(grads, self.weights))
 
-        for metric in self.metrics:
-            if metric.name == "loss":
-                if self.disable_encryption:
-                    loss = self.loss_fn(y, y_pred)
-                    metric.update_state(loss)
+            for metric in self.metrics:
+                if metric.name == "loss":
+                    if self.disable_encryption:
+                        loss = self.loss_fn(y, y_pred)
+                        metric.update_state(loss)
+                    else:
+                        # Loss is unknown when encrypted.
+                        metric.update_state(0.0)
                 else:
-                    # Loss is unknown when encrypted.
-                    metric.update_state(0.0)
-            else:
-                if self.disable_encryption:
-                    metric.update_state(y, y_pred)
+                    if self.disable_encryption:
+                        metric.update_state(y, y_pred)
+                    else:
+                        # Other metrics are uknown when encrypted.
+                        zeros = tf.broadcast_to(0, tf.shape(y_pred))
+                        metric.update_state(zeros, zeros)
+
+            metric_results = {m.name: m.result() for m in self.metrics}
+
+            # TensorFlow 2.18.0 added a "CompiledMetrics" metric which holds metrics
+            # passed to compile in it's own dictionary. Keras wants all metrics to
+            # be returned as a flat dictionary. Here we flatten the dictionary.
+            result = {}
+            for key, value in metric_results.items():
+                if isinstance(value, dict):
+                    result.update(value)  # add subdict directly into the dict
                 else:
-                    # Other metrics are uknown when encrypted.
-                    zeros = tf.broadcast_to(0, tf.shape(y_pred))
-                    metric.update_state(zeros, zeros)
+                    result[key] = value  # non-subdict elements are just copied
 
-        metric_results = {m.name: m.result() for m in self.metrics}
-
-        # TensorFlow 2.18.0 added a "CompiledMetrics" metric which holds metrics
-        # passed to compile in it's own dictionary. Keras wants all metrics to
-        # be returned as a flat dictionary. Here we flatten the dictionary.
-        result = {}
-        for key, value in metric_results.items():
-            if isinstance(value, dict):
-                result.update(value)  # add subdict directly into the dict
-            else:
-                result[key] = value  # non-subdict elements are just copied
-
-        return result, None if self.disable_encryption else backprop_context.num_slots
+            return result, None if self.disable_encryption else backprop_context.num_slots
