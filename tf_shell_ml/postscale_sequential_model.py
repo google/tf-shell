@@ -57,7 +57,9 @@ class PostScaleSequential(SequentialBase):
             # is factored out of the gradient computation and accounted for below.
             self.layers[-1].activation = tf.keras.activations.linear
 
-            with tf.GradientTape(persistent=tf.executing_eagerly() or self.jacobian_pfor) as tape:
+            with tf.GradientTape(
+                persistent=tf.executing_eagerly() or self.jacobian_pfor
+            ) as tape:
                 y_pred = self(x, training=True)  # forward pass
             grads = tape.jacobian(
                 y_pred,
@@ -273,4 +275,6 @@ class PostScaleSequential(SequentialBase):
                 else:
                     result[key] = value  # non-subdict elements are just copied
 
-            return result, None if self.disable_encryption else backprop_context.num_slots
+            return result, (
+                None if self.disable_encryption else backprop_context.num_slots
+            )

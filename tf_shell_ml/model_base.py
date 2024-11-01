@@ -55,7 +55,9 @@ class SequentialBase(keras.Sequential):
         self.dataset_prepped = False
 
         if self.disable_encryption and self.jacobian_pfor:
-            print("WARNING: `jacobian_pfor` may be incompatible with `disable_encryption`.")
+            print(
+                "WARNING: `jacobian_pfor` may be incompatible with `disable_encryption`."
+            )
 
     def compile(self, shell_loss, **kwargs):
         if not isinstance(shell_loss, tf_shell_ml.CategoricalCrossentropy):

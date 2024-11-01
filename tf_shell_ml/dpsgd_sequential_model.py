@@ -46,7 +46,9 @@ class DpSgdSequential(SequentialBase):
         return x
 
     def compute_max_two_norm_and_pred(self, features, skip_two_norm):
-        with tf.GradientTape(persistent=tf.executing_eagerly() or self.jacobian_pfor) as tape:
+        with tf.GradientTape(
+            persistent=tf.executing_eagerly() or self.jacobian_pfor
+        ) as tape:
             y_pred = self(features, training=True)  # forward pass
 
         if not skip_two_norm:
@@ -272,4 +274,6 @@ class DpSgdSequential(SequentialBase):
                 else:
                     result[key] = value  # non-subdict elements are just copied
 
-            return result, None if self.disable_encryption else backprop_context.num_slots
+            return result, (
+                None if self.disable_encryption else backprop_context.num_slots
+            )
