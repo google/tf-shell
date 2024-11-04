@@ -72,6 +72,9 @@ class TestDistribModel(tf.test.TestCase):
         # bad but this test only measures functionality.
         x_train, x_test = x_train[:, :250], x_test[:, :250]
 
+        # Set a seed for shuffling both features and labels the same way.
+        seed = 42
+
         with tf.device(labels_party_dev):
             labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
             labels_dataset = labels_dataset.batch(2**10)
@@ -86,17 +89,10 @@ class TestDistribModel(tf.test.TestCase):
             cache_dir = tempfile.TemporaryDirectory()
             cache = cache_dir.name
 
-            m = tf_shell_ml.DpSgdSequential(
+            m = tf_shell_ml.PostScaleSequential(
                 [
-                    tf_shell_ml.ShellDense(
-                        64,
-                        activation=tf_shell_ml.relu,
-                        activation_deriv=tf_shell_ml.relu_deriv,
-                    ),
-                    tf_shell_ml.ShellDense(
-                        10,
-                        activation=tf.nn.softmax,
-                    ),
+                    tf.keras.layers.Dense(64, activation="relu"),
+                    tf.keras.layers.Dense(10, activation="softmax"),
                 ],
                 lambda: tf_shell.create_autocontext64(
                     log2_cleartext_sz=23,
@@ -132,7 +128,7 @@ class TestDistribModel(tf.test.TestCase):
 
         cache_dir.cleanup()
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.3)
 
 
 if __name__ == "__main__":

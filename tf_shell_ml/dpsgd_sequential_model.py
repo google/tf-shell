@@ -33,17 +33,18 @@ class DpSgdSequential(SequentialBase):
             self.layers[0].is_first_layer = True
             # Do not set the derivative of the activation function for the last
             # layer in the model. The derivative of the categorical crossentropy
-            # loss function times the derivative of a softmax is just y_pred - y
-            # (which is much easier to compute than each of them individually).
-            # So instead just let the loss function derivative incorporate
-            # y_pred - y and let the derivative of this last layer's activation
-            # be a no-op.
+            # loss function times the derivative of a softmax is just y_pred -
+            # labels (which is much easier to compute than each of them
+            # individually). So instead just let the loss function derivative
+            # incorporate y_pred - labels and let the derivative of this last
+            # layer's activation be a no-op.
             self.layers[-1].activation_deriv = None
 
-    def call(self, x, training=False):
+    def call(self, features, training=False):
+        out = features
         for l in self.layers:
-            x = l(x, training=training)
-        return x
+            out = l(out, training=training)
+        return out
 
     def compute_max_two_norm_and_pred(self, features, skip_two_norm):
         with tf.GradientTape(
@@ -68,26 +69,28 @@ class DpSgdSequential(SequentialBase):
 
         return y_pred, max_two_norm
 
-    def shell_train_step(self, data):
-        x, y = data
-
+    def shell_train_step(self, features, labels):
         with tf.device(self.labels_party_dev):
             if self.disable_encryption:
-                enc_y = y
+                enc_y = labels
             else:
                 backprop_context = self.backprop_context_fn()
                 backprop_secret_key = tf_shell.create_key64(
                     backprop_context, self.cache_path
                 )
-                # Encrypt the batch of secret labels y.
-                enc_y = tf_shell.to_encrypted(y, backprop_secret_key, backprop_context)
+                # Encrypt the batch of secret labels.
+                enc_y = tf_shell.to_encrypted(
+                    labels, backprop_secret_key, backprop_context
+                )
 
-        with tf.device(self.features_party_dev):
+        with tf.device(self.jacobian_device):
+            features = tf.identity(features)  # copy to GPU if needed
             # Forward pass in plaintext.
             y_pred, max_two_norm = self.compute_max_two_norm_and_pred(
-                x, self.disable_noise
+                features, self.disable_noise
             )
 
+        with tf.device(self.features_party_dev):
             # Backward pass.
             dx = self.loss_fn.grad(enc_y, y_pred)
             dJ_dw = []  # Derivatives of the loss with respect to the weights.
@@ -199,7 +202,7 @@ class DpSgdSequential(SequentialBase):
                 # secret key.
                 flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
 
-                if not self.disable_encryption and self.check_overflow_INSECURE:
+                if self.check_overflow_INSECURE:
                     nosie_scaling_factors = grads._scaling_factor
                     self.warn_on_overflow(
                         [flat_grads],
@@ -249,14 +252,14 @@ class DpSgdSequential(SequentialBase):
             for metric in self.metrics:
                 if metric.name == "loss":
                     if self.disable_encryption:
-                        loss = self.loss_fn(y, y_pred)
+                        loss = self.loss_fn(labels, y_pred)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.
                         metric.update_state(0.0)
                 else:
                     if self.disable_encryption:
-                        metric.update_state(y, y_pred)
+                        metric.update_state(labels, y_pred)
                     else:
                         # Other metrics are uknown when encrypted.
                         zeros = tf.broadcast_to(0, tf.shape(y_pred))

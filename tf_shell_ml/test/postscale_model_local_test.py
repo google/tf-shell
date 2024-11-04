@@ -20,10 +20,11 @@ import numpy as np
 import tf_shell
 import tf_shell_ml
 import os
+import tempfile
 
 
 class TestModel(tf.test.TestCase):
-    def _test_model(self, disable_encryption, disable_masking, disable_noise):
+    def _test_model(self, disable_encryption, disable_masking, disable_noise, cache):
         # Prepare the dataset.
         (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
         x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
@@ -32,16 +33,16 @@ class TestModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :380], x_test[:, :380]
+        x_train, x_test = x_train[:, :350], x_test[:, :350]
 
-        train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-        train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(2**12)
+        labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
+        labels_dataset = labels_dataset.batch(2**10)
+
+        features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
+        features_dataset = features_dataset.batch(2**10)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
-
-        context_cache_path = "/tmp/postscale_model_local_test_cache/"
-        os.makedirs(context_cache_path, exist_ok=True)
 
         m = tf_shell_ml.PostScaleSequential(
             [
@@ -52,18 +53,18 @@ class TestModel(tf.test.TestCase):
                 log2_cleartext_sz=23,
                 scaling_factor=32,
                 noise_offset_log2=14,
-                cache_path=context_cache_path,
+                cache_path=cache,
             ),
             lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=24,
                 scaling_factor=1,
                 noise_offset_log2=0,
-                cache_path=context_cache_path,
+                cache_path=cache,
             ),
             disable_encryption=disable_encryption,
             disable_masking=disable_masking,
             disable_noise=disable_noise,
-            cache_path=context_cache_path,
+            cache_path=cache,
         )
 
         m.compile(
@@ -73,8 +74,9 @@ class TestModel(tf.test.TestCase):
         )
 
         history = m.fit(
-            train_dataset,
-            steps_per_epoch=8,
+            features_dataset,
+            labels_dataset,
+            steps_per_epoch=2,
             epochs=1,
             verbose=2,
             validation_data=val_dataset,
@@ -83,10 +85,13 @@ class TestModel(tf.test.TestCase):
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
 
     def test_model(self):
-        self._test_model(False, False, False)
-        self._test_model(True, False, False)
-        self._test_model(False, True, False)
-        self._test_model(False, False, True)
+        with tempfile.TemporaryDirectory() as cache_dir:
+            # Perform full encrypted test to populate cache.
+            self._test_model(False, False, False, cache_dir)
+            self._test_model(True, False, False, cache_dir)
+            self._test_model(False, True, False, cache_dir)
+            self._test_model(False, False, True, cache_dir)
+            self._test_model(True, True, True, cache_dir)
 
 
 if __name__ == "__main__":

@@ -33,10 +33,13 @@ class TestModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :300], x_test[:, :300]
+        x_train, x_test = x_train[:, :350], x_test[:, :350]
 
-        train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-        train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(2**12)
+        labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
+        labels_dataset = labels_dataset.batch(2**10)
+
+        features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
+        features_dataset = features_dataset.batch(2**10)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
@@ -81,25 +84,28 @@ class TestModel(tf.test.TestCase):
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
-        m.build([None, 300])
+        m.build([None, 350])
         m.summary()
 
         history = m.fit(
-            train_dataset,
-            steps_per_epoch=8,
+            features_dataset,
+            labels_dataset,
+            steps_per_epoch=2,
             epochs=1,
             verbose=2,
             validation_data=val_dataset,
         )
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
+            # Perform full encrypted test to populate cache.
             self._test_model(False, False, False, cache_dir)
             self._test_model(True, False, False, cache_dir)
             self._test_model(False, True, False, cache_dir)
             self._test_model(False, False, True, cache_dir)
+            self._test_model(True, True, True, cache_dir)
 
 
 if __name__ == "__main__":

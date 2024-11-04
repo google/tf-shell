@@ -34,10 +34,14 @@ class TestModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        # x_train, x_test = x_train[:, :512], x_test[:, :512]
+        # x_train, x_test = x_train[:, 5:23, 5:23, :], x_test[:, 5:23, 5:23, :]
+        # print(x_train.shape, x_test.shape)
 
-        train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-        train_dataset = train_dataset.shuffle(buffer_size=2**10).batch(2**13)
+        labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
+        labels_dataset = labels_dataset.batch(2**10)
+
+        features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
+        features_dataset = features_dataset.batch(2**10)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
@@ -106,7 +110,8 @@ class TestModel(tf.test.TestCase):
         m.summary()
 
         history = m.fit(
-            train_dataset,
+            features_dataset,
+            labels_dataset,
             steps_per_epoch=8,
             epochs=1,
             verbose=2,

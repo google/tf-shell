@@ -53,11 +53,12 @@ val_dataset = val_dataset.batch(batch_size)
 
 mnist_layers = [
     tf.keras.layers.Dense(64, activation="relu"),
-    tf.keras.layers.Dense(10, activation="sigmoid"),
+    tf.keras.layers.Dense(10, activation="softmax"),
 ]
 
 model = keras.Sequential(mnist_layers)
 model.compile(
+    loss="categorical_crossentropy",
     optimizer="adam",
     metrics=["accuracy"],
 )
@@ -96,8 +97,8 @@ def train_step(x, y):
 
     # Reset the activation function for the last layer and compute the real
     # prediction.
-    model.layers[-1].activation = tf.keras.activations.sigmoid
-    y_pred = model(x, training=False)
+    model.layers[-1].activation = tf.keras.activations.softmax
+    y_pred = tf.nn.softmax(y_pred)
 
     # Compute y_pred - y (where y may be encrypted).
     # scalars = y_pred - y  # dJ/dy_pred
@@ -149,19 +150,13 @@ def train_step(x, y):
 
 
 class TestPlaintextPostScale(tf.test.TestCase):
-    def _test_mnist_post_scale(self, eager_mode):
+    def _test_mnist_post_scale_eager_vs_deferred(self, eager_mode):
         tf.config.run_functions_eagerly(eager_mode)
 
         (x_batch, y_batch) = next(iter(train_dataset))
 
         # Plaintext
         ps_grads = train_step(x_batch, y_batch)
-
-        if not eager_mode:
-            # With autograph on (eagerly off), the tf.function trace cannot be
-            # reused between plaintext and encrypted calls. Reset the graph
-            # between plaintext and encrypted train_step() calls.
-            tf.keras.backend.clear_session()
 
         # Encrypted
         enc_y_batch = tf_shell.to_encrypted(y_batch, key, context)
@@ -174,10 +169,42 @@ class TestPlaintextPostScale(tf.test.TestCase):
             atol=1 / context.scaling_factor * batch_size,
         )
 
-    def test_mnist_post_scale(self):
+    def test_mnist_post_scale_eager_vs_deferred(self):
         for eager_mode in [False, True]:
             with self.subTest(f"{self._testMethodName} with eager_mode={eager_mode}."):
-                self._test_mnist_post_scale(eager_mode)
+                self._test_mnist_post_scale_eager_vs_deferred(eager_mode)
+
+    def _test_mnist_post_scale_vs_keras(self, eager_mode):
+        tf.config.run_functions_eagerly(eager_mode)
+        train_dataset_iter = iter(train_dataset)
+
+        for i in range(8):
+            (x_batch, y_batch) = next(train_dataset_iter)
+            # Plaintext post scale.
+            ps_grads = train_step(x_batch, y_batch)
+            ps_grads = [tf.reduce_sum(g, axis=0) for g in ps_grads]
+
+            # Keras normal backprop.
+            with tf.GradientTape() as tape:
+                y_pred = model(x_batch, training=True)  # forward pass
+                loss = tf.keras.losses.categorical_crossentropy(y_batch, y_pred)
+            grads = tape.gradient(loss, model.trainable_variables)
+
+            # Compare the gradients.
+            self.assertAllClose(ps_grads, grads, atol=1e-3)
+
+            # Apply the gradients.
+            model.optimizer.apply_gradients(zip(ps_grads, model.trainable_variables))
+
+        # Evaluate the model.
+        val_loss, val_acc = model.evaluate(val_dataset)
+        print(f"Validation loss: {val_loss}, accuracy: {val_acc}")
+        self.assertGreater(val_acc, 0.3)
+
+    def test_mnist_post_scale_eager_vs_deferred(self):
+        for eager_mode in [False, True]:
+            with self.subTest(f"{self._testMethodName} with eager_mode={eager_mode}."):
+                self._test_mnist_post_scale_vs_keras(eager_mode)
 
 
 if __name__ == "__main__":

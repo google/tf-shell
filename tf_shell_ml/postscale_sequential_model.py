@@ -30,37 +30,39 @@ class PostScaleSequential(SequentialBase):
 
         if len(self.layers) > 0:
             self.layers[0].is_first_layer = True
-            # Do not set the derivative of the activation function for the last
-            # layer in the model. The derivative of the categorical crossentropy
-            # loss function times the derivative of a softmax is just y_pred - y
-            # (which is much easier to compute than each of them individually).
-            # So instead just let the loss function derivative incorporate
-            # y_pred - y and let the derivative of this last layer's activation
-            # be a no-op.
-            self.layers[-1].activation_deriv = None
 
-    def shell_train_step(self, data):
-        x, y = data
+            # Override the activation of the last layer. Set it to linear so
+            # when the jacobian is computed, the derivative of the activation
+            # function is a no-op. This is required for the post scale protocol.
+            self.layers[-1].activation = tf.keras.activations.linear
 
+    def call(self, inputs, training=False, with_softmax=True):
+        prediction = super().call(inputs, training)
+        if not with_softmax:
+            return prediction
+        # Perform the last layer activation since it is removed for training
+        # purposes.
+        return tf.nn.softmax(prediction)
+
+    def shell_train_step(self, features, labels):
         with tf.device(self.labels_party_dev):
             if self.disable_encryption:
-                enc_y = y
+                enc_y = labels
             else:
                 backprop_context = self.backprop_context_fn()
                 secret_key = tf_shell.create_key64(backprop_context, self.cache_path)
-                # Encrypt the batch of secret labels y.
-                enc_y = tf_shell.to_encrypted(y, secret_key, backprop_context)
+                # Encrypt the batch of secret labels.
+                enc_y = tf_shell.to_encrypted(labels, secret_key, backprop_context)
 
-        with tf.device(self.features_party_dev):
-            # Unset the activation function for the last layer so it is not used in
-            # computing the gradient. The effect of the last layer activation function
-            # is factored out of the gradient computation and accounted for below.
-            self.layers[-1].activation = tf.keras.activations.linear
+        with tf.device(self.jacobian_device):
+            features = tf.identity(features)  # copy to GPU if needed
 
+            # self.layers[-1].activation = tf.keras.activations.linear
             with tf.GradientTape(
                 persistent=tf.executing_eagerly() or self.jacobian_pfor
             ) as tape:
-                y_pred = self(x, training=True)  # forward pass
+                y_pred = self(features, training=True, with_softmax=False)
+
             grads = tape.jacobian(
                 y_pred,
                 self.trainable_variables,
@@ -71,13 +73,12 @@ class PostScaleSequential(SequentialBase):
             # ^  layers list x (batch size x num output classes x weights) matrix
             # dy_pred_j/dW_sample_class
 
-            # Reset the activation function for the last layer and compute the real
-            # prediction.
-            self.layers[-1].activation = tf.keras.activations.sigmoid
-            y_pred = self(x, training=False)
+            # compute the
+            # activation manually.
+            y_pred = tf.nn.softmax(y_pred)
 
-            # Compute y_pred - y (where y may be encrypted).
-            # scalars = y_pred - y  # dJ/dy_pred
+        with tf.device(self.features_party_dev):
+            # Compute prediction - labels (where labels may be encrypted).
             scalars = enc_y.__rsub__(y_pred)  # dJ/dy_pred
             # ^  batch_size x num output classes.
 
@@ -162,13 +163,13 @@ class PostScaleSequential(SequentialBase):
                 grads = [tf_shell.to_tensorflow(g, secret_key) for g in grads]
 
             # Sum the masked gradients over the batch.
-            if self.disable_masking or self.disable_encryption:
-                grads = [tf.reduce_sum(g, 0) for g in grads]
-            else:
+            if not self.disable_masking and not self.disable_encryption:
                 grads = [
                     tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
                     for g, s in zip(grads, mask_scaling_factors)
                 ]
+            else:
+                grads = [tf.reduce_sum(g, 0) for g in grads]
 
             if not self.disable_noise:
                 if not self.disable_encryption:
@@ -202,7 +203,7 @@ class PostScaleSequential(SequentialBase):
                 # secret key.
                 flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
 
-                if not self.disable_encryption and self.check_overflow_INSECURE:
+                if self.check_overflow_INSECURE:
                     nosie_scaling_factor = grads._scaling_factor
                     self.warn_on_overflow(
                         [flat_grads],
@@ -250,14 +251,14 @@ class PostScaleSequential(SequentialBase):
             for metric in self.metrics:
                 if metric.name == "loss":
                     if self.disable_encryption:
-                        loss = self.loss_fn(y, y_pred)
+                        loss = self.loss_fn(labels, y_pred)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.
                         metric.update_state(0.0)
                 else:
                     if self.disable_encryption:
-                        metric.update_state(y, y_pred)
+                        metric.update_state(labels, y_pred)
                     else:
                         # Other metrics are uknown when encrypted.
                         zeros = tf.broadcast_to(0, tf.shape(y_pred))

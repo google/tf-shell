@@ -15,8 +15,10 @@
 # limitations under the License.
 import tensorflow as tf
 import tensorflow.keras as keras
+from tensorflow.keras.callbacks import CallbackList
 import tf_shell
 import tf_shell_ml
+import time
 
 
 class SequentialBase(keras.Sequential):
@@ -32,6 +34,7 @@ class SequentialBase(keras.Sequential):
         cache_path=None,
         jacobian_pfor=False,
         jacobian_pfor_iterations=None,
+        jacobian_device=None,
         disable_encryption=False,
         disable_masking=False,
         disable_noise=False,
@@ -48,6 +51,9 @@ class SequentialBase(keras.Sequential):
         self.cache_path = cache_path
         self.jacobian_pfor = jacobian_pfor
         self.jacobian_pfor_iterations = jacobian_pfor_iterations
+        self.jacobian_device = (
+            features_party_dev if jacobian_device is None else jacobian_device
+        )
         self.disable_encryption = disable_encryption
         self.disable_masking = disable_masking
         self.disable_noise = disable_noise
@@ -59,12 +65,6 @@ class SequentialBase(keras.Sequential):
                 "WARNING: `jacobian_pfor` may be incompatible with `disable_encryption`."
             )
 
-    def compile(self, shell_loss, **kwargs):
-        if not isinstance(shell_loss, tf_shell_ml.CategoricalCrossentropy):
-            raise ValueError(
-                "The model must be used with the tf-shell version of CategoricalCrossentropy loss function. Saw",
-                shell_loss,
-            )
         if len(self.layers) > 0 and not (
             self.layers[-1].activation is tf.keras.activations.softmax
             or self.layers[-1].activation is tf.nn.softmax
@@ -74,54 +74,85 @@ class SequentialBase(keras.Sequential):
                 self.layers[-1].activation,
             )
 
-        if shell_loss is None:
-            raise ValueError("shell_loss must be provided")
+    def compile(self, shell_loss, **kwargs):
+        if not isinstance(shell_loss, tf_shell_ml.CategoricalCrossentropy):
+            raise ValueError(
+                "The model must be used with the tf_shell_ml version of CategoricalCrossentropy loss function. Saw",
+                shell_loss,
+            )
         self.loss_fn = shell_loss
 
-        super().compile(loss=tf.keras.losses.CategoricalCrossentropy(), **kwargs)
+        super().compile(
+            loss=tf.keras.losses.CategoricalCrossentropy(),
+            jit_compile=False,  # Disable XLA, no CPU op for tf_shell_ml's TensorArrayV2.
+            **kwargs,
+        )
 
-    def train_step(self, data):
-        metrics, num_slots = self.shell_train_step(data)
+    def train_step(self, features, labels):
+        metrics, num_slots = self.shell_train_step(features, labels)
         return metrics
 
     @tf.function
-    def train_step_tf_func(self, data):
-        return self.shell_train_step(data)
+    def train_step_with_keygen(self, features, labels):
+        return self.shell_train_step(features, labels)
 
-    def shell_train_step(self, data):
+    @tf.function
+    def train_step_tf_func(self, features, labels):
+        return self.shell_train_step(features, labels)
+
+    def shell_train_step(self, features, labels):
         raise NotImplementedError()  # Should be overloaded by the subclass.
 
-    # Prepare the dataset for training with encryption by setting the batch size
-    # to the same value as the encryption ring degree. Run the training loop once
-    # on dummy data to figure out the batch size.
-    def prep_dataset_for_model(self, train_dataset):
+    def prep_dataset_for_model(self, train_features, train_labels):
+        """Prepare the dataset for training with encryption by setting the batch
+        size to the same value as the encryption ring degree. Run the training
+        loop once on dummy data to figure out the batch size.
+        """
         if self.disable_encryption:
+            self.batch_size = next(iter(train_features)).shape[0]
             self.dataset_prepped = True
-            return train_dataset
+            return train_features, train_labels
 
         # Run the training loop once on dummy data to figure out the batch size.
-        tf.config.run_functions_eagerly(False)
-        metrics, num_slots = self.train_step_tf_func(next(iter(train_dataset)))
+        # Use a separate tf.function to avoid caching the trace so keys and
+        # context are written to cache and read on next trace.
+        metrics, num_slots = self.train_step_with_keygen(
+            next(iter(train_features)), next(iter(train_labels))
+        )
 
-        train_dataset = train_dataset.rebatch(num_slots.numpy(), drop_remainder=True)
+        self.batch_size = num_slots.numpy()
+
+        with tf.device(self.features_party_dev):
+            train_features = train_features.rebatch(
+                num_slots.numpy(), drop_remainder=True
+            )
+        with tf.device(self.labels_party_dev):
+            train_labels = train_labels.rebatch(num_slots.numpy(), drop_remainder=True)
 
         self.dataset_prepped = True
-        return train_dataset
+        return train_features, train_labels
 
-    # Prepare the dataset for training with encryption by setting the batch size
-    # to the same value as the encryption ring degree. It is faster than
-    # `prep_dataset_for_model` because it does not execute the graph, instead
-    # tracing and optimizing the graph and extracting the required parameters
-    # without actually executing the graph.
-    def fast_prep_dataset_for_model(self, train_dataset):
+    def fast_prep_dataset_for_model(self, train_features, train_labels):
+        """Prepare the dataset for training with encryption by setting the
+        batch size to the same value as the encryption ring degree. It is faster
+        than `prep_dataset_for_model` because it does not execute the graph,
+        instead tracing and optimizing the graph and extracting the required
+        parameters without actually executing the graph.
+
+        Since the graph is not executed, caches for keys and the shell context
+        are not written to disk.
+        """
         if self.disable_encryption:
+            self.batch_size = next(iter(train_features)).shape[0]
             self.dataset_prepped = True
-            return train_dataset
+            return train_features, train_labels
 
-        # Call the training step with keygen to trace the graph. Use a copy
-        # of the function to avoid caching the trace.
-        traceable_copy = self.train_step_tf_func
-        func = traceable_copy.get_concrete_function(next(iter(train_dataset)))
+        # Call the training step with keygen to trace the graph. Use a copy of
+        # the function to avoid caching the trace so keys and context are
+        # written to cache and read on next trace.
+        func = self.train_step_with_keygen.get_concrete_function(
+            next(iter(train_features)), next(iter(train_labels))
+        )
 
         # Optimize the graph using tf_shells HE-specific optimizers.
         optimized_func = tf_shell.optimize_shell_graph(
@@ -148,12 +179,30 @@ class SequentialBase(keras.Sequential):
             raise ValueError(f"Node {name} not found in graph.")
 
         log_n = get_tensor_by_name(optimized_graph, context_node.input[0]).tolist()
+        self.batch_size = 2**log_n
 
-        train_dataset = train_dataset.unbatch().batch(2**log_n, drop_remainder=True)
+        with tf.device(self.features_party_dev):
+            train_features = train_features.rebatch(2**log_n, drop_remainder=True)
+        with tf.device(self.labels_party_dev):
+            train_labels = train_labels.rebatch(2**log_n, drop_remainder=True)
+
         self.dataset_prepped = True
-        return train_dataset
+        return train_features, train_labels
 
-    def fit(self, train_dataset, **kwargs):
+    def fit(
+        self,
+        features_dataset,
+        labels_dataset,
+        epochs=1,
+        batch_size=32,
+        callbacks=None,
+        validation_data=None,
+        steps_per_epoch=None,
+        verbose=1,
+    ):
+        """A custom training loop that supports inputs from multiple datasets,
+        each of which can be on a different device.
+        """
         # Prevent TensorFlow from placing ops on devices which were not
         # explicitly assigned for security reasons.
         tf.config.set_soft_device_placement(False)
@@ -162,9 +211,93 @@ class SequentialBase(keras.Sequential):
         tf_shell.enable_optimization()
 
         if not self.dataset_prepped:
-            train_dataset = self.prep_dataset_for_model(train_dataset)
+            features_dataset, labels_dataset = self.prep_dataset_for_model(
+                features_dataset, labels_dataset
+            )
 
-        return super().fit(train_dataset, **kwargs)
+        # Calculate samples if possible.
+        if steps_per_epoch is None:
+            samples = None
+        else:
+            samples = steps_per_epoch * self.batch_size
+
+        # Initialize callbacks.
+        callback_list = CallbackList(
+            callbacks,
+            add_history=True,
+            add_progbar=verbose != 0,
+            model=self,
+            batch_size=self.batch_size,
+            epochs=epochs,
+            steps=steps_per_epoch,
+            samples=samples,
+            verbose=verbose,
+            do_validation=validation_data is not None,
+            metrics=list(self.metrics_names),
+        )
+
+        # Begin training.
+        callback_list.on_train_begin()
+        logs = {}
+
+        for epoch in range(epochs):
+            callback_list.on_epoch_begin(epoch, logs)
+            start_time = time.time()
+            self.reset_metrics()
+
+            # Training loop.
+            for step, (batch_x, batch_y) in enumerate(
+                zip(features_dataset, labels_dataset)
+            ):
+                callback_list.on_train_batch_begin(step, logs)
+                logs, num_slots = self.train_step_tf_func(batch_x, batch_y)
+                callback_list.on_train_batch_end(step, logs)
+                if steps_per_epoch is not None and step + 1 >= steps_per_epoch:
+                    break
+
+            # Validation loop.
+            if validation_data is not None:
+                # Reset metrics
+                self.reset_metrics()
+
+                for val_x_batch, val_y_batch in validation_data:
+                    val_y_pred = self(val_x_batch, training=False)
+                    # Update validation metrics
+                    for m in self.metrics:
+                        if m.name == "loss":
+                            loss = self.loss_fn(val_y_batch, val_y_pred)
+                            m.update_state(loss)
+                        else:
+                            m.update_state(val_y_batch, val_y_pred)
+                metric_results = {m.name: m.result() for m in self.metrics}
+
+                # TensorFlow 2.18.0 added a "CompiledMetrics" metric which holds
+                # metrics passed to compile in it's own dictionary. Keras wants
+                # all metrics to be returned as a flat dictionary. Here we
+                # flatten the dictionary.
+                result = {}
+                for key, value in metric_results.items():
+                    if isinstance(value, dict):
+                        result.update(value)  # add subdict directly into the dict
+                    else:
+                        result[key] = value  # non-subdict elements are just copied
+
+                logs.update({f"val_{name}": result for name, result in result.items()})
+
+                # End of epoch.
+                logs["time"] = time.time() - start_time
+
+                # Update the steps in callback parameters with actual steps completed
+                if steps_per_epoch is None:
+                    steps_per_epoch = step + 1
+                    samples = steps_per_epoch * self.batch_size
+                    callback_list.params["steps"] = steps_per_epoch
+                    callback_list.params["samples"] = samples
+                callback_list.on_epoch_end(epoch, logs)
+
+        # End of training.
+        callback_list.on_train_end(logs)
+        return self.history
 
     def flatten_jacobian_list(self, grads):
         """Takes as input a jacobian and flattens into a single tensor. The
@@ -180,7 +313,7 @@ class SequentialBase(keras.Sequential):
         # Get the shapes from TensorFlow's tensors, not SHELL's context for when
         # the batch size != slotting dim or not using encryption.
         slot_size = tf.shape(grads[0])[0]
-        num_output_classes = grads[0].shape[1]
+        num_output_classes = tf.shape(grads[0])[1]
         grad_shapes = [g.shape[2:] for g in grads]
         flattened_grad_shapes = [s.num_elements() for s in grad_shapes]
 
@@ -292,9 +425,10 @@ class SequentialBase(keras.Sequential):
         return grads_list
 
     def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
-        # If the gradient is between [-t/2, -t/4] or [t/4, t/2], the gradient
-        # may have overflowed. This also must take the scaling factor into
-        # account so the range is divided by the scaling factor.
+        """If the gradient is between [-t/2, -t/4] or [t/4, t/2], the gradient
+        may have overflowed. This also must take the scaling factor into account
+        so the range is divided by the scaling factor.
+        """
         t = tf.cast(plaintext_modulus, grads[0].dtype)
         t_half = t / 2
 

@@ -115,3 +115,14 @@ py_test(
         requirement("tensorflow"),
     ],
 )
+
+py_test(
+    name = "postscale_model_distrib_test",
+    size = "enormous",
+    srcs = ["postscale_model_distrib_test.py"],
+    tags = ["exclusive"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow"),
+    ],
+)
