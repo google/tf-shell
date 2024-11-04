@@ -458,6 +458,7 @@ REGISTER_OP("Conv2dPtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2d);
 
@@ -469,6 +470,7 @@ REGISTER_OP("Conv2dCtPt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2d);
 
@@ -480,6 +482,7 @@ REGISTER_OP("Conv2dCtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2d);
 
@@ -491,6 +494,7 @@ REGISTER_OP("Conv2dWithChanPtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dWithChan);
 
@@ -502,6 +506,7 @@ REGISTER_OP("Conv2dWithChanCtPt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dWithChan);
 
@@ -513,6 +518,7 @@ REGISTER_OP("Conv2dWithChanCtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dWithChan);
 
@@ -524,6 +530,7 @@ REGISTER_OP("Conv2dTransposePtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dTranspose);
 
@@ -535,6 +542,7 @@ REGISTER_OP("Conv2dTransposeCtPt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dTranspose);
 
@@ -546,6 +554,7 @@ REGISTER_OP("Conv2dTransposeCtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dTranspose);
 
@@ -557,6 +566,7 @@ REGISTER_OP("Conv2dTransposeWithChanPtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dTransposeWithChan);
 
@@ -568,6 +578,7 @@ REGISTER_OP("Conv2dTransposeWithChanCtPt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dTransposeWithChan);
 
@@ -579,6 +590,7 @@ REGISTER_OP("Conv2dTransposeWithChanCtCt64")
     .Attr("padding: list(int)")
     .Attr("dilations: list(int)")
     .Attr("filter_num_elements: int")
+    .Attr("output_shape: list(int)")
     .Output("output: variant")
     .SetShapeFn(ShellConv2dTransposeWithChan);
 

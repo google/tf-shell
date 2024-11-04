@@ -179,6 +179,21 @@ Status ShellSegmentReductionWithNumSegmentsShape(InferenceContext* c) {
 }
 
 Status ShellConv2dImpl(InferenceContext* c, bool different_num_in_channels) {
+  // If the output shape is provided, return that.
+  std::vector<tsl::int32> requested_output_shape;
+  TF_RETURN_IF_ERROR(c->GetAttr("output_shape", &requested_output_shape));
+  if (!requested_output_shape.empty()) {
+    ShapeHandle output_shape_handle = c->Scalar();
+    // Skip the batching dimension.
+    for (size_t i = 1; i < requested_output_shape.size(); i++) {
+      DimensionHandle h = c->MakeDim(requested_output_shape[i]);
+      TF_RETURN_IF_ERROR(c->Concatenate(output_shape_handle, c->Vector(h),
+                                        &output_shape_handle));
+    }
+    c->set_output(0, output_shape_handle);
+    return OkStatus();
+  }
+
   // Input shape s_x is {height, width, in_channels}. Output shape is
   // {out_height, out_width, out_channels}. The batch size is implicit in the
   // ciphertext ring degree and not part of the shape.
@@ -259,7 +274,7 @@ Status ShellConv2dImpl(InferenceContext* c, bool different_num_in_channels) {
   TF_RETURN_IF_ERROR(c->Divide(channels, stride_in_channels, true, &channels));
   TF_RETURN_IF_ERROR(c->Add(channels, one, &channels));
 
-  ShapeHandle output_shape;
+  ShapeHandle output_shape = c->Scalar();
   TF_RETURN_IF_ERROR(c->Concatenate(c->Vector(out_height), c->Vector(out_width),
                                     &output_shape));
   if (different_num_in_channels) {
@@ -286,6 +301,21 @@ Status ShellConv2dWithChan(InferenceContext* c) {
 
 Status ShellConv2dTransposeImpl(InferenceContext* c,
                                 bool different_num_in_channels) {
+  // If the output shape is provided, return that.
+  std::vector<tsl::int32> requested_output_shape;
+  TF_RETURN_IF_ERROR(c->GetAttr("output_shape", &requested_output_shape));
+  if (!requested_output_shape.empty()) {
+    ShapeHandle output_shape_handle = c->Scalar();
+    // Skip the batching dimension.
+    for (size_t i = 1; i < requested_output_shape.size(); i++) {
+      DimensionHandle h = c->MakeDim(requested_output_shape[i]);
+      TF_RETURN_IF_ERROR(c->Concatenate(output_shape_handle, c->Vector(h),
+                                        &output_shape_handle));
+    }
+    c->set_output(0, output_shape_handle);
+    return OkStatus();
+  }
+
   // Input shape s_x is {height, width, in_channels}. Output shape is
   // {out_height, out_width, out_channels}. The batch size is implicit in the
   // ciphertext ring degree and not part of the shape.
@@ -342,7 +372,7 @@ Status ShellConv2dTransposeImpl(InferenceContext* c,
   TF_RETURN_IF_ERROR(c->Multiply(channels, stride_in_channels, &channels));
   TF_RETURN_IF_ERROR(c->Add(channels, filter_in_channels, &channels));
 
-  ShapeHandle output_shape;
+  ShapeHandle output_shape = c->Scalar();
   TF_RETURN_IF_ERROR(c->Concatenate(c->Vector(out_height), c->Vector(out_width),
                                     &output_shape));
   if (different_num_in_channels) {

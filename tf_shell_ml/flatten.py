@@ -33,14 +33,14 @@ class Flatten(keras.layers.Layer):
         return tf.reshape(inputs, [self.batch_size] + self.flat_shape)
 
     def backward(self, dy, rotation_key=None):
+        new_shape = list(self.input_shape)
         # On the forward pass, inputs may be batched differently than the
         # ciphertext scheme when not in eager mode. Pad them to match the
         # ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
-            new_shape = list(self.input_shape)
             new_shape[0] = dy._context.num_slots
         else:
-            new_shape = self.input_shape
+            new_shape[0] = dy.shape[0]
         dw = []
         dx = tf_shell.reshape(dy, new_shape)
         return dw, dx

@@ -43,21 +43,11 @@ class Conv2D(keras.layers.Layer):
         self.filters = int(filters)
         self.kernel_size = int(kernel_size)
         self.strides = [1, int(strides), int(strides), 1]
-        if padding.upper() == "SAME":
-            self.padding = [(self.kernel_size - 1) // 2] * 4
-            self.tf_padding = [
-                [0, 0],
-                [self.padding[0], self.padding[1]],  # top, bottom
-                [self.padding[2], self.padding[3]],  # left, right
-                [0, 0],
-            ]
-        elif padding.upper() == "VALID":
-            self.padding = [0, 0, 0, 0]
-            self.tf_padding = [[0, 0], [0, 0], [0, 0], [0, 0]]
-        else:
+        if padding.upper() not in ["SAME", "VALID"]:
             raise ValueError(
                 f"Invalid padding type: {padding} (must be 'SAME' or 'VALID')"
             )
+        self.padding_str = padding.upper()
         self.activation = deserialize_activation(activation)
         self.activation_deriv = deserialize_activation(activation_deriv)
 
@@ -78,7 +68,7 @@ class Conv2D(keras.layers.Layer):
                 "filters": self.filters,
                 "kernel_size": self.kernel_size,
                 "strides": self.strides[1],
-                "padding": self.padding,
+                "padding_str": self.padding_str,
                 "activation": serialize_activation(self.activation),
                 "activation_deriv": serialize_activation(self.activation_deriv),
                 "kernel_initializer": self.kernel_initializer,
@@ -91,6 +81,40 @@ class Conv2D(keras.layers.Layer):
 
     def build(self, input_shape):
         self.in_channels = int(input_shape[-1])
+
+        # Calculate padding now that the input shape is known.
+        if self.padding_str == "SAME":
+            input_height = input_shape[1]
+            input_width = input_shape[2]
+
+            # Calculate output dimensions
+            out_height = (input_height + self.strides[1] - 1) // self.strides[1]
+            out_width = (input_width + self.strides[2] - 1) // self.strides[2]
+
+            # Calculate total padding needed
+            pad_height = max(
+                0, (out_height - 1) * self.strides[1] + self.kernel_size - input_height
+            )
+            pad_width = max(
+                0, (out_width - 1) * self.strides[2] + self.kernel_size - input_width
+            )
+            pad_top = pad_height // 2
+            pad_left = pad_width // 2
+            self.padding = [
+                pad_top,
+                pad_height - pad_top,
+                pad_left,
+                pad_width - pad_left,
+            ]
+        elif self.padding_str == "VALID":
+            self.padding = [0, 0, 0, 0]
+        self.tf_padding = [
+            [0, 0],
+            [self.padding[0], self.padding[1]],  # top, bottom
+            [self.padding[2], self.padding[3]],  # left, right
+            [0, 0],
+        ]
+
         self.add_weight(
             shape=[self.kernel_size, self.kernel_size, self.in_channels, self.filters],
             initializer=self.kernel_initializer,
@@ -129,10 +153,10 @@ class Conv2D(keras.layers.Layer):
         # On the forward pass, x may be batched differently than the
         # ciphertext scheme. Pad them to match the ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
-            padding = [[0, dy._context.num_slots - x.shape[0]]] + [
+            batch_padding = [[0, dy._context.num_slots - x.shape[0]]] + [
                 [0, 0] for _ in range(len(x.shape) - 1)
             ]
-            x = tf.pad(x, padding)
+            x = tf.pad(x, batch_padding)
 
         if self.activation_deriv is not None:
             dy = self.activation_deriv(z, dy)
@@ -142,12 +166,30 @@ class Conv2D(keras.layers.Layer):
         else:
             exp_kernel = tf.expand_dims(kernel, axis=0)
             exp_kernel = tf.repeat(exp_kernel, batch_size * 2, axis=0)
-            d_x = tf_shell.conv2d_transpose(dy, exp_kernel, self.strides, self.padding)
+            d_x = tf_shell.conv2d_transpose(
+                dy,
+                exp_kernel,
+                strides=self.strides,
+                padding=self.padding,
+                output_shape=x.shape.as_list(),
+            )
 
         # Swap strides and dilations for the backward pass.
         dy_exp = tf_shell.expand_dims(dy, axis=3)
         d_w = tf_shell.conv2d(
-            x, dy_exp, [1, 1, 1, 1], self.padding, self.strides, with_channel=True
+            x,
+            dy_exp,
+            strides=[1, 1, 1, 1],
+            padding=self.padding,
+            dilations=self.strides,
+            with_channel=True,
+            output_shape=[
+                -1,
+                self.kernel_size,
+                self.kernel_size,
+                self.in_channels,
+                self.filters,
+            ],
         )
 
         if self.grad_reduction == "galois":

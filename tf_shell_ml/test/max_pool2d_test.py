@@ -46,8 +46,7 @@ class TestMaxPoll2d(tf.test.TestCase):
         im = tf.random.uniform(im_shape, minval=0, maxval=5, dtype=tf.int64)
         im = tf.cast(im, tf.float32)
 
-        # Create a shell layer and a keras layer with the same integer-valued
-        # weights.
+        # Create a shell layer and a keras layer.
         layer = tf_shell_ml.MaxPool2D(
             pool_size=(pool_sz, pool_sz),
             padding=padding,

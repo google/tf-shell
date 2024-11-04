@@ -73,8 +73,7 @@ class PostScaleSequential(SequentialBase):
             # ^  layers list x (batch size x num output classes x weights) matrix
             # dy_pred_j/dW_sample_class
 
-            # compute the
-            # activation manually.
+            # Compute the activation manually.
             y_pred = tf.nn.softmax(y_pred)
 
         with tf.device(self.features_party_dev):

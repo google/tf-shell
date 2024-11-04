@@ -32,39 +32,38 @@ class TestModel(tf.test.TestCase):
         x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
         y_train, y_test = tf.one_hot(y_train, 10), tf.one_hot(y_test, 10)
 
-        # Clip dataset images to limit memory usage. The model accuracy will be
-        # bad but this test only measures functionality.
-        # x_train, x_test = x_train[:, 5:23, 5:23, :], x_test[:, 5:23, 5:23, :]
-        # print(x_train.shape, x_test.shape)
-
         labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-        labels_dataset = labels_dataset.batch(2**10)
+        labels_dataset = labels_dataset.batch(2**12)
 
         features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-        features_dataset = features_dataset.batch(2**10)
+        features_dataset = features_dataset.batch(2**12)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
-        # Turn on the shell optimizer to use autocontext.
-        tf_shell.enable_optimization()
-
         m = tf_shell_ml.DpSgdSequential(
             [
-                tf_shell_ml.Conv2D(
-                    filters=16,
-                    kernel_size=8,
-                    strides=2,
-                    padding="SAME",
-                ),
-                tf_shell_ml.MaxPool2D(
-                    pool_size=(2, 2),
-                    strides=1,
-                ),
+                # Model from tensorflow-privacy tutorial. The first layer may
+                # be skipped and the model still has ~95% accuracy (plaintext).
+                # tf_shell_ml.Conv2D(
+                #     filters=16,
+                #     kernel_size=8,
+                #     strides=2,
+                #     padding="same",
+                #     activation=tf_shell_ml.relu,
+                #     activation_deriv=tf_shell_ml.relu_deriv,
+                # ),
+                # tf_shell_ml.MaxPool2D(
+                #     pool_size=(2, 2),
+                #     strides=1,
+                # ),
                 tf_shell_ml.Conv2D(
                     filters=32,
                     kernel_size=4,
                     strides=2,
+                    padding="valid",
+                    activation=tf_shell_ml.relu,
+                    activation_deriv=tf_shell_ml.relu_deriv,
                 ),
                 tf_shell_ml.MaxPool2D(
                     pool_size=(2, 2),
@@ -72,7 +71,7 @@ class TestModel(tf.test.TestCase):
                 ),
                 tf_shell_ml.Flatten(),
                 tf_shell_ml.ShellDense(
-                    16,
+                    32,
                     activation=tf_shell_ml.relu,
                     activation_deriv=tf_shell_ml.relu_deriv,
                 ),
@@ -118,14 +117,16 @@ class TestModel(tf.test.TestCase):
             validation_data=val_dataset,
         )
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.13)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
+            # Perform full encrypted test to populate cache.
             self._test_model(False, False, False, cache_dir)
             self._test_model(True, False, False, cache_dir)
             self._test_model(False, True, False, cache_dir)
             self._test_model(False, False, True, cache_dir)
+            self._test_model(True, True, True, cache_dir)
 
 
 if __name__ == "__main__":

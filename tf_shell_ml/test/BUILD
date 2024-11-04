@@ -54,7 +54,7 @@ py_test(
 
 py_test(
     name = "conv2d_test",
-    size = "medium",
+    size = "large",
     srcs = ["conv2d_test.py"],
     deps = [
         "//tf_shell_ml",

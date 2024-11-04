@@ -1178,7 +1178,7 @@ def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"
         raise ValueError("Unsupported type for segment_sum")
 
 
-def _conv2d(x, filt, strides, padding, dilations, func):
+def _conv2d(x, filt, strides, padding, dilations, output_shape, func):
     if not x._is_enc and not filt._is_enc:
         raise ValueError("At least one input must be encrypted ShellTensor64.")
 
@@ -1198,6 +1198,7 @@ def _conv2d(x, filt, strides, padding, dilations, func):
             padding,
             dilations,
             filter_num_elements=matched_filt._raw_tensor.shape.num_elements(),
+            output_shape=output_shape,
         ),
         _context=matched_x._context,
         _level=matched_x._level,
@@ -1216,6 +1217,7 @@ def conv2d(
     padding=[0, 0, 0, 0],
     dilations=[1, 1, 1, 1],
     with_channel=False,
+    output_shape=None,
 ):
     """Convolution (technically cross-correlation) of x with filt.
 
@@ -1250,7 +1252,7 @@ def conv2d(
 
             def single_conv(tupl):
                 x, kernel = tupl
-                x = tf.expand_dims(x, 0)  # TODO needed?
+                x = tf.expand_dims(x, 0)  # Fake batch size.
                 return tf.nn.conv2d(
                     x, kernel, strides=strides, padding=tf_padding, dilations=dilations
                 )
@@ -1260,14 +1262,11 @@ def conv2d(
         else:
             # When the number of channels in x and filt are different, mimic
             # tf-shell's behavior and slide over the channels dimension.
-            if padding == [0] * 4:
-                padding_str = "VALID"
-            elif padding == [filt.shape[1] // 2] * 4:
-                padding_str = "SAME"
-            else:
-                raise ValueError(
-                    "Padding is not supported for plaintext conv2d when the number of channels in x and filt are different."
-                )
+            #
+            # Manually pad the input tensor to allow explicit padding.
+            x = tf.pad(
+                x, [[0, 0], [padding[0], padding[1]], [padding[2], padding[3]], [0, 0]]
+            )
 
             # TensorFlow expects dilations in the old channel dimension.
             exp_dilations = dilations + [1]
@@ -1280,7 +1279,7 @@ def conv2d(
                     x,
                     kernel,
                     strides=strides + [1],
-                    padding=padding_str,
+                    padding="VALID",
                     dilations=exp_dilations,
                 )
 
@@ -1290,6 +1289,12 @@ def conv2d(
             res = tf.map_fn(single_conv, (x_exp, filt_exp), fn_output_signature=x.dtype)
             res = tf.squeeze(res, axis=1)  # Remove fake batch size.
 
+        # Trim the output shape to the requested size. When using a
+        # convolutional layer, the output shape on the backward pass will always
+        # be the same or smaller than the computed output shape, so trimming by
+        # slicing is okay (vs. needing to pad).
+        if output_shape is not None:
+            res = tf.slice(res, [0, 0, 0, 0, 0], output_shape)
         return res
 
     if not isinstance(x, ShellTensor64):
@@ -1320,11 +1325,16 @@ def conv2d(
         elif not x._is_enc and filt._is_enc:
             func = shell_ops.conv2d_with_chan_pt_ct64
 
-    return _conv2d(x, filt, strides, padding, dilations, func)
+    return _conv2d(x, filt, strides, padding, dilations, output_shape, func)
 
 
 def conv2d_transpose(
-    x, filt, strides=[1, 1, 1, 1], padding=[0, 0, 0, 0], with_channel=False
+    x,
+    filt,
+    strides=[1, 1, 1, 1],
+    padding=[0, 0, 0, 0],
+    with_channel=False,
+    output_shape=None,
 ):
     """Deconvolution (or gradient of conv2d) of x with filt.
 
@@ -1357,24 +1367,30 @@ def conv2d_transpose(
                 [padding[2], padding[3]],  # left, right
                 [0, 0],
             ]
-            output_shape = [
-                1,  # Fake batch size.
-                ((x.shape[1] - 1) * strides[1])
-                + filt.shape[1]
-                - padding[0]
-                - padding[1],
-                ((x.shape[2] - 1) * strides[2])
-                + filt.shape[2]
-                - padding[2]
-                - padding[3],
-                filt.shape[3],  # Output channel dim.
-            ]
+
+            # If an output shape is provided, set the batching dim to 1.
+            tf_output_shape = output_shape
+            if tf_output_shape is not None:
+                tf_output_shape[0] = 1
+            else:
+                tf_output_shape = [
+                    1,  # Fake batch size.
+                    ((x.shape[1] - 1) * strides[1])
+                    + filt.shape[1]
+                    - padding[0]
+                    - padding[1],
+                    ((x.shape[2] - 1) * strides[2])
+                    + filt.shape[2]
+                    - padding[2]
+                    - padding[3],
+                    filt.shape[3],  # Output channel dim.
+                ]
 
             def single_conv(tupl):
                 x, kernel = tupl
                 x = tf.expand_dims(x, 0)  # Fake batch dimension.
                 return tf.nn.conv2d_transpose(
-                    x, kernel, output_shape, strides=strides, padding=tf_padding
+                    x, kernel, tf_output_shape, strides=strides, padding=tf_padding
                 )
 
             res = tf.map_fn(single_conv, (x, filt), fn_output_signature=x.dtype)
@@ -1386,26 +1402,32 @@ def conv2d_transpose(
                 raise ValueError(
                     "Padding is not supported for plaintext conv2d_transpose when the number of channels in x and filt are different."
                 )
-            output_shape = [
-                1,  # Fake batch size.
-                ((x.shape[1] - 1) * strides[1])
-                + filt.shape[1]
-                - padding[0]
-                - padding[1],
-                ((x.shape[2] - 1) * strides[2])
-                + filt.shape[2]
-                - padding[2]
-                - padding[3],
-                ((filt.shape[3] - 1) * strides[3]) + filt.shape[3],  # Conv channel dim.
-                filt.shape[4],  # Output channel dim.
-            ]
-            print("output_shape", output_shape, flush=True)
+
+            # If an output shape is provided, set the batching dim to 1.
+            tf_output_shape = output_shape
+            if tf_output_shape is not None:
+                tf_output_shape[0] = 1
+            else:
+                tf_output_shape = [
+                    1,  # Fake batch size.
+                    ((x.shape[1] - 1) * strides[1])
+                    + filt.shape[1]
+                    - padding[0]
+                    - padding[1],
+                    ((x.shape[2] - 1) * strides[2])
+                    + filt.shape[2]
+                    - padding[2]
+                    - padding[3],
+                    ((filt.shape[3] - 1) * strides[3])
+                    + filt.shape[3],  # Conv channel dim.
+                    filt.shape[4],  # Output channel dim.
+                ]
 
             def single_conv(tupl):
                 x, kernel = tupl
                 x = tf.expand_dims(x, 0)  # Fake batch size.
                 return tf.nn.conv3d_transpose(
-                    x, kernel, output_shape, strides=strides + [1], padding="VALID"
+                    x, kernel, tf_output_shape, strides=strides + [1], padding="VALID"
                 )
 
             # Use a 3d convolution with dummy channel dimension.
@@ -1444,7 +1466,7 @@ def conv2d_transpose(
         elif not x._is_enc and filt._is_enc:
             func = shell_ops.conv2d_transpose_with_chan_pt_ct64
 
-    return _conv2d(x, filt, strides, padding, [1, 1, 1, 1], func)
+    return _conv2d(x, filt, strides, padding, [1, 1, 1, 1], output_shape, func)
 
 
 def max_unpool2d(

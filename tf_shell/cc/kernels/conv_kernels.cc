@@ -120,6 +120,7 @@ class Conv2dOp : public OpKernel {
   std::vector<tsl::int32> stride;
   std::vector<tsl::int32> padding;
   std::vector<tsl::int32> dilation;
+  std::vector<tsl::int32> output_shape;
 
  public:
   explicit Conv2dOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
@@ -135,6 +136,11 @@ class Conv2dOp : public OpKernel {
     OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("dilations", &dilation));
     OP_REQUIRES(op_ctx, dilation.size() == 4,
                 InvalidArgument("dilations must have 4 elements."));
+
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("output_shape", &output_shape));
+    OP_REQUIRES(
+        op_ctx, output_shape.size() == 0 || output_shape.size() == 5,
+        InvalidArgument("output_shape must have 5 elements if provided."));
   }
 
   void Compute(OpKernelContext* op_ctx) override {
@@ -222,25 +228,39 @@ class Conv2dOp : public OpKernel {
         (filter_width - 1) * dilation_width + 1;
 
     int64_t const h_start = -padding_top;
-    int64_t const h_end = height + padding_bottom - filter_dilated_height;
+    int64_t h_end = height + padding_bottom - filter_dilated_height;
     int64_t const w_start = -padding_left;
-    int64_t const w_end = width + padding_right - filter_dilated_width;
+    int64_t w_end = width + padding_right - filter_dilated_width;
     int64_t const c_start = 0;
     int64_t const c_end = in_channels - filter_in_channels;
 
-    // Allocate output with shape
+    // Compute the output shape.
     //   [batch size (implicit), out_height, out_width, out_channels]
-    int64_t const out_height = (h_end - h_start) / stride_height + 1;
-    int64_t const out_width = (w_end - w_start) / stride_width + 1;
+    int64_t out_height = (h_end - h_start) / stride_height + 1;
+    int64_t out_width = (w_end - w_start) / stride_width + 1;
     int64_t const out_channels = (c_end - c_start) / stride_in_channels + 1;
-    Tensor* output;
-    TensorShape output_shape;
-    if constexpr (AllowDifferentNumInChannels) {
-      output_shape = {out_height, out_width, out_channels, filter_out_channels};
-    } else {
-      output_shape = {out_height, out_width, filter_out_channels};
+    if (output_shape.size() > 0) {
+      if (output_shape[1] != out_height) {
+        h_end += output_shape[1] - out_height;
+        out_height = output_shape[1];
+      }
+      if (output_shape[2] != out_width) {
+        w_end += output_shape[2] - out_width;
+        out_width = output_shape[2];
+      }
     }
-    OP_REQUIRES_OK(op_ctx, op_ctx->allocate_output(0, output_shape, &output));
+
+    // Allocate the output tensor.
+    Tensor* output;
+    TensorShape allocated_output_shape;
+    if constexpr (AllowDifferentNumInChannels) {
+      allocated_output_shape = {out_height, out_width, out_channels,
+                                filter_out_channels};
+    } else {
+      allocated_output_shape = {out_height, out_width, filter_out_channels};
+    }
+    OP_REQUIRES_OK(op_ctx,
+                   op_ctx->allocate_output(0, allocated_output_shape, &output));
     auto shaped_output = output->shaped<Variant, 4>(
         {out_height, out_width, out_channels, filter_out_channels});
 
@@ -361,6 +381,7 @@ class Conv2dTransposeOp : public OpKernel {
   std::vector<tsl::int32> stride;
   std::vector<tsl::int32> padding;
   std::vector<tsl::int32> dilation;
+  std::vector<tsl::int32> output_shape;
 
  public:
   explicit Conv2dTransposeOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
@@ -385,6 +406,11 @@ class Conv2dTransposeOp : public OpKernel {
                 dilation_batch == 1 && dilation_height == 1 &&
                     dilation_width == 1 && dilation_in_channels == 1,
                 InvalidArgument("All dilations must be 1."));
+
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("output_shape", &output_shape));
+    OP_REQUIRES(
+        op_ctx, output_shape.size() == 0 || output_shape.size() == 4,
+        InvalidArgument("output_shape must have 4 elements if provided."));
   }
 
   void Compute(OpKernelContext* op_ctx) override {
@@ -467,10 +493,11 @@ class Conv2dTransposeOp : public OpKernel {
                     dilation_width == 1 && dilation_in_channels == 1,
                 InvalidArgument("Dilation is not yet supported."));
 
+    // Compute the output shape.
     int64_t const h_start = -filter_height + 1 + padding_top;
-    int64_t const h_end = ((height - 1) * stride_height) - padding_bottom;
+    int64_t h_end = ((height - 1) * stride_height) - padding_bottom;
     int64_t const w_start = -filter_width + 1 + padding_left;
-    int64_t const w_end = ((width - 1) * stride_width) - padding_right;
+    int64_t w_end = ((width - 1) * stride_width) - padding_right;
     int64_t c_start = -filter_in_channels + 1;
     int64_t c_end = ((in_channels - 1) * stride_in_channels);
     if constexpr (!AllowDifferentNumInChannels) {
@@ -480,9 +507,22 @@ class Conv2dTransposeOp : public OpKernel {
 
     // Allocate output with shape
     //   [batch size (implicit), out_height, out_width, out_channels]
-    int64_t const out_height = h_end - h_start + 1;
-    int64_t const out_width = w_end - w_start + 1;
+    int64_t out_height = h_end - h_start + 1;
+    int64_t out_width = w_end - w_start + 1;
     int64_t const out_channels = c_end - c_start + 1;
+    if (output_shape.size() > 0) {
+      if (output_shape[1] != out_height) {
+        h_end += output_shape[1] - out_height;
+        out_height = output_shape[1];
+      }
+      if (output_shape[2] != out_width) {
+        w_end += output_shape[2] - out_width;
+        out_width = output_shape[2];
+      }
+    }
+
+    // Allocate the output tensor.
+
     Tensor* output;
     TensorShape output_shape;
     if constexpr (AllowDifferentNumInChannels) {
@@ -567,6 +607,24 @@ class Conv2dTransposeOp : public OpKernel {
                   }
                 }
               }  // End matrix multiplication
+
+              // For some inputs which use the output_shape attribute, elements
+              // of the output may have no inputs associated with them. In this
+              // case, the dot product will be nullptr. A valid zero must be
+              // inserted. Since there is no way to create a zero ciphertext
+              // without the key, subtract one of the ciphertext inputs from
+              // itself to get a zero.
+              if (dot_product == nullptr) {
+                x_val = shaped_x(0, 0, 0).get<InputCtOrPoly>();
+                filter_val = shaped_filter(0, 0, 0, 0).get<FilterCtOrPoly>();
+                if constexpr (std::is_same<InputCtOrPoly,
+                                           SymmetricCtVariant<T>>::value) {
+                  dot_product = new SymmetricCt(x_val->ct);  // copy
+                } else {
+                  dot_product = new SymmetricCt(filter_val->ct);  // copy
+                }
+                OP_REQUIRES_OK(op_ctx, dot_product->SubInPlace(*dot_product));
+              }
               OP_REQUIRES(op_ctx, dot_product != nullptr,
                           Internal("Internal error, dot product is NULL."));
               OP_REQUIRES(op_ctx, x_val != nullptr,

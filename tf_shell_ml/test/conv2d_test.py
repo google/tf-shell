@@ -36,13 +36,13 @@ rotation_key = tf_shell.create_rotation_key64(context, key)
 
 class TestConv2D(tf.test.TestCase):
     def _test_conv2d_plaintext_forward_backward_correct(
-        self, stride, padding, filters, channels
+        self, im_sz, kern_sz, stride, padding, filters, channels
     ):
         """Test that the forward and backward pass of plaintexts with
         tf_shell_ml.Conv2D has the same output as tf.keras.layers.Conv2D.
         """
         # Create a random input.
-        im_shape = [context.num_slots] + [11, 11, channels]
+        im_shape = [context.num_slots] + [im_sz, im_sz, channels]
         im = tf.random.uniform(im_shape, minval=0, maxval=5, dtype=tf.int64)
         im = tf.cast(im, tf.float32)
 
@@ -50,19 +50,21 @@ class TestConv2D(tf.test.TestCase):
         # weights.
         conv_layer = tf_shell_ml.Conv2D(
             filters=filters,
-            kernel_size=5,
-            strides=1,
+            kernel_size=kern_sz,
+            padding=padding,
+            strides=stride,
         )
         tf_conv_layer = keras.layers.Conv2D(
             filters=filters,
-            kernel_size=5,
-            strides=1,
+            kernel_size=kern_sz,
+            padding=padding,
+            strides=stride,
             use_bias=False,
         )
         conv_layer.build(im_shape)
         tf_conv_layer.build(im_shape)
         rand_weights = tf.random.uniform(
-            [5, 5, channels, filters], minval=0, maxval=2, dtype=tf.int64
+            [kern_sz, kern_sz, channels, filters], minval=0, maxval=2, dtype=tf.int64
         )
         rand_weights = tf.cast(rand_weights, tf.float32)
         conv_layer.set_weights([rand_weights])
@@ -85,23 +87,29 @@ class TestConv2D(tf.test.TestCase):
         self.assertAllClose(tf.reduce_sum(dws[0], axis=0), tf_dw[0])
 
     def test_conv2d_plaintext_forward_backward_correct(self):
-        for stride in [1, 2]:
-            for padding in ["valid", "same"]:
-                for filters in [3, 4]:
-                    for channels in [1, 3]:
-                        self._test_conv2d_plaintext_forward_backward_correct(
-                            stride, padding, filters, channels
-                        )
+        for im_kern_sz in [(10, 5), (11, 4), (28, 8)]:
+            for stride in [1, 2]:
+                for padding in ["valid", "same"]:
+                    for filters in [3, 4]:
+                        for channels in [1, 3]:
+                            self._test_conv2d_plaintext_forward_backward_correct(
+                                im_kern_sz[0],
+                                im_kern_sz[1],
+                                stride,
+                                padding,
+                                filters,
+                                channels,
+                            )
 
-    def _test_tf_func(self, stride, padding, filters, channels):
+    def _test_tf_func(self, im_sz, kern_sz, stride, padding, filters, channels):
         conv_layer = tf_shell_ml.Conv2D(
             filters=filters,
-            kernel_size=5,
+            kernel_size=kern_sz,
             strides=stride,
             padding=padding,
         )
 
-        im_shape = [context.num_slots] + [11, 11, channels]
+        im_shape = [context.num_slots] + [im_sz, im_sz, channels]
         im = tf.random.uniform(im_shape, minval=0, maxval=5, dtype=tf.int64)
         im = tf.cast(im, tf.float32)
 
@@ -109,7 +117,7 @@ class TestConv2D(tf.test.TestCase):
         # plaintext and HE-based backprop.
         conv_layer.build(im_shape)
         rand_weights = tf.random.uniform(
-            [5, 5, channels, filters], minval=0, maxval=2, dtype=tf.int64
+            [kern_sz, kern_sz, channels, filters], minval=0, maxval=2, dtype=tf.int64
         )
         rand_weights = tf.cast(rand_weights, tf.float32)
         conv_layer.set_weights([rand_weights])
@@ -136,30 +144,35 @@ class TestConv2D(tf.test.TestCase):
         dw, dx, dw_shape_inf, dx_shape_inf, pt_dw, pt_dx = forward_backward(im)
 
         # Check the inferred shapes are the same as the real shapes.
-        self.assertAllEqual(dw_shape_inf, dw.shape)
-        self.assertAllEqual(dx_shape_inf, dx.shape)
+        self.assertAllEqual(dw_shape_inf, tf.shape(dw))
+        self.assertAllEqual(dx_shape_inf, tf.shape(dx))
 
         # Check the values.
         self.assertAllClose(dw, pt_dw)
         self.assertAllClose(dx, pt_dx)
 
+    def _test_tf_func_configs(self):
+        for im_kern_sz in [(10, 5), (11, 4), (28, 8)]:
+            for stride in [1, 2]:
+                for padding in ["valid", "same"]:
+                    for filters in [3, 4]:
+                        for channels in [1, 3]:
+                            self._test_tf_func(
+                                im_kern_sz[0],
+                                im_kern_sz[1],
+                                stride,
+                                padding,
+                                filters,
+                                channels,
+                            )
+
     def test_tf_func_eager(self):
         tf.config.run_functions_eagerly(True)
-
-        for stride in [1, 2]:
-            for padding in ["valid"]:
-                for filters in [3, 4]:
-                    for channels in [1, 3]:
-                        self._test_tf_func(stride, padding, filters, channels)
+        self._test_tf_func_configs()
 
     def test_tf_func_defer(self):
         tf.config.run_functions_eagerly(False)
-
-        for stride in [1, 2]:
-            for padding in ["valid"]:
-                for filters in [2, 4]:
-                    for channels in [1, 3]:
-                        self._test_tf_func(stride, padding, filters, channels)
+        self._test_tf_func_configs()
 
 
 if __name__ == "__main__":

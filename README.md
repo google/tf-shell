@@ -51,7 +51,8 @@ the labels.
 2. Run the tests.
 
     ```bash
-    bazel test ...
+    bazel test //tf_shell/...
+    bazel test //tf_shell_ml/...  # Large tests, requires 128GB of memory.
     ```
 
 3. Build the code.

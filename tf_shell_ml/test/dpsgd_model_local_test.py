@@ -44,9 +44,6 @@ class TestModel(tf.test.TestCase):
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
-        # Turn on the shell optimizer to use autocontext.
-        tf_shell.enable_optimization()
-
         m = tf_shell_ml.DpSgdSequential(
             [
                 tf_shell_ml.ShellDense(
