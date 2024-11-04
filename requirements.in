@@ -6,5 +6,5 @@
 #   https://github.com/tensorflow/tensorflow/pull/74090
 # When the TensorFlow PR is merged, builds for python 3.12 can be re-enabled.
 # Note this is not the case as of TensorFlow 2.18.0.
-tensorflow-cpu==2.18.0  # See also: top level BUILD, wheel target.
+tensorflow[and-cuda]==2.18.0  # See also: top level BUILD, wheel target.
 black==24.10.0

@@ -8,7 +8,7 @@ py_test(
     ],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -21,7 +21,7 @@ py_test(
     ],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -35,7 +35,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -49,7 +49,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -63,7 +63,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -77,7 +77,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -91,7 +91,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -105,7 +105,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -119,7 +119,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -133,7 +133,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -147,7 +147,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -160,7 +160,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -173,7 +173,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -186,7 +186,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -199,7 +199,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -212,7 +212,7 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -225,6 +225,6 @@ py_test(
     imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )

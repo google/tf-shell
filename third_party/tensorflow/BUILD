@@ -6,7 +6,7 @@ py_binary(
     srcs = [":extract_tf_includes.py"],
     srcs_version = "PY3",
     deps = [
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -15,7 +15,7 @@ py_binary(
     srcs = [":extract_tf_lib.py"],
     srcs_version = "PY3",
     deps = [
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 

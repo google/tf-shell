@@ -7,7 +7,7 @@ py_test(
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -17,7 +17,7 @@ py_test(
     srcs = ["mnist_noenc_backprop_test.py"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -28,7 +28,7 @@ py_test(
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -38,7 +38,7 @@ py_test(
     srcs = ["dropout_test.py"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -48,7 +48,7 @@ py_test(
     srcs = ["embedding_test.py"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -58,7 +58,7 @@ py_test(
     srcs = ["conv2d_test.py"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -68,7 +68,7 @@ py_test(
     srcs = ["max_pool2d_test.py"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -79,7 +79,7 @@ py_test(
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -90,7 +90,7 @@ py_test(
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -101,7 +101,7 @@ py_test(
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
 
@@ -112,6 +112,6 @@ py_test(
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
-        requirement("tensorflow-cpu"),
+        requirement("tensorflow"),
     ],
 )
