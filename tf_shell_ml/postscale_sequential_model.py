@@ -56,59 +56,41 @@ class PostScaleSequential(SequentialBase):
 
         with tf.device(self.jacobian_device):
             features = tf.identity(features)  # copy to GPU if needed
-
-            # self.layers[-1].activation = tf.keras.activations.linear
-            with tf.GradientTape(
-                persistent=tf.executing_eagerly() or self.jacobian_pfor
-            ) as tape:
-                y_pred = self(features, training=True, with_softmax=False)
-
-            grads = tape.jacobian(
-                y_pred,
-                self.trainable_variables,
-                # unconnected_gradients=tf.UnconnectedGradients.ZERO, broken with pfor
-                parallel_iterations=self.jacobian_pfor_iterations,
-                experimental_use_pfor=self.jacobian_pfor,
-            )
-            # ^  layers list x (batch size x num output classes x weights) matrix
-            # dy_pred_j/dW_sample_class
-
-            # Compute the activation manually.
-            y_pred = tf.nn.softmax(y_pred)
+            predictions, jacobians = self.predict_and_jacobian(features)
+            max_two_norm = self.jacobian_max_two_norm(jacobians)
 
         with tf.device(self.features_party_dev):
             # Compute prediction - labels (where labels may be encrypted).
-            scalars = enc_y.__rsub__(y_pred)  # dJ/dy_pred
+            scalars = enc_y.__rsub__(predictions)  # dJ/dprediction
             # ^  batch_size x num output classes.
 
-            # Expand the last dim so that the subsequent multiplications are
-            # broadcasted.
-            scalars = tf_shell.expand_dims(scalars, axis=-1)
-            # ^ batch_size x num output classes x 1
+            # Scale each gradient. Since 'scalars' may be a vector of
+            # ciphertexts, this requires multiplying plaintext gradient for the
+            # specific layer (2d) by the ciphertext (scalar).
+            grads = []
+            for j in jacobians:
+                # Ignore the batch size and num output classes dimensions and
+                # recover just the number of dimensions in the weights.
+                num_weight_dims = len(j.shape) - 2
 
-            # Flatten and remember the original shape of the gradient in order
-            # to unpack them after the multiplication so they can be applied to
-            # the model.
-            grads, slot_size, grad_shapes, flattened_grad_shapes = (
-                self.flatten_jacobian_list(grads)
-            )
-            # ^ batch_size x num output classes x all flattened weights
+                # Make the scalars the same shape as the gradients so the
+                # multiplication can be broadcasted. Doing this inside the loop
+                # is okay, TensorFlow will reuse the same expanded tensor if
+                # their dimensions match across iterations.
+                scalars_exp = scalars
+                for _ in range(num_weight_dims):
+                    scalars_exp = tf_shell.expand_dims(scalars_exp, axis=-1)
 
-            max_two_norm = self.flat_jacobian_two_norm(grads)
+                # Scale the jacobian.
+                scaled_grad = scalars_exp * j
+                # ^ batch_size x num output classes x weights
 
-            # Scale the gradients.
-            grads = scalars * grads
-            # ^ batch_size x num output classes x all flattened weights
+                # Sum over the output classes. At this point, this is a gradient
+                # and no longer a jacobian.
+                scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=1)
+                # ^  batch_size x weights
 
-            # Sum over the output classes.
-            grads = tf_shell.reduce_sum(grads, axis=1)
-            # ^ batch_size x all flattened weights
-
-            # Recover the original shapes of the gradients.
-            grads = self.unflatten_batch_grad_list(
-                grads, slot_size, grad_shapes, flattened_grad_shapes
-            )
-            # ^ layers list (batch_size x weights)
+                grads.append(scaled_grad)
 
             # Check if the post-scaled gradients overflowed.
             if not self.disable_encryption and self.check_overflow_INSECURE:
@@ -250,17 +232,17 @@ class PostScaleSequential(SequentialBase):
             for metric in self.metrics:
                 if metric.name == "loss":
                     if self.disable_encryption:
-                        loss = self.loss_fn(labels, y_pred)
+                        loss = self.loss_fn(labels, predictions)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.
                         metric.update_state(0.0)
                 else:
                     if self.disable_encryption:
-                        metric.update_state(labels, y_pred)
+                        metric.update_state(labels, predictions)
                     else:
                         # Other metrics are uknown when encrypted.
-                        zeros = tf.broadcast_to(0, tf.shape(y_pred))
+                        zeros = tf.broadcast_to(0, tf.shape(predictions))
                         metric.update_state(zeros, zeros)
 
             metric_results = {m.name: m.result() for m in self.metrics}

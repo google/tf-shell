@@ -31,43 +31,26 @@ class DpSgdSequential(SequentialBase):
 
         if len(self.layers) > 0:
             self.layers[0].is_first_layer = True
-            # Do not set the derivative of the activation function for the last
-            # layer in the model. The derivative of the categorical crossentropy
-            # loss function times the derivative of a softmax is just y_pred -
-            # labels (which is much easier to compute than each of them
-            # individually). So instead just let the loss function derivative
-            # incorporate y_pred - labels and let the derivative of this last
-            # layer's activation be a no-op.
+            # Do not set the the activation function for the last layer in the
+            # model. The derivative of the categorical crossentropy loss
+            # function times the derivative of a softmax is just predictions - labels
+            # (which is much easier to compute than each of them individually).
+            # So instead just let the loss function derivative incorporate
+            # predictions - labels and let the derivative of this last layer's
+            # activation be a no-op.
+            self.layers[-1].activation = None
             self.layers[-1].activation_deriv = None
 
-    def call(self, features, training=False):
-        out = features
+    def call(self, features, training=False, with_softmax=True):
+        predictions = features
         for l in self.layers:
-            out = l(out, training=training)
-        return out
+            predictions = l(predictions, training=training)
 
-    def compute_max_two_norm_and_pred(self, features, skip_two_norm):
-        with tf.GradientTape(
-            persistent=tf.executing_eagerly() or self.jacobian_pfor
-        ) as tape:
-            y_pred = self(features, training=True)  # forward pass
-
-        if not skip_two_norm:
-            grads = tape.jacobian(
-                y_pred,
-                self.trainable_variables,
-                # unconnected_gradients=tf.UnconnectedGradients.ZERO, broken with pfor
-                parallel_iterations=self.jacobian_pfor_iterations,
-                experimental_use_pfor=self.jacobian_pfor,
-            )
-            # ^  layers list x (batch size x num output classes x weights) matrix
-
-            all_grads, _, _, _ = self.flatten_jacobian_list(grads)
-            max_two_norm = self.flat_jacobian_two_norm(all_grads)
-        else:
-            max_two_norm = None
-
-        return y_pred, max_two_norm
+        if not with_softmax:
+            return predictions
+        # Perform the last layer activation since it is removed for training
+        # purposes.
+        return tf.nn.softmax(predictions)
 
     def shell_train_step(self, features, labels):
         with tf.device(self.labels_party_dev):
@@ -85,14 +68,15 @@ class DpSgdSequential(SequentialBase):
 
         with tf.device(self.jacobian_device):
             features = tf.identity(features)  # copy to GPU if needed
-            # Forward pass in plaintext.
-            y_pred, max_two_norm = self.compute_max_two_norm_and_pred(
-                features, self.disable_noise
+            predictions, jacobians = self.predict_and_jacobian(
+                features,
+                skip_jacobian=self.disable_noise,  # Jacobian only needed for noise.
             )
+            max_two_norm = self.jacobian_max_two_norm(jacobians)
 
         with tf.device(self.features_party_dev):
             # Backward pass.
-            dx = self.loss_fn.grad(enc_y, y_pred)
+            dx = self.loss_fn.grad(enc_y, predictions)
             dJ_dw = []  # Derivatives of the loss with respect to the weights.
             dJ_dx = [dx]  # Derivatives of the loss with respect to the inputs.
             for l in reversed(self.layers):
@@ -252,17 +236,17 @@ class DpSgdSequential(SequentialBase):
             for metric in self.metrics:
                 if metric.name == "loss":
                     if self.disable_encryption:
-                        loss = self.loss_fn(labels, y_pred)
+                        loss = self.loss_fn(labels, predictions)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.
                         metric.update_state(0.0)
                 else:
                     if self.disable_encryption:
-                        metric.update_state(labels, y_pred)
+                        metric.update_state(labels, predictions)
                     else:
                         # Other metrics are uknown when encrypted.
-                        zeros = tf.broadcast_to(0, tf.shape(y_pred))
+                        zeros = tf.broadcast_to(0, tf.shape(predictions))
                         metric.update_state(zeros, zeros)
 
             metric_results = {m.name: m.result() for m in self.metrics}
