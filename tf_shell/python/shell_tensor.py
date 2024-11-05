@@ -505,7 +505,7 @@ def _match_moduli_and_scaling(x, y):
 
 
 def _get_shell_dtype_from_underlying(type):
-    if type in [tf.float32, tf.float64]:
+    if type in [tf.float16, tf.float32, tf.float64]:
         return tf.int64
     elif type in [tf.uint8, tf.uint16, tf.uint32, tf.uint64]:
         return tf.uint64
@@ -517,7 +517,7 @@ def _get_shell_dtype_from_underlying(type):
 
 def _encode_scaling(tf_tensor, scaling_factor=1):
     with tf.name_scope("encode_scaling"):
-        if tf_tensor.dtype in [tf.float32, tf.float64]:
+        if tf_tensor.dtype in [tf.float16, tf.float32, tf.float64]:
             return tf.cast(tf.round(tf_tensor * scaling_factor), tf.int64)
         elif tf_tensor.dtype in [tf.uint8, tf.uint16, tf.uint32, tf.uint64]:
             # Pass unsigned datatypes to shell as uint64.
@@ -531,7 +531,7 @@ def _encode_scaling(tf_tensor, scaling_factor=1):
 
 def _decode_scaling(scaled_tensor, output_dtype, scaling_factor):
     with tf.name_scope("decode_scaling"):
-        if output_dtype in [tf.float32, tf.float64]:
+        if output_dtype in [tf.float16, tf.float32, tf.float64]:
             assert scaled_tensor.dtype == tf.int64
             return tf.cast(scaled_tensor, output_dtype) / scaling_factor
         elif output_dtype in [tf.uint8, tf.uint16, tf.uint32, tf.uint64]:

@@ -105,7 +105,7 @@ class TestModel(tf.test.TestCase):
         )
 
         m.compile(
-            shell_loss=tf_shell_ml.CategoricalCrossentropy(),
+            loss=tf.keras.losses.CategoricalCrossentropy(),
             optimizer=tf.keras.optimizers.Adam(0.18),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )

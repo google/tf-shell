@@ -59,11 +59,12 @@ class ShellEmbedding(keras.layers.Layer):
         self.embeddings = self.add_weight(
             shape=[self.input_dim, self.output_dim],
             initializer=self.embeddings_initializer,
+            dtype=tf.keras.backend.floatx(),
         )
 
     def call(self, inputs):
         if inputs.dtype != tf.int64:
-            # When using model.fit() keras will cast the input to float32.
+            # When using model.fit() keras will cast the input to float.
             inputs = tf.cast(inputs, tf.int64)
 
         if inputs.ndim != 2:

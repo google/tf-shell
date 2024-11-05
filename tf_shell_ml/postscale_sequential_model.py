@@ -46,6 +46,7 @@ class PostScaleSequential(SequentialBase):
 
     def shell_train_step(self, features, labels):
         with tf.device(self.labels_party_dev):
+            labels = tf.cast(labels, tf.keras.backend.floatx())
             if self.disable_encryption:
                 enc_y = labels
             else:
@@ -111,13 +112,15 @@ class PostScaleSequential(SequentialBase):
             # not necessary to mask the full range -t/2 to t/2. (Though it is
             # possible, it unnecessarily introduces noise into the ciphertext.)
             if not self.disable_masking and not self.disable_encryption:
-                t = tf.cast(backprop_context.plaintext_modulus, tf.float32)
+                t = tf.cast(
+                    backprop_context.plaintext_modulus, tf.keras.backend.floatx()
+                )
                 t_half = t // 2
                 mask_scaling_factors = [g._scaling_factor for g in grads]
                 masks = [
                     tf.random.uniform(
                         tf_shell.shape(g),
-                        dtype=tf.float32,
+                        dtype=tf.keras.backend.floatx(),
                         minval=-t_half / s,
                         maxval=t_half / s,
                     )
@@ -171,7 +174,7 @@ class PostScaleSequential(SequentialBase):
                 noise = tf.random.normal(
                     tf.shape(flat_grads),
                     stddev=self.noise_multiplier,
-                    dtype=float,
+                    dtype=tf.keras.backend.floatx(),
                 )
                 # Scale it by the encrypted max two norm.
                 enc_noise = enc_max_two_norm * noise
@@ -214,7 +217,7 @@ class PostScaleSequential(SequentialBase):
                 # the plaintext modulus. To mimic SHELL's modulo operations in
                 # TensorFlow, numbers which exceed the range [-t/2, t/2] are
                 # shifted back into the range.
-                epsilon = tf.constant(1e-6, dtype=float)
+                epsilon = tf.constant(1e-6, dtype=tf.keras.backend.floatx())
 
                 def rebalance(x, s):
                     r_bound = t_half / s + epsilon
@@ -232,7 +235,7 @@ class PostScaleSequential(SequentialBase):
             for metric in self.metrics:
                 if metric.name == "loss":
                     if self.disable_encryption:
-                        loss = self.loss_fn(labels, predictions)
+                        loss = self.compiled_loss(labels, predictions)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.

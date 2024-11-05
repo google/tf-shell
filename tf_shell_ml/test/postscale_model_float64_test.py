@@ -85,6 +85,8 @@ class TestModel(tf.test.TestCase):
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
 
     def test_model(self):
+        tf.keras.backend.set_floatx("float64")
+
         with tempfile.TemporaryDirectory() as cache_dir:
             # Perform full encrypted test to populate cache.
             self._test_model(False, False, False, cache_dir)

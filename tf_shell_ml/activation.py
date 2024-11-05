@@ -28,8 +28,8 @@ def relu_deriv(y, dy):
     # Formulate the problem as element-wise multiplication.
     mask = tf.where(
         y > 0,
-        tf.constant(1, dtype=tf.float32),
-        tf.constant(0, dtype=tf.float32),
+        tf.constant(1, dtype=tf.keras.backend.floatx()),
+        tf.constant(0, dtype=tf.keras.backend.floatx()),
     )
     return dy * mask
 

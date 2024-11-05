@@ -60,7 +60,6 @@ output_layer = tf_shell_ml.ShellDense(
 y1 = hidden_layer(tf.zeros((batch_size, 784)))
 y2 = output_layer(y1)
 
-loss_fn = tf_shell_ml.CategoricalCrossentropy()
 optimizer = tf.keras.optimizers.Adam(0.01)
 
 
@@ -69,10 +68,9 @@ def train_step(x, y):
     # Forward pass.
     y_1 = hidden_layer(x, training=True)
     y_pred = output_layer(y_1, training=True)
-    # loss = loss_fn(y, y_pred)  # Expensive and not needed for this test.
 
     # Backward pass.
-    dJ_dy_pred = loss_fn.grad(y, y_pred)
+    dJ_dy_pred = y.__rsub__(y_pred)  # Derivative of CCE loss and softmax.
 
     dJ_dw1, dJ_dx1 = output_layer.backward(dJ_dy_pred, None)
 

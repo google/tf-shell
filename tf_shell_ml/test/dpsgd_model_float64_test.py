@@ -44,18 +44,25 @@ class TestModel(tf.test.TestCase):
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
-        m = tf_shell_ml.PostScaleSequential(
+        m = tf_shell_ml.DpSgdSequential(
             [
-                tf.keras.layers.Dense(64, activation="relu"),
-                tf.keras.layers.Dense(10, activation="softmax"),
+                tf_shell_ml.ShellDense(
+                    64,
+                    activation=tf_shell_ml.relu,
+                    activation_deriv=tf_shell_ml.relu_deriv,
+                ),
+                tf_shell_ml.ShellDense(
+                    10,
+                    activation=tf.nn.softmax,
+                ),
             ],
-            lambda: tf_shell.create_autocontext64(
+            backprop_context_fn=lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=23,
                 scaling_factor=32,
                 noise_offset_log2=14,
                 cache_path=cache,
             ),
-            lambda: tf_shell.create_autocontext64(
+            noise_context_fn=lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=24,
                 scaling_factor=1,
                 noise_offset_log2=0,
@@ -65,6 +72,7 @@ class TestModel(tf.test.TestCase):
             disable_masking=disable_masking,
             disable_noise=disable_noise,
             cache_path=cache,
+            check_overflow_INSECURE=True,
         )
 
         m.compile(
@@ -72,6 +80,9 @@ class TestModel(tf.test.TestCase):
             optimizer=tf.keras.optimizers.Adam(0.05),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
+
+        m.build([None, 350])
+        m.summary()
 
         history = m.fit(
             features_dataset,
@@ -85,6 +96,8 @@ class TestModel(tf.test.TestCase):
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
 
     def test_model(self):
+        tf.keras.backend.set_floatx("float64")
+
         with tempfile.TemporaryDirectory() as cache_dir:
             # Perform full encrypted test to populate cache.
             self._test_model(False, False, False, cache_dir)

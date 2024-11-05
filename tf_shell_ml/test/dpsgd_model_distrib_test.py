@@ -116,8 +116,8 @@ class TestDistribModel(tf.test.TestCase):
             )
 
             m.compile(
-                shell_loss=tf_shell_ml.CategoricalCrossentropy(),
-                optimizer=tf.keras.optimizers.Adam(0.1),
+                loss=tf.keras.losses.CategoricalCrossentropy(),
+                optimizer=tf.keras.optimizers.Adam(0.10),
                 metrics=[tf.keras.metrics.CategoricalAccuracy()],
             )
 

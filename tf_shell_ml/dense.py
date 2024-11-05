@@ -32,7 +32,6 @@ class ShellDense(keras.layers.Layer):
         use_bias=False,
         kernel_initializer="glorot_uniform",
         bias_initializer="zeros",
-        weight_dtype=tf.float32,
         is_first_layer=False,
         grad_reduction="none",
     ):
@@ -44,7 +43,6 @@ class ShellDense(keras.layers.Layer):
 
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
-        self.weight_dtype = weight_dtype
         self.is_first_layer = is_first_layer
         self.grad_reduction = grad_reduction
 
@@ -63,7 +61,6 @@ class ShellDense(keras.layers.Layer):
                 "use_bias": self.use_bias,
                 "kernel_initializer": initializers.serialize(self.kernel_initializer),
                 "bias_initializer": initializers.serialize(self.bias_initializer),
-                "weight_dtype": self.weight_dtype,
                 "is_first_layer": self.is_first_layer,
                 "grad_reduction": self.grad_reduction,
             }
@@ -76,6 +73,7 @@ class ShellDense(keras.layers.Layer):
             shape=[self.units_in, self.units],
             initializer=self.kernel_initializer,
             trainable=True,
+            dtype=tf.keras.backend.floatx(),
             name="kernel",
         )
 
@@ -84,6 +82,7 @@ class ShellDense(keras.layers.Layer):
                 shape=[self.units],
                 initializer="zeros",
                 trainable=True,
+                dtype=tf.keras.backend.floatx(),
                 name="kernel",
             )
 

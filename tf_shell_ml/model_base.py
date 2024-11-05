@@ -74,17 +74,16 @@ class SequentialBase(keras.Sequential):
                 self.layers[-1].activation,
             )
 
-    def compile(self, shell_loss, **kwargs):
-        if not isinstance(shell_loss, tf_shell_ml.CategoricalCrossentropy):
+    def compile(self, loss, **kwargs):
+        if not isinstance(loss, tf.keras.losses.CategoricalCrossentropy):
             raise ValueError(
-                "The model must be used with the tf_shell_ml version of CategoricalCrossentropy loss function. Saw",
-                shell_loss,
+                "The loss function must be tf.keras.losses.CategoricalCrossentropy. Saw",
+                loss,
             )
-        self.loss_fn = shell_loss
 
         super().compile(
-            loss=tf.keras.losses.CategoricalCrossentropy(),
             jit_compile=False,  # Disable XLA, no CPU op for tf_shell_ml's TensorArrayV2.
+            loss=loss,
             **kwargs,
         )
 
@@ -265,7 +264,7 @@ class SequentialBase(keras.Sequential):
                     # Update validation metrics
                     for m in self.metrics:
                         if m.name == "loss":
-                            loss = self.loss_fn(val_y_batch, val_y_pred)
+                            loss = self.compiled_loss(val_y_batch, val_y_pred)
                             m.update_state(loss)
                         else:
                             m.update_state(val_y_batch, val_y_pred)
@@ -370,7 +369,9 @@ class SequentialBase(keras.Sequential):
         pad_len = slot_size - tf.math.floormod(
             tf.cast(total_grad_size, dtype=tf.int64), slot_size
         )
-        padded_flat_grads = tf.concat([flat_grads, tf.zeros(pad_len)], axis=0)
+        padded_flat_grads = tf.concat(
+            [flat_grads, tf.zeros(pad_len, dtype=flat_grads.dtype)], axis=0
+        )
         out = tf.reshape(padded_flat_grads, [slot_size, -1])
 
         return out, grad_shapes, flattened_grad_shapes, total_grad_size

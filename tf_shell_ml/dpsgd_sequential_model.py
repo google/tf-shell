@@ -54,6 +54,7 @@ class DpSgdSequential(SequentialBase):
 
     def shell_train_step(self, features, labels):
         with tf.device(self.labels_party_dev):
+            labels = tf.cast(labels, tf.keras.backend.floatx())
             if self.disable_encryption:
                 enc_y = labels
             else:
@@ -76,7 +77,7 @@ class DpSgdSequential(SequentialBase):
 
         with tf.device(self.features_party_dev):
             # Backward pass.
-            dx = self.loss_fn.grad(enc_y, predictions)
+            dx = enc_y.__rsub__(predictions)  # Derivative of CCE loss and softmax.
             dJ_dw = []  # Derivatives of the loss with respect to the weights.
             dJ_dx = [dx]  # Derivatives of the loss with respect to the inputs.
             for l in reversed(self.layers):
@@ -107,13 +108,15 @@ class DpSgdSequential(SequentialBase):
             if self.disable_masking or self.disable_encryption:
                 grads = [g for g in reversed(dJ_dw)]
             else:
-                t = tf.cast(backprop_context.plaintext_modulus, tf.float32)
+                t = tf.cast(
+                    backprop_context.plaintext_modulus, tf.keras.backend.floatx()
+                )
                 t_half = t // 2
                 mask_scaling_factors = [g._scaling_factor for g in reversed(dJ_dw)]
                 masks = [
                     tf.random.uniform(
                         tf_shell.shape(g),
-                        dtype=tf.float32,
+                        dtype=tf.keras.backend.floatx(),
                         minval=-t_half / s,
                         maxval=t_half / s,
                     )
@@ -173,7 +176,7 @@ class DpSgdSequential(SequentialBase):
                 noise = tf.random.normal(
                     tf.shape(flat_grads),
                     stddev=self.noise_multiplier,
-                    dtype=float,
+                    dtype=tf.keras.backend.floatx(),
                 )
                 # Scale it by the encrypted max two norm.
                 enc_noise = enc_max_two_norm * noise
@@ -218,7 +221,7 @@ class DpSgdSequential(SequentialBase):
                 # TensorFlow, numbers which exceed the range [-t/2, t/2] are
                 # shifted back into the range. Note, this could be done as a
                 # custom op with tf-shell, but this is simpler for now.
-                epsilon = tf.constant(1e-6, dtype=float)
+                epsilon = tf.constant(1e-6, dtype=tf.keras.backend.floatx())
 
                 def rebalance(x, s):
                     r_bound = t_half / s + epsilon
@@ -236,7 +239,7 @@ class DpSgdSequential(SequentialBase):
             for metric in self.metrics:
                 if metric.name == "loss":
                     if self.disable_encryption:
-                        loss = self.loss_fn(labels, predictions)
+                        loss = self.compiled_loss(labels, predictions)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.

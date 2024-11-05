@@ -84,6 +84,17 @@ py_test(
 )
 
 py_test(
+    name = "dpsgd_model_float64_test",
+    size = "enormous",
+    srcs = ["dpsgd_model_float64_test.py"],
+    tags = ["exclusive"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
     name = "dpsgd_conv_model_local_test",
     size = "enormous",
     srcs = ["dpsgd_conv_model_local_test.py"],
@@ -120,6 +131,17 @@ py_test(
     name = "postscale_model_distrib_test",
     size = "enormous",
     srcs = ["postscale_model_distrib_test.py"],
+    tags = ["exclusive"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
+    name = "postscale_model_float64_test",
+    size = "enormous",
+    srcs = ["postscale_model_float64_test.py"],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",

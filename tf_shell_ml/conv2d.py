@@ -35,7 +35,6 @@ class Conv2D(keras.layers.Layer):
         activation=None,
         activation_deriv=None,
         kernel_initializer="glorot_uniform",
-        weight_dtype=tf.float32,
         is_first_layer=False,
         grad_reduction="none",
     ):
@@ -52,7 +51,6 @@ class Conv2D(keras.layers.Layer):
         self.activation_deriv = deserialize_activation(activation_deriv)
 
         self.kernel_initializer = initializers.get(kernel_initializer)
-        self.weight_dtype = weight_dtype
         self.is_first_layer = is_first_layer
         self.grad_reduction = grad_reduction
 
@@ -72,7 +70,6 @@ class Conv2D(keras.layers.Layer):
                 "activation": serialize_activation(self.activation),
                 "activation_deriv": serialize_activation(self.activation_deriv),
                 "kernel_initializer": self.kernel_initializer,
-                "weight_dtype": self.weight_dtype,
                 "is_first_layer": self.is_first_layer,
                 "grad_reduction": self.grad_reduction,
             }
@@ -119,6 +116,7 @@ class Conv2D(keras.layers.Layer):
             shape=[self.kernel_size, self.kernel_size, self.in_channels, self.filters],
             initializer=self.kernel_initializer,
             trainable=True,
+            dtype=tf.keras.backend.floatx(),
             name="kernel",
         )
 

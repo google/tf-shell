@@ -62,14 +62,13 @@ val_dataset = val_dataset.batch(batch_size)
 
 
 @tf.function
-def train_step(x, y, hidden_layer, output_layer, loss_fn):
+def train_step(x, y, hidden_layer, output_layer):
     # Forward pass.
     y_1 = hidden_layer(x, training=True)
     y_pred = output_layer(y_1, training=True)
-    # loss = loss_fn(y, y_pred)  # Expensive and not needed for this test.
 
     # Backward pass.
-    dJ_dy_pred = loss_fn.grad(y, y_pred)
+    dJ_dy_pred = y.__rsub__(y_pred)  # Derivative of CCE loss and softmax.
 
     dJ_dw1, dJ_dx1 = output_layer.backward(dJ_dy_pred, rotation_key)
 
@@ -109,13 +108,11 @@ class TestMNISTBackprop(tf.test.TestCase):
         y1 = hidden_layer(tf.zeros((batch_size, 784)))
         y2 = output_layer(y1)
 
-        loss_fn = tf_shell_ml.CategoricalCrossentropy()
-
         (x_batch, y_batch) = next(iter(train_dataset))
 
         # Plaintext backprop.
         output_layer_grad, hidden_layer_grad = train_step(
-            x_batch, y_batch, hidden_layer, output_layer, loss_fn
+            x_batch, y_batch, hidden_layer, output_layer
         )
 
         # Encrypt y.
@@ -123,7 +120,7 @@ class TestMNISTBackprop(tf.test.TestCase):
 
         # Encrypted Backprop.
         enc_output_layer_grad, enc_hidden_layer_grad = train_step(
-            x_batch, enc_y_batch, hidden_layer, output_layer, loss_fn
+            x_batch, enc_y_batch, hidden_layer, output_layer
         )
 
         # Decrypt the gradients.
