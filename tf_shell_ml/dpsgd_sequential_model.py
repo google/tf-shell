@@ -67,15 +67,34 @@ class DpSgdSequential(SequentialBase):
                     labels, backprop_secret_key, backprop_context
                 )
 
-        with tf.device(self.jacobian_device):
-            features = tf.identity(features)  # copy to GPU if needed
-            predictions, jacobians = self.predict_and_jacobian(
-                features,
-                skip_jacobian=self.disable_noise,  # Jacobian only needed for noise.
-            )
-            max_two_norm = self.jacobian_max_two_norm(jacobians)
+        predictions_list = []
+        max_two_norms_list = []
+        split_features, remainder = self.split_with_padding(
+            features, len(self.jacobian_devices)
+        )
+        for i, d in enumerate(self.jacobian_devices):
+            with tf.device(d):
+                f = tf.identity(split_features[i])  # copy to GPU if needed
+                prediction, jacobians = self.predict_and_jacobian(
+                    f,
+                    skip_jacobian=self.disable_noise,  # Jacobian only needed for noise.
+                )
+                if i == len(self.jacobian_devices) - 1 and remainder > 0:
+                    # The last device may have a remainder that was padded.
+                    prediction = prediction[: features.shape[0] - remainder]
+                    jacobians = jacobians[: features.shape[0] - remainder]
+                predictions_list.append(prediction)
+                max_two_norms_list.append(self.jacobian_max_two_norm(jacobians))
 
         with tf.device(self.features_party_dev):
+            # For some reason, when running the jacobian on multiple devices,
+            # the weights must be touched otherwise training loss goes to NaN.
+            # Maybe it is to ensure the weights are on assigned to
+            # features_party device when the final gradient is added to weights?
+            _ = self(features, training=True, with_softmax=False)
+            predictions = tf.concat(predictions_list, axis=0)
+            max_two_norm = tf.reduce_max(max_two_norms_list)
+
             # Backward pass.
             dx = enc_y.__rsub__(predictions)  # Derivative of CCE loss and softmax.
             dJ_dw = []  # Derivatives of the loss with respect to the weights.

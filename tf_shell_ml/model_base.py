@@ -35,7 +35,7 @@ class SequentialBase(keras.Sequential):
         cache_path=None,
         jacobian_pfor=False,
         jacobian_pfor_iterations=None,
-        jacobian_device=None,
+        jacobian_devices=None,
         disable_encryption=False,
         disable_masking=False,
         disable_noise=False,
@@ -52,8 +52,8 @@ class SequentialBase(keras.Sequential):
         self.cache_path = cache_path
         self.jacobian_pfor = jacobian_pfor
         self.jacobian_pfor_iterations = jacobian_pfor_iterations
-        self.jacobian_device = (
-            features_party_dev if jacobian_device is None else jacobian_device
+        self.jacobian_devices = (
+            [features_party_dev] if jacobian_devices is None else jacobian_devices
         )
         self.disable_encryption = disable_encryption
         self.disable_masking = disable_masking
@@ -301,6 +301,20 @@ class SequentialBase(keras.Sequential):
         # End of training.
         callback_list.on_train_end(logs)
         return self.history
+
+    def split_with_padding(self, tensor, num_splits, axis=0, padding_value=0):
+        """Splits a tensor along the given axis, padding if necessary."""
+
+        # Pad the tensor if necessary
+        remainder = tensor.shape[axis] % num_splits
+        if remainder != 0:
+            split_size = tensor.shape[axis] // num_splits
+            padding = [[0, 0] for _ in range(tensor.shape.rank)]
+            padding[axis][1] = num_splits * split_size - tf.shape(tensor)[axis]
+            tensor = tf.pad(tensor, padding, constant_values=padding_value)
+
+        # Split the tensor
+        return tf.split(tensor, num_splits, axis=axis), remainder
 
     def predict_and_jacobian(self, features, skip_jacobian=False):
         with tf.GradientTape(
