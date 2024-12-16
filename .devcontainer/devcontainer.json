@@ -3,8 +3,8 @@
 	"build": {
 		"dockerfile": "Dockerfile",
 		"args": {
-			"BAZELISK_VERSION": "v1.20.0",
-			"BAZELISK_DOWNLOAD_SHA": "d9af1fa808c0529753c3befda75123236a711d971d3485a390507122148773a3"
+			"BAZELISK_VERSION": "v1.25.0",
+			"BAZELISK_DOWNLOAD_SHA": "fd8fdff418a1758887520fa42da7e6ae39aefc788cf5e7f7bb8db6934d279fc4"
 		}
 	},
 
