@@ -59,5 +59,9 @@ Status ShellConv2dTranspose(InferenceContext* c);
 
 Status ShellConv2dTransposeWithChan(InferenceContext* c);
 
+Status ShellSampleCenteredGaussianF(InferenceContext* c);
+
+Status ShellSampleCenteredGaussianL(InferenceContext* c);
+
 Status ShapeFromAttr(InferenceContext* c, char const* attr_name, int output_idx,
                      bool skip_batching_dim = false);

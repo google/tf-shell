@@ -32,6 +32,8 @@ class SequentialBase(keras.Sequential):
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         noise_multiplier=1.0,
+        noise_max_scale=500.0,
+        noise_base_scale=7.6,
         cache_path=None,
         jacobian_pfor=False,
         jacobian_pfor_iterations=None,
@@ -60,6 +62,10 @@ class SequentialBase(keras.Sequential):
         self.disable_noise = disable_noise
         self.check_overflow_INSECURE = check_overflow_INSECURE
         self.dataset_prepped = False
+
+        self.dg_params = tf_shell.DiscreteGaussianParams(
+            max_scale=noise_max_scale, base_scale=noise_base_scale
+        )
 
         if self.disable_encryption and self.jacobian_pfor:
             print(
@@ -418,6 +424,52 @@ class SequentialBase(keras.Sequential):
         # Reshape to the original shapes.
         grads_list = [tf.reshape(g, s) for g, s in zip(grads_list, grad_shapes)]
         return grads_list
+
+    def compute_noise_factors(self, context, secret_key, sensitivity):
+        bounded_sensitivity = tf.cast(sensitivity, dtype=tf.float32) * tf.sqrt(2.0)
+
+        tf.assert_less(
+            bounded_sensitivity,
+            self.dg_params.max_scale,
+            message="Sensitivity is too large for the maximum noise scale.",
+        )
+
+        a, b = tf_shell.sample_centered_gaussian_f(bounded_sensitivity, self.dg_params)
+
+        def _prep_noise_factor(x):
+            x = tf.cast(x, tf.keras.backend.floatx())
+            x = tf.expand_dims(x, 0)
+            x = tf.expand_dims(x, 0)
+            x = tf.repeat(x, context.num_slots, axis=0)
+            return tf_shell.to_encrypted(x, secret_key, context)
+
+        enc_a = _prep_noise_factor(a)
+        enc_b = _prep_noise_factor(b)
+        return enc_a, enc_b
+
+    def noise_gradients(self, context, flat_grads, enc_a, enc_b):
+        def _sample_noise():
+            n = tf_shell.sample_centered_gaussian_l(
+                context,
+                tf.size(flat_grads, out_type=tf.int64),
+                self.dg_params,
+            )
+            # The shape prefix of the noise samples must match the shape
+            # of the masked gradients. The last dimension is the noise
+            # sub-samples.
+            n = tf.reshape(
+                n, tf.concat([tf.shape(flat_grads), [tf.shape(n)[1]]], axis=0)
+            )
+            return n
+
+        y1 = _sample_noise()
+        y2 = _sample_noise()
+
+        enc_x1 = tf_shell.reduce_sum(enc_a * y1, axis=2)
+        enc_x2 = tf_shell.reduce_sum(enc_b * y2, axis=2)
+        enc_noise = enc_x1 + enc_x2
+        grads = enc_noise + flat_grads
+        return grads
 
     def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
         """If the gradient is between [-t/2, -t/4] or [t/4, t/2], the gradient

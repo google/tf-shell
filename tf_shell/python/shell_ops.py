@@ -93,3 +93,7 @@ max_unpool2d_ct64 = shell_ops.max_unpool2d_ct64
 # MPC-based ops.
 clip_and_noise_features_party = shell_ops.clip_and_noise_features_party
 clip_and_noise_labels_party = shell_ops.clip_and_noise_labels_party
+
+# Distribution sampling ops.
+sample_centered_gaussian_f64 = shell_ops.sample_centered_gaussian_f64
+sample_centered_gaussian_l64 = shell_ops.sample_centered_gaussian_l64

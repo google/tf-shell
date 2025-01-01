@@ -147,14 +147,15 @@ class DpSgdSequential(SequentialBase):
                 grads = [(g + m) for g, m in zip(reversed(dJ_dw), masks)]
 
             if not self.disable_noise:
-                # Features party encrypts the max two norm to send to the labels
-                # party so they can scale the noise.
+                # Set up the features party size of the distributed noise
+                # sampling sub-protocol.
                 noise_context = self.noise_context_fn()
                 noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
-                max_two_norm = tf.expand_dims(max_two_norm, 0)
-                max_two_norm = tf.repeat(max_two_norm, noise_context.num_slots, axis=0)
-                enc_max_two_norm = tf_shell.to_encrypted(
-                    max_two_norm, noise_secret_key, noise_context
+
+                # Compute the noise factors for the distributed noise sampling
+                # sub-protocol.
+                enc_a, enc_b = self.compute_noise_factors(
+                    noise_context, noise_secret_key, max_two_norm
                 )
 
         with tf.device(self.labels_party_dev):
@@ -191,16 +192,8 @@ class DpSgdSequential(SequentialBase):
                     total_grad_size,
                 ) = self.flatten_and_pad_grad_list(grads, noise_context.num_slots)
 
-                # Sample the noise.
-                noise = tf.random.normal(
-                    tf.shape(flat_grads),
-                    stddev=self.noise_multiplier,
-                    dtype=tf.keras.backend.floatx(),
-                )
-                # Scale it by the encrypted max two norm.
-                enc_noise = enc_max_two_norm * noise
-                # Add the encrypted noise to the flat masked gradients.
-                grads = enc_noise + flat_grads
+                # Add the encrypted noise to the masked gradients.
+                grads = self.noise_gradients(noise_context, flat_grads, enc_a, enc_b)
 
         with tf.device(self.features_party_dev):
             if not self.disable_noise:

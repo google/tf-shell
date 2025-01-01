@@ -65,7 +65,7 @@ class TestModel(tf.test.TestCase):
             noise_context_fn=lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=24,
                 scaling_factor=1,
-                noise_offset_log2=0,
+                noise_offset_log2=2,
                 cache_path=cache,
             ),
             disable_encryption=disable_encryption,

@@ -376,7 +376,8 @@ class ShellTensor64(tf.experimental.ExtensionType):
             # and multiplying. Note this includes the case when broadcasting
             # over the packing dimension.
             if other.shape == () or other.shape[0] == 1:
-                # If not a scalar, remove the outer dim (which is always 1).
+                # If not a scalar, remove the outer dim (which is always 1) to
+                # broadcast over the packing dimension.
                 if other.shape != ():
                     assert other.shape[0] == 1
                     other = tf.reshape(other, other.shape[1:])
@@ -793,7 +794,7 @@ def reduce_sum(x, axis, rotation_key=None):
                     x._context._get_context_at_level(x._level),
                     x._raw_tensor,
                     axis=axis,
-                    reduce_dim_size=x.shape[axis],
+                    reduce_dim_size=x.shape[axis] if x.shape[axis] is not None else -1,
                 ),
                 _context=x._context,
                 _level=x._level,

@@ -51,3 +51,7 @@ from tf_shell.python.shell_ops import clip_and_noise_labels_party
 
 from tf_shell.python.shell_optimizers import enable_optimization
 from tf_shell.python.shell_optimizers import optimize_shell_graph
+
+from tf_shell.python.discrete_gaussian import DiscreteGaussianParams
+from tf_shell.python.discrete_gaussian import sample_centered_gaussian_f
+from tf_shell.python.discrete_gaussian import sample_centered_gaussian_l

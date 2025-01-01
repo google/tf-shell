@@ -5,8 +5,6 @@ filegroup(
     srcs = glob([
         "cc/kernels/*.cc",
         "cc/kernels/*.h",
-        "cc/ops/*.cc",
-        "cc/ops/*.h",
     ]),
 )
 
@@ -70,6 +68,7 @@ py_library(
     srcs = [
         "__init__.py",
         "python/__init__.py",
+        "python/discrete_gaussian.py",
         "python/shell_context.py",
         "python/shell_key.py",
         "python/shell_tensor.py",

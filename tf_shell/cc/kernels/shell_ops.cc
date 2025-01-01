@@ -628,3 +628,22 @@ REGISTER_OP("ClipAndNoiseLabelsParty")
     .Input("noise: Dtype")
     .SetShapeFn(ScalarShape)
     .SetIsStateful();  // For port allocations.
+
+// Distribution sampling kernels.
+REGISTER_OP("SampleCenteredGaussianF64")
+    .Input("scale: float")
+    .Attr("base_scale: float")
+    .Attr("max_scale: float")
+    .Output("a: int64")
+    .Output("b: int64")
+    .SetIsStateful()  // Prevent caching output.
+    .SetShapeFn(ShellSampleCenteredGaussianF);
+
+REGISTER_OP("SampleCenteredGaussianL64")
+    .Input("shell_context: variant")
+    .Input("num_samples: int64")
+    .Attr("base_scale: float")
+    .Attr("max_scale: float")
+    .Output("samples: int64")
+    .SetIsStateful()  // Prevent caching output.
+    .SetShapeFn(ShellSampleCenteredGaussianL);

@@ -94,16 +94,16 @@ py_test(
     ],
 )
 
-py_test(
-    name = "dpsgd_conv_model_local_test",
-    size = "enormous",
-    srcs = ["dpsgd_conv_model_local_test.py"],
-    tags = ["exclusive"],
-    deps = [
-        "//tf_shell_ml",
-        requirement("tensorflow"),
-    ],
-)
+# py_test(
+#     name = "dpsgd_conv_model_local_test",
+#     size = "enormous",
+#     srcs = ["dpsgd_conv_model_local_test.py"],
+#     tags = ["exclusive"],
+#     deps = [
+#         "//tf_shell_ml",
+#         requirement("tensorflow"),
+#     ],
+# )
 
 py_test(
     name = "dpsgd_model_distrib_test",

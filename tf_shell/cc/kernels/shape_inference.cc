@@ -14,6 +14,7 @@
 
 #include "tensorflow/core/framework/common_shape_fns.h"
 // #include "tensorflow/core/framework/op.h"
+#include "discrete_gaussian_sampler.h"
 #include "tensorflow/core/framework/shape_inference.h"
 
 using tensorflow::OkStatus;
@@ -397,6 +398,46 @@ Status ShellConv2dTranspose(InferenceContext* c) {
 
 Status ShellConv2dTransposeWithChan(InferenceContext* c) {
   return ShellConv2dTransposeImpl(c, true);
+}
+
+Status ShellSampleCenteredGaussianF(InferenceContext* c) {
+  float base_scale;
+  float max_scale;
+  TF_RETURN_IF_ERROR(c->GetAttr("base_scale", &base_scale));
+  TF_RETURN_IF_ERROR(c->GetAttr("max_scale", &max_scale));
+
+  int n_max = 0, s_max = 0;
+  TF_ASSIGN_OR_RETURN(
+      std::tie(n_max, s_max),
+      DiscreteGaussianSampler<uint64_t>::NumIterations(max_scale, base_scale));
+  // The number of samples which must be scaled is one larger than the number
+  // of iterations
+  n_max += 1;
+
+  ShapeHandle output_shape = c->Vector(c->MakeDim(n_max));
+  c->set_output(0, output_shape);
+  c->set_output(1, output_shape);
+  return OkStatus();
+}
+
+Status ShellSampleCenteredGaussianL(InferenceContext* c) {
+  float base_scale;
+  float max_scale;
+
+  TF_RETURN_IF_ERROR(c->GetAttr("base_scale", &base_scale));
+  TF_RETURN_IF_ERROR(c->GetAttr("max_scale", &max_scale));
+
+  int n_max = 0, s_max = 0;
+  TF_ASSIGN_OR_RETURN(
+      std::tie(n_max, s_max),
+      DiscreteGaussianSampler<uint64_t>::NumIterations(max_scale, base_scale));
+  // The number of samples which must be scaled is one larger than the number
+  // of iterations
+  n_max += 1;
+
+  ShapeHandle output_shape = c->Matrix(c->UnknownDim(), c->MakeDim(n_max));
+  c->set_output(0, output_shape);
+  return OkStatus();
 }
 
 Status ShapeFromAttr(InferenceContext* c, char const* attr_name, int output_idx,

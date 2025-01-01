@@ -228,3 +228,16 @@ py_test(
         requirement("tensorflow"),
     ],
 )
+
+py_test(
+    name = "discrete_gaussian_test",
+    size = "small",
+    srcs = [
+        "discrete_gaussian_test.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow"),
+    ],
+)

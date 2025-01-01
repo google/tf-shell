@@ -604,7 +604,8 @@ Status EstimateNodeNoise(
     uint64_t mul_noise = noise_a + BitWidth(error_params.B_plaintext());
 
     int32 reduce_dim_size = 0;
-    if (!TryGetNodeAttr(*node_def, "reduce_dim_size", &reduce_dim_size)) {
+    if (!TryGetNodeAttr(*node_def, "reduce_dim_size", &reduce_dim_size) ||
+        reduce_dim_size == -1) {
       std::cout << "WARNING: Could not determine dimension size to reduce in "
                    "MatMulCtPt. Noise budget may be under-provisioned."
                 << std::endl;
@@ -660,9 +661,12 @@ Status EstimateNodeNoise(
   } else if (IsFastReduceSumByRotation(*node_def)) {
     *this_noise =
         noise_a + BitWidth(params.log_n);  // There are log_n ct-ct additions.
+
+    // Reduce sum (without rotation) operations.
   } else if (IsReduceSum(*node_def)) {
     int32 reduce_dim_size = 0;
-    if (!TryGetNodeAttr(*node_def, "reduce_dim_size", &reduce_dim_size)) {
+    if (!TryGetNodeAttr(*node_def, "reduce_dim_size", &reduce_dim_size) ||
+        reduce_dim_size == -1) {
       std::cout
           << "WARNING: Could not determine axis in reduce sum (ciphertext)."
           << std::endl;
