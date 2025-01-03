@@ -10,7 +10,7 @@ on:
 jobs:
   formatter:
     name: Check formatting of Python, C++, and Bazel files.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -29,4 +29,6 @@ jobs:
         if: steps.changes.outputs.changed != 0
         run: |
           echo "Code has not been formatted. Please run the formatters as described by the README."
+          echo "Files changed:"
+          git status
           return 1
