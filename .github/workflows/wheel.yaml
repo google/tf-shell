@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         #os: [ubuntu-latest, windows-latest, macOS-12]
-        os: [ubuntu-latest]
+        os: [ubuntu-22.04]
         # python-version: ["3.9", "3.10", "3.11", "3.12"]  # Also see MODULE.bazel
         # Note: Python 3.12 builds are blocked on TensorFlow PR 74090. See
         # requirements.in for details.
@@ -41,7 +41,7 @@ jobs:
 
   upload_pypi:
     needs: [build_wheels]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     environment:
       name: pypi
       url: https://pypi.org/project/tf-shell/
