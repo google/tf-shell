@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import tensorflow as tf
-import tensorflow.keras as keras
 import tf_shell
 from tf_shell_ml.model_base import SequentialBase
 
@@ -117,8 +116,8 @@ class PostScaleSequential(SequentialBase):
 
             # Check if the post-scaled gradients overflowed.
             if not self.disable_encryption and self.check_overflow_INSECURE:
-                # Note, checking the backprop gradients requires decryption
-                # on the features party which breaks security of the protocol.
+                # Note, checking the gradients requires decryption on the
+                # features party which breaks security of the protocol.
                 bp_scaling_factors = [g._scaling_factor for g in grads]
                 dec_grads = [tf_shell.to_tensorflow(g, secret_key) for g in grads]
                 self.warn_on_overflow(
@@ -128,35 +127,35 @@ class PostScaleSequential(SequentialBase):
                     "WARNING: Backprop gradient may have overflowed.",
                 )
 
-            # Mask the encrypted grads to prepare for decryption. The masks may
-            # overflow during the reduce_sum over the batch. When the masks are
-            # operated on, they are multiplied by the scaling factor, so it is
-            # not necessary to mask the full range -t/2 to t/2. (Though it is
-            # possible, it unnecessarily introduces noise into the ciphertext.)
+            # Mask the encrypted gradients.
             if not self.disable_masking and not self.disable_encryption:
-                t = tf.cast(
-                    backprop_context.plaintext_modulus, tf.keras.backend.floatx()
+                grads, masks, mask_scaling_factors = self.mask_gradients(
+                    backprop_context, grads
                 )
-                t_half = t // 2
-                mask_scaling_factors = [g._scaling_factor for g in grads]
-                masks = [
-                    tf.random.uniform(
-                        tf_shell.shape(g),
-                        dtype=tf.keras.backend.floatx(),
-                        minval=-t_half / s,
-                        maxval=t_half / s,
-                    )
-                    for g, s in zip(grads, mask_scaling_factors)
-                ]
-
-                # Mask the encrypted gradients to prepare for decryption.
-                grads = [g + m for g, m in zip(grads, masks)]
 
             if not self.disable_noise:
                 # Features party encrypts the max two norm to send to the labels
                 # party so they can scale the noise.
                 noise_context = self.noise_context_fn()
                 noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
+
+                # The noise context must have the same number of slots
+                # (encryption ring degree) as used in backpropagation.
+                if not self.disable_encryption:
+                    tf.assert_equal(
+                        backprop_context.num_slots,
+                        noise_context.num_slots,
+                        message="Backprop and noise contexts must have the same number of slots.",
+                    )
+
+                # The noise scaling factor must always be 1. Encryptions already
+                # have the scaling factor applied when the noise is applied,
+                # and an additional noise scaling factor is not needed.
+                tf.assert_equal(
+                    noise_context.scaling_factor,
+                    1,
+                    message="Noise scaling factor must be 1.",
+                )
 
                 # Compute the noise factors for the distributed noise sampling
                 # sub-protocol.
@@ -170,22 +169,16 @@ class PostScaleSequential(SequentialBase):
                 grads = [tf_shell.to_tensorflow(g, secret_key) for g in grads]
 
             # Sum the masked gradients over the batch.
-            if not self.disable_masking and not self.disable_encryption:
+            if self.disable_masking or self.disable_encryption:
+                # No mask has been added so a only a normal sum is required.
+                grads = [tf.reduce_sum(g, 0) for g in grads]
+            else:
                 grads = [
                     tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
                     for g, s in zip(grads, mask_scaling_factors)
                 ]
-            else:
-                grads = [tf.reduce_sum(g, 0) for g in grads]
 
             if not self.disable_noise:
-                if not self.disable_encryption:
-                    tf.assert_equal(
-                        backprop_context.num_slots,
-                        noise_context.num_slots,
-                        message="Backprop and noise contexts must have the same number of slots.",
-                    )
-
                 # Efficiently pack the masked gradients to prepare for
                 # encryption. This is special because the masked gradients are
                 # no longer batched so the packing must be done manually.
@@ -202,14 +195,6 @@ class PostScaleSequential(SequentialBase):
                 # secret key.
                 flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
 
-                if self.check_overflow_INSECURE:
-                    nosie_scaling_factor = grads._scaling_factor
-                    self.warn_on_overflow(
-                        [flat_grads],
-                        [nosie_scaling_factor],
-                        noise_context.plaintext_modulus,
-                        "WARNING: Noised gradient may have overflowed.",
-                    )
                 # Unpack the noise after decryption.
                 grads = self.unflatten_and_unpad_grad(
                     flat_grads,
@@ -218,31 +203,21 @@ class PostScaleSequential(SequentialBase):
                     total_grad_size,
                 )
 
+            # Unmask the gradients.
             if not self.disable_masking and not self.disable_encryption:
-                # Sum the masks over the batch.
-                sum_masks = [
-                    tf_shell.reduce_sum_with_mod(m, 0, backprop_context, s)
-                    for m, s in zip(masks, mask_scaling_factors)
-                ]
+                grads = self.unmask_gradients(
+                    backprop_context, grads, masks, mask_scaling_factors
+                )
 
-                # Unmask the batch gradient.
-                grads = [mg - m for mg, m in zip(grads, sum_masks)]
-
-                # SHELL represents floats as integers between [0, t) where t is
-                # the plaintext modulus. To mimic SHELL's modulo operations in
-                # TensorFlow, numbers which exceed the range [-t/2, t/2] are
-                # shifted back into the range.
-                epsilon = tf.constant(1e-6, dtype=tf.keras.backend.floatx())
-
-                def rebalance(x, s):
-                    r_bound = t_half / s + epsilon
-                    l_bound = -t_half / s - epsilon
-                    t_over_s = t / s
-                    x = tf.where(x > r_bound, x - t_over_s, x)
-                    x = tf.where(x < l_bound, x + t_over_s, x)
-                    return x
-
-                grads = [rebalance(g, s) for g, s in zip(grads, mask_scaling_factors)]
+            if not self.disable_noise:
+                if self.check_overflow_INSECURE:
+                    nosie_scaling_factor = grads._scaling_factor
+                    self.warn_on_overflow(
+                        [flat_grads],
+                        [nosie_scaling_factor],
+                        noise_context.plaintext_modulus,
+                        "WARNING: Noised gradient may have overflowed.",
+                    )
 
             # Apply the gradients to the model.
             self.optimizer.apply_gradients(zip(grads, self.weights))

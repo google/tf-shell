@@ -425,6 +425,73 @@ class SequentialBase(keras.Sequential):
         grads_list = [tf.reshape(g, s) for g, s in zip(grads_list, grad_shapes)]
         return grads_list
 
+    def mask_gradients(self, context, grads):
+        """Adds a random masks to the encrypted gradients between [-t/2, t/2]."""
+        if self.disable_masking or self.disable_encryption:
+            return grads, None
+
+        t = tf.cast(context.plaintext_modulus, dtype=tf.int64)
+        t_half = t // 2
+        mask_scaling_factors = [g._scaling_factor for g in grads]
+
+        masks = [
+            tf.random.uniform(
+                tf_shell.shape(g),
+                dtype=tf.int64,
+                minval=-t_half,
+                maxval=t_half,
+            )
+            for g in grads
+        ]
+
+        # Spoof the gradient's dtype to int64 and scaling factor to 1.
+        # This is necessary so when adding the masks to the gradients, tf_shell
+        # does not attempt to do any casting to floats matching scaling factors.
+        # Conversion back to floating point and handling the scaling factors is
+        # done in unmask_gradients.
+        int64_grads = [
+            tf_shell.ShellTensor64(
+                _raw_tensor=g._raw_tensor,
+                _context=g._context,
+                _level=g._level,
+                _num_mod_reductions=g._num_mod_reductions,
+                _underlying_dtype=tf.int64,  # Spoof the dtype.
+                _scaling_factor=1,  # Spoof the scaling factor.
+                _is_enc=g._is_enc,
+                _is_fast_rotated=g._is_fast_rotated,
+            )
+            for g in grads
+        ]
+
+        # Add the masks.
+        int64_grads = [(g + m) for g, m in zip(int64_grads, masks)]
+
+        return int64_grads, masks, mask_scaling_factors
+
+    def unmask_gradients(self, context, grads, masks, mask_scaling_factors):
+        """Subtracts the masks from the gradients."""
+
+        # Sum the masks over the batch.
+        sum_masks = [
+            tf_shell.reduce_sum_with_mod(m, 0, context, s)
+            for m, s in zip(masks, mask_scaling_factors)
+        ]
+
+        # Unmask the batch gradient.
+        masks_and_grads = [tf.stack([-m, g]) for m, g in zip(sum_masks, grads)]
+        unmasked_grads = [
+            tf_shell.reduce_sum_with_mod(mg, 0, context, s)
+            for mg, s in zip(masks_and_grads, mask_scaling_factors)
+        ]
+
+        # Recover the floating point values using the scaling factors.
+        unmasked_grads = [
+            tf.cast(g, tf.keras.backend.floatx()) / s
+            for g, s in zip(unmasked_grads, mask_scaling_factors)
+        ]
+
+        return unmasked_grads
+
     def compute_noise_factors(self, context, secret_key, sensitivity):
         bounded_sensitivity = tf.cast(sensitivity, dtype=tf.float32) * tf.sqrt(2.0)
 
@@ -437,7 +504,6 @@ class SequentialBase(keras.Sequential):
         a, b = tf_shell.sample_centered_gaussian_f(bounded_sensitivity, self.dg_params)
 
         def _prep_noise_factor(x):
-            x = tf.cast(x, tf.keras.backend.floatx())
             x = tf.expand_dims(x, 0)
             x = tf.expand_dims(x, 0)
             x = tf.repeat(x, context.num_slots, axis=0)
@@ -476,11 +542,11 @@ class SequentialBase(keras.Sequential):
         may have overflowed. This also must take the scaling factor into account
         so the range is divided by the scaling factor.
         """
-        t = tf.cast(plaintext_modulus, grads[0].dtype)
-        t_half = t / 2
+        # t = tf.cast(plaintext_modulus, grads[0].dtype)
+        t_half = plaintext_modulus / 2
 
         over_by = [
-            tf.reduce_max(tf.abs(g) - t_half / 2 / s)
+            tf.reduce_max(tf.abs(g) - tf.cast(t_half / 2 / s, g.dtype))
             for g, s in zip(grads, scaling_factors)
         ]
         max_over_by = tf.reduce_max(over_by)
@@ -494,7 +560,7 @@ class SequentialBase(keras.Sequential):
                 over_by,
                 "(positive number indicates overflow amount).",
                 "Values should be less than",
-                [t_half / 2 / s for s in scaling_factors],
+                [tf.cast(t_half / 2 / s, grads[0].dtype) for s in scaling_factors],
             ),
             lambda: tf.identity(overflowed),
         )

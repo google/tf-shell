@@ -59,11 +59,11 @@ class TestModel(tf.test.TestCase):
             backprop_context_fn=lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=23,
                 scaling_factor=32,
-                noise_offset_log2=14,
+                noise_offset_log2=8,
                 cache_path=cache,
             ),
             noise_context_fn=lambda: tf_shell.create_autocontext64(
-                log2_cleartext_sz=24,
+                log2_cleartext_sz=25,
                 scaling_factor=1,
                 noise_offset_log2=0,
                 cache_path=cache,
@@ -87,7 +87,7 @@ class TestModel(tf.test.TestCase):
         history = m.fit(
             features_dataset,
             labels_dataset,
-            steps_per_epoch=2,
+            steps_per_epoch=4,
             epochs=1,
             verbose=2,
             validation_data=val_dataset,
