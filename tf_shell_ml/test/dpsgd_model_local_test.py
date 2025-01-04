@@ -58,8 +58,8 @@ class TestModel(tf.test.TestCase):
             ],
             backprop_context_fn=lambda: tf_shell.create_autocontext64(
                 log2_cleartext_sz=23,
-                scaling_factor=32,
-                noise_offset_log2=8,
+                scaling_factor=16,
+                noise_offset_log2=9,
                 cache_path=cache,
             ),
             noise_context_fn=lambda: tf_shell.create_autocontext64(
