@@ -67,7 +67,7 @@ class DpSgdSequential(SequentialBase):
 
         predictions_list = []
         max_two_norms_list = []
-        split_features, remainder = self.split_with_padding(
+        split_features, end_pad = self.split_with_padding(
             features, len(self.jacobian_devices)
         )
         for i, d in enumerate(self.jacobian_devices):
@@ -77,10 +77,11 @@ class DpSgdSequential(SequentialBase):
                     f,
                     skip_jacobian=self.disable_noise,  # Jacobian only needed for noise.
                 )
-                if i == len(self.jacobian_devices) - 1 and remainder > 0:
-                    # The last device may have a remainder that was padded.
-                    prediction = prediction[: features.shape[0] - remainder]
-                    jacobians = jacobians[: features.shape[0] - remainder]
+                if i == len(self.jacobian_devices) - 1 and end_pad > 0:
+                    # The last device's features may have been padded for even
+                    # split jacobian computation across multiple devices.
+                    prediction = prediction[:-end_pad]
+                    jacobians = jacobians[:-end_pad]
                 predictions_list.append(prediction)
                 max_two_norms_list.append(self.jacobian_max_two_norm(jacobians))
 

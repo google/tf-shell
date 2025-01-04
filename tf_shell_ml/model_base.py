@@ -313,14 +313,15 @@ class SequentialBase(keras.Sequential):
 
         # Pad the tensor if necessary
         remainder = tensor.shape[axis] % num_splits
+        padded_by = 0
         if remainder != 0:
-            split_size = tensor.shape[axis] // num_splits
+            padded_by = num_splits - remainder
             padding = [[0, 0] for _ in range(tensor.shape.rank)]
-            padding[axis][1] = num_splits * split_size - tf.shape(tensor)[axis]
+            padding[axis][1] = padded_by
             tensor = tf.pad(tensor, padding, constant_values=padding_value)
 
         # Split the tensor
-        return tf.split(tensor, num_splits, axis=axis), remainder
+        return tf.split(tensor, num_splits, axis=axis), padded_by
 
     def predict_and_jacobian(self, features, skip_jacobian=False):
         with tf.GradientTape(
