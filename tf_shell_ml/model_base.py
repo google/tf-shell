@@ -81,6 +81,9 @@ class SequentialBase(keras.Sequential):
                 self.layers[-1].activation,
             )
 
+        if len(self.jacobian_devices) == 0:
+            raise ValueError("No devices specified for Jacobian computation.")
+
     def compile(self, loss, **kwargs):
         if not isinstance(loss, tf.keras.losses.CategoricalCrossentropy):
             raise ValueError(
