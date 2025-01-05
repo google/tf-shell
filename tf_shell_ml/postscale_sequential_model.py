@@ -123,7 +123,7 @@ class PostScaleSequential(SequentialBase):
                 self.warn_on_overflow(
                     dec_grads,
                     bp_scaling_factors,
-                    backprop_context.plaintext_modulus,
+                    tf.identity(backprop_context.plaintext_modulus),
                     "WARNING: Backprop gradient may have overflowed.",
                 )
 
@@ -143,7 +143,7 @@ class PostScaleSequential(SequentialBase):
                 # (encryption ring degree) as used in backpropagation.
                 if not self.disable_encryption:
                     tf.assert_equal(
-                        backprop_context.num_slots,
+                        tf.identity(backprop_context.num_slots),
                         noise_context.num_slots,
                         message="Backprop and noise contexts must have the same number of slots.",
                     )
@@ -183,7 +183,9 @@ class PostScaleSequential(SequentialBase):
                 # encryption. This is special because the masked gradients are
                 # no longer batched so the packing must be done manually.
                 (flat_grads, grad_shapes, flattened_grad_shapes, total_grad_size) = (
-                    self.flatten_and_pad_grad_list(grads, noise_context.num_slots)
+                    self.flatten_and_pad_grad_list(
+                        grads, tf.identity(noise_context.num_slots)
+                    )
                 )
 
                 # Add the encrypted noise to the masked gradients.
@@ -251,5 +253,7 @@ class PostScaleSequential(SequentialBase):
                     result[key] = value  # non-subdict elements are just copied
 
             return result, (
-                None if self.disable_encryption else backprop_context.num_slots
+                None
+                if self.disable_encryption
+                else tf.identity(backprop_context.num_slots)
             )

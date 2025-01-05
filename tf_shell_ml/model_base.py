@@ -431,7 +431,7 @@ class SequentialBase(keras.Sequential):
         if self.disable_masking or self.disable_encryption:
             return grads, None
 
-        t = tf.cast(context.plaintext_modulus, dtype=tf.int64)
+        t = tf.cast(tf.identity(context.plaintext_modulus), dtype=tf.int64)
         t_half = t // 2
         mask_scaling_factors = [g._scaling_factor for g in grads]
 
