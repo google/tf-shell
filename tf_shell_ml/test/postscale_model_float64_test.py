@@ -49,16 +49,18 @@ class TestModel(tf.test.TestCase):
                 tf.keras.layers.Dense(64, activation="relu"),
                 tf.keras.layers.Dense(10, activation="softmax"),
             ],
-            lambda: tf_shell.create_autocontext64(
+            lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=23,
                 scaling_factor=32,
                 noise_offset_log2=14,
+                read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
-            lambda: tf_shell.create_autocontext64(
+            lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=24,
                 scaling_factor=1,
                 noise_offset_log2=0,
+                read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
             disable_encryption=disable_encryption,

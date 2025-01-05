@@ -43,13 +43,13 @@ class PostScaleSequential(SequentialBase):
         # purposes.
         return tf.nn.softmax(prediction)
 
-    def shell_train_step(self, features, labels):
+    def shell_train_step(self, features, labels, read_key_from_cache):
         with tf.device(self.labels_party_dev):
             labels = tf.cast(labels, tf.keras.backend.floatx())
             if self.disable_encryption:
                 enc_y = labels
             else:
-                backprop_context = self.backprop_context_fn()
+                backprop_context = self.backprop_context_fn(read_key_from_cache)
                 secret_key = tf_shell.create_key64(backprop_context, self.cache_path)
                 # Encrypt the batch of secret labels.
                 enc_y = tf_shell.to_encrypted(labels, secret_key, backprop_context)
@@ -136,7 +136,7 @@ class PostScaleSequential(SequentialBase):
             if not self.disable_noise:
                 # Features party encrypts the max two norm to send to the labels
                 # party so they can scale the noise.
-                noise_context = self.noise_context_fn()
+                noise_context = self.noise_context_fn(read_key_from_cache)
                 noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
 
                 # The noise context must have the same number of slots

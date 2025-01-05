@@ -98,18 +98,22 @@ class SequentialBase(keras.Sequential):
         )
 
     def train_step(self, features, labels):
-        metrics, num_slots = self.shell_train_step(features, labels)
+        metrics, num_slots = self.shell_train_step(
+            features, labels, read_key_from_cache=False
+        )
         return metrics
 
     @tf.function
     def train_step_with_keygen(self, features, labels):
-        return self.shell_train_step(features, labels)
+        return self.shell_train_step(features, labels, read_key_from_cache=False)
 
     @tf.function
     def train_step_tf_func(self, features, labels):
-        return self.shell_train_step(features, labels)
+        # When running the training loop, the caches for encryption keys and
+        # contexts have already been populated and do not need to be read.
+        return self.shell_train_step(features, labels, read_key_from_cache=True)
 
-    def shell_train_step(self, features, labels):
+    def shell_train_step(self, features, labels, read_key_from_cache=False):
         raise NotImplementedError()  # Should be overloaded by the subclass.
 
     def prep_dataset_for_model(self, train_features, train_labels):
@@ -156,9 +160,9 @@ class SequentialBase(keras.Sequential):
             self.dataset_prepped = True
             return train_features, train_labels
 
-        # Call the training step with keygen to trace the graph. Use a copy of
-        # the function to avoid caching the trace so keys and context are
-        # written to cache and read on next trace.
+        # Call the training step with keygen to trace the graph. Note, since the
+        # graph is not executed, the caches for encryption keys and contexts are
+        # not written to disk.
         func = self.train_step_with_keygen.get_concrete_function(
             next(iter(train_features)), next(iter(train_labels))
         )

@@ -50,13 +50,13 @@ class DpSgdSequential(SequentialBase):
         # purposes.
         return tf.nn.softmax(predictions)
 
-    def shell_train_step(self, features, labels):
+    def shell_train_step(self, features, labels, read_key_from_cache):
         with tf.device(self.labels_party_dev):
             labels = tf.cast(labels, tf.keras.backend.floatx())
             if self.disable_encryption:
                 enc_y = labels
             else:
-                backprop_context = self.backprop_context_fn()
+                backprop_context = self.backprop_context_fn(read_key_from_cache)
                 backprop_secret_key = tf_shell.create_key64(
                     backprop_context, self.cache_path
                 )
@@ -130,7 +130,7 @@ class DpSgdSequential(SequentialBase):
             if not self.disable_noise:
                 # Set up the features party side of the distributed noise
                 # sampling sub-protocol.
-                noise_context = self.noise_context_fn()
+                noise_context = self.noise_context_fn(read_key_from_cache)
                 noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
 
                 # The noise context must have the same number of slots

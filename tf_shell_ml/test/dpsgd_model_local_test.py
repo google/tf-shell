@@ -56,16 +56,18 @@ class TestModel(tf.test.TestCase):
                     activation=tf.nn.softmax,
                 ),
             ],
-            backprop_context_fn=lambda: tf_shell.create_autocontext64(
+            backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=23,
                 scaling_factor=16,
                 noise_offset_log2=9,
+                read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
-            noise_context_fn=lambda: tf_shell.create_autocontext64(
+            noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=25,
                 scaling_factor=1,
                 noise_offset_log2=2,
+                read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
             disable_encryption=disable_encryption,

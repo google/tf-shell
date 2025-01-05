@@ -170,7 +170,8 @@ def create_autocontext64(
     noise_offset_log2,
     noise_variance=8,
     seed="",
-    cache_path=None,  # WARN: Caching will not update if graph changes.
+    read_from_cache=False,
+    cache_path=None,
 ):
     if len(seed) > 64:
         raise ValueError("Seed must be at most 64 characters long.")
@@ -190,49 +191,46 @@ def create_autocontext64(
     )
 
     with tf.name_scope("create_autocontext64"):
+        if read_from_cache and cache_path == None:
+            raise ValueError(
+                "A `cache_path` must be provided when `read_from_cache` is True."
+            )
+
         if cache_path != None:
             context_cache_path = cache_path + "/" + id_str + "_context"
             log_n_cache_path = cache_path + "/" + id_str + "_log_n"
             qs_cache_path = cache_path + "/" + id_str + "_qs"
             ps_cache_path = cache_path + "/" + id_str + "_ps"
             t_cache_path = cache_path + "/" + id_str + "_t"
-            paths = [
-                context_cache_path,
-                log_n_cache_path,
-                qs_cache_path,
-                ps_cache_path,
-                t_cache_path,
-            ]
 
-            exists = all([tf.io.gfile.exists(p) for p in paths])
-            if exists:
+        if read_from_cache:
 
-                def read_and_parse(path, ttype):
-                    return tf.io.parse_tensor(tf.io.read_file(path), out_type=ttype)
+            def read_and_parse(path, ttype):
+                return tf.io.parse_tensor(tf.io.read_file(path), out_type=ttype)
 
-                raw_contexts = read_and_parse(context_cache_path, tf.variant)
-                new_log_n = read_and_parse(log_n_cache_path, tf.uint64)
-                new_qs = read_and_parse(qs_cache_path, tf.uint64)
-                new_ps = read_and_parse(ps_cache_path, tf.uint64)
-                new_t = read_and_parse(t_cache_path, tf.uint64)
+            raw_contexts = read_and_parse(context_cache_path, tf.variant)
+            new_log_n = read_and_parse(log_n_cache_path, tf.uint64)
+            new_qs = read_and_parse(qs_cache_path, tf.uint64)
+            new_ps = read_and_parse(ps_cache_path, tf.uint64)
+            new_t = read_and_parse(t_cache_path, tf.uint64)
 
-                # log_n and t will always be scalars. Set the static shape
-                # manually to help with shape inference.
-                new_log_n.set_shape([])
-                new_t.set_shape([])
+            # log_n and t will always be scalars. Set the static shape
+            # manually to help with shape inference.
+            new_log_n.set_shape([])
+            new_t.set_shape([])
 
-                return ShellContext64(
-                    _raw_contexts=raw_contexts,
-                    is_autocontext=True,
-                    log_n=new_log_n,
-                    main_moduli=new_qs,
-                    aux_moduli=new_ps,
-                    plaintext_modulus=new_t,
-                    noise_variance=noise_variance,
-                    scaling_factor=scaling_factor,
-                    seed=seed,
-                    id_str=id_str,
-                )
+            return ShellContext64(
+                _raw_contexts=raw_contexts,
+                is_autocontext=True,
+                log_n=new_log_n,
+                main_moduli=new_qs,
+                aux_moduli=new_ps,
+                plaintext_modulus=new_t,
+                noise_variance=noise_variance,
+                scaling_factor=scaling_factor,
+                seed=seed,
+                id_str=id_str,
+            )
 
         # Cache was not found, generate the context.
         first_context, new_log_n, new_qs, new_ps, new_t = (
