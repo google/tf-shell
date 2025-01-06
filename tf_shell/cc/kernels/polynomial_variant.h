@@ -17,13 +17,18 @@
 #pragma once
 #include <memory>
 
+#include "shell_encryption/rns/rns_context.h"
 #include "shell_encryption/rns/rns_polynomial.h"
 #include "tensorflow/core/framework/variant.h"
 #include "tensorflow/core/framework/variant_encode_decode.h"
 #include "tensorflow/core/framework/variant_op_registry.h"
 #include "tensorflow/core/framework/variant_tensor_data.h"
+#include "utils.h"
 
+using tensorflow::Status;
+using tensorflow::tstring;
 using tensorflow::VariantTensorData;
+using tensorflow::errors::InvalidArgument;
 
 template <typename T>
 class PolynomialVariant {

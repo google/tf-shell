@@ -434,7 +434,17 @@ REGISTER_OP("ExpandDimsVariant")
       return OkStatus();
     });
 
-REGISTER_OP("ConcatVariant")
+REGISTER_OP("ConcatCt64")
+    .Input("axis: int32")
+    .Input("values: N * T")
+    .Output("output: T")
+    .Attr("N: int >= 2")
+    .Attr("T: type")
+    .SetShapeFn([](InferenceContext* c) {
+      return ConcatShape(c, c->num_inputs() - 1);
+    });
+
+REGISTER_OP("ConcatPt64")
     .Input("axis: int32")
     .Input("values: N * T")
     .Output("output: T")

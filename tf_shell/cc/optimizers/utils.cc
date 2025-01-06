@@ -115,9 +115,7 @@ bool IsMaxUnpool2d(NodeDef const& node) {
 bool IsExpandDimsVariant(NodeDef const& node) {
   return node.op() == kExpandDimsVariant;
 }
-bool IsConcatVariant(NodeDef const& node) {
-  return node.op() == kConcatVariant;
-}
+bool IsConcatCt(NodeDef const& node) { return node.op() == kConcatCt; }
 bool IsBroadcastToShape(NodeDef const& node) {
   return node.op() == kBroadcastToShape;
 }

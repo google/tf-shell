@@ -1162,9 +1162,15 @@ def concat(x, axis=0):
             message="All tensors must have the same properties.",
         )
 
-        concat_raw_tensor = shell_ops.concat_variant(
-            axis=axis - 1, values=[xi._raw_tensor for xi in x]
-        )
+        if x[0]._is_enc:
+            concat_raw_tensor = shell_ops.concat_ct64(
+                axis=axis - 1, values=[xi._raw_tensor for xi in x]
+            )
+        else:
+            concat_raw_tensor = shell_ops.concat_pt64(
+                axis=axis - 1, values=[xi._raw_tensor for xi in x]
+            )
+
         return ShellTensor64(
             _raw_tensor=concat_raw_tensor,
             _context=x[0]._context,

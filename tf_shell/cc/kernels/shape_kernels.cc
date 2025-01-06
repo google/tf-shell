@@ -13,6 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "polynomial_variant.h"
+#include "symmetric_variants.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -95,6 +97,7 @@ class ExpandDimsVariantOp : public OpKernel {
   bool IsExpensive() override { return false; }
 };
 
+template <typename CtOrPolyVariant>
 class ConcatVariantOp : public OpKernel {
  public:
   explicit ConcatVariantOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
@@ -156,6 +159,16 @@ class ConcatVariantOp : public OpKernel {
       for (int64 j = 0; j < input_flat.dimension(0); ++j) {
         for (int64 k = 0; k < input_flat.dimension(1); ++k) {
           for (int64 l = 0; l < input_flat.dimension(2); ++l) {
+            // Lock the mutex while copying.
+            CtOrPolyVariant const* ct_var =
+                std::move(input_flat(j, k, l).get<CtOrPolyVariant>());
+            // TODO if debug
+            OP_REQUIRES(ctx, ct_var != nullptr,
+                        InvalidArgument(
+                            "ConcatVariantOp: SymmetricCtVariant or "
+                            "PolynomialVariant did not unwrap successfully."));
+            std::lock_guard<std::mutex> lock(
+                const_cast<CtOrPolyVariant*>(ct_var)->mutex.mutex);
             flat_output(j, offset + k, l) = input_flat(j, k, l);
           }
         }
@@ -173,5 +186,7 @@ class ConcatVariantOp : public OpKernel {
 REGISTER_KERNEL_BUILDER(Name("ExpandDimsVariant").Device(DEVICE_CPU),
                         ExpandDimsVariantOp);
 
-REGISTER_KERNEL_BUILDER(Name("ConcatVariant").Device(DEVICE_CPU),
-                        ConcatVariantOp);
+REGISTER_KERNEL_BUILDER(Name("ConcatCt64").Device(DEVICE_CPU),
+                        ConcatVariantOp<SymmetricCtVariant<uint64_t>>);
+REGISTER_KERNEL_BUILDER(Name("ConcatPt64").Device(DEVICE_CPU),
+                        ConcatVariantOp<PolynomialVariant<uint64_t>>);
