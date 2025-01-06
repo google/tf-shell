@@ -826,9 +826,6 @@ Status EstimateNoiseGrowth(utils::MutableGraphView& graph_view,
   return OkStatus();
 }
 
-// Returns true if the node_index points to the outermost op of the pattern
-// decode(encode(a)) where a is a cleartext (tf datatype) and marks nodes to
-// delete accordingly.
 Status ReplaceAutoparamWithContext(utils::MutableGraphView& graph_view,
                                    utils::MutableNodeView* autocontext,
                                    ShellParams const& params,
