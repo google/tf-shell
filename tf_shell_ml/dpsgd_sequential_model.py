@@ -16,6 +16,7 @@
 import tensorflow as tf
 import tf_shell
 from tf_shell_ml.model_base import SequentialBase
+from tf_shell_ml import large_tensor
 
 
 class DpSgdSequential(SequentialBase):
@@ -127,6 +128,11 @@ class DpSgdSequential(SequentialBase):
                     backprop_context, grads
                 )
 
+            # Prepare to send gradients to the labels party.
+            chunked_grads, chunked_grads_metadata = large_tensor.split_tensor_list(
+                grads
+            )
+
             if not self.disable_noise:
                 # Set up the features party side of the distributed noise
                 # sampling sub-protocol.
@@ -158,6 +164,11 @@ class DpSgdSequential(SequentialBase):
                 )
 
         with tf.device(self.labels_party_dev):
+            # Prepare to send gradients to the labels party.
+            grads = large_tensor.reassemble_tensor_list(
+                chunked_grads, chunked_grads_metadata
+            )
+
             if not self.disable_encryption:
                 # Decrypt the weight gradients with the backprop key.
                 grads = [tf_shell.to_tensorflow(g, backprop_secret_key) for g in grads]
@@ -199,6 +210,11 @@ class DpSgdSequential(SequentialBase):
                     flattened_grad_shapes,
                     total_grad_size,
                 )
+            else:
+                # Ensure the gradients are copied to the correct device in the
+                # case when noise is disabled but encryption and masking are
+                # both enabled.
+                grads = [tf.identity(g) for g in grads]
 
             # Unmask the gradients.
             if not self.disable_masking and not self.disable_encryption:
@@ -209,8 +225,8 @@ class DpSgdSequential(SequentialBase):
             if not self.disable_noise:
                 if self.check_overflow_INSECURE:
                     self.warn_on_overflow(
-                        [flat_grads],
-                        [1],
+                        grads,
+                        [1] * len(grads),
                         noise_context.plaintext_modulus,
                         "WARNING: Noised gradient may have overflowed.",
                     )
