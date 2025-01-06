@@ -51,21 +51,7 @@ class DpSgdSequential(SequentialBase):
         # purposes.
         return tf.nn.softmax(predictions)
 
-    def shell_train_step(self, features, labels, read_key_from_cache):
-        with tf.device(self.labels_party_dev):
-            labels = tf.cast(labels, tf.keras.backend.floatx())
-            if self.disable_encryption:
-                enc_y = labels
-            else:
-                backprop_context = self.backprop_context_fn(read_key_from_cache)
-                backprop_secret_key = tf_shell.create_key64(
-                    backprop_context, self.cache_path
-                )
-                # Encrypt the batch of secret labels.
-                enc_y = tf_shell.to_encrypted(
-                    labels, backprop_secret_key, backprop_context
-                )
-
+    def compute_grads(self, features, enc_labels):
         predictions_list = []
         max_two_norms_list = []
         split_features, end_pad = self.split_with_padding(
@@ -96,7 +82,7 @@ class DpSgdSequential(SequentialBase):
             max_two_norm = tf.reduce_max(max_two_norms_list)
 
             # Backward pass.
-            dx = enc_y.__rsub__(predictions)  # Derivative of CCE loss and softmax.
+            dx = enc_labels.__rsub__(predictions)  # Derivative of CCE loss and softmax.
             dJ_dw = []  # Derivatives of the loss with respect to the weights.
             dJ_dx = [dx]  # Derivatives of the loss with respect to the inputs.
             for l in reversed(self.layers):
@@ -104,166 +90,7 @@ class DpSgdSequential(SequentialBase):
                 dJ_dw.extend(dw)
                 dJ_dx.append(dx)
 
-            # Check if the backproped gradients overflowed.
-            if not self.disable_encryption and self.check_overflow_INSECURE:
-                # Note, checking the gradients requires decryption on the
-                # features party which breaks security of the protocol.
-                bp_scaling_factors = [g._scaling_factor for g in dJ_dw]
-                dec_dJ_dw = [
-                    tf_shell.to_tensorflow(g, backprop_secret_key) for g in dJ_dw
-                ]
-                self.warn_on_overflow(
-                    dec_dJ_dw,
-                    bp_scaling_factors,
-                    tf.identity(backprop_context.plaintext_modulus),
-                    "WARNING: Backprop gradient may have overflowed.",
-                )
-
             # Reverse the order to match the order of the layers.
             grads = [g for g in reversed(dJ_dw)]
 
-            # Mask the encrypted gradients.
-            if not self.disable_masking and not self.disable_encryption:
-                grads, masks, mask_scaling_factors = self.mask_gradients(
-                    backprop_context, grads
-                )
-
-            # Prepare to send gradients to the labels party.
-            chunked_grads, chunked_grads_metadata = large_tensor.split_tensor_list(
-                grads
-            )
-
-            if not self.disable_noise:
-                # Set up the features party side of the distributed noise
-                # sampling sub-protocol.
-                noise_context = self.noise_context_fn(read_key_from_cache)
-                noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
-
-                # The noise context must have the same number of slots
-                # (encryption ring degree) as used in backpropagation.
-                if not self.disable_encryption:
-                    tf.assert_equal(
-                        tf.identity(backprop_context.num_slots),
-                        noise_context.num_slots,
-                        message="Backprop and noise contexts must have the same number of slots.",
-                    )
-
-                # The noise scaling factor must always be 1. Encryptions already
-                # have the scaling factor applied when the noise is applied,
-                # and an additional noise scaling factor is not needed.
-                tf.assert_equal(
-                    noise_context.scaling_factor,
-                    1,
-                    message="Noise scaling factor must be 1.",
-                )
-
-                # Compute the noise factors for the distributed noise sampling
-                # sub-protocol.
-                enc_a, enc_b = self.compute_noise_factors(
-                    noise_context, noise_secret_key, max_two_norm
-                )
-
-        with tf.device(self.labels_party_dev):
-            # Prepare to send gradients to the labels party.
-            grads = large_tensor.reassemble_tensor_list(
-                chunked_grads, chunked_grads_metadata
-            )
-
-            if not self.disable_encryption:
-                # Decrypt the weight gradients with the backprop key.
-                grads = [tf_shell.to_tensorflow(g, backprop_secret_key) for g in grads]
-
-            # Sum the masked gradients over the batch.
-            if self.disable_masking or self.disable_encryption:
-                # No mask has been added so a only a normal sum is required.
-                grads = [tf.reduce_sum(g, axis=0) for g in grads]
-            else:
-                grads = [
-                    tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
-                    for g, s in zip(grads, mask_scaling_factors)
-                ]
-
-            if not self.disable_noise:
-                # Efficiently pack the masked gradients to prepare for adding
-                # the encrypted noise. This is special because the masked
-                # gradients are no longer batched, so the packing must be done
-                # manually.
-                (flat_grads, grad_shapes, flattened_grad_shapes, total_grad_size) = (
-                    self.flatten_and_pad_grad_list(
-                        grads, tf.identity(noise_context.num_slots)
-                    )
-                )
-
-                # Add the encrypted noise to the masked gradients.
-                grads = self.noise_gradients(noise_context, flat_grads, enc_a, enc_b)
-
-        with tf.device(self.features_party_dev):
-            if not self.disable_noise:
-                # The gradients must be first be decrypted using the noise
-                # secret key.
-                flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
-
-                # Unpack the noised grads after decryption.
-                grads = self.unflatten_and_unpad_grad(
-                    flat_grads,
-                    grad_shapes,
-                    flattened_grad_shapes,
-                    total_grad_size,
-                )
-            else:
-                # Ensure the gradients are copied to the correct device in the
-                # case when noise is disabled but encryption and masking are
-                # both enabled.
-                grads = [tf.identity(g) for g in grads]
-
-            # Unmask the gradients.
-            if not self.disable_masking and not self.disable_encryption:
-                grads = self.unmask_gradients(
-                    backprop_context, grads, masks, mask_scaling_factors
-                )
-
-            if not self.disable_noise:
-                if self.check_overflow_INSECURE:
-                    self.warn_on_overflow(
-                        grads,
-                        [1] * len(grads),
-                        noise_context.plaintext_modulus,
-                        "WARNING: Noised gradient may have overflowed.",
-                    )
-
-            # Apply the gradients to the model.
-            self.optimizer.apply_gradients(zip(grads, self.weights))
-
-            for metric in self.metrics:
-                if metric.name == "loss":
-                    if self.disable_encryption:
-                        loss = self.compiled_loss(labels, predictions)
-                        metric.update_state(loss)
-                    else:
-                        # Loss is unknown when encrypted.
-                        metric.update_state(0.0)
-                else:
-                    if self.disable_encryption:
-                        metric.update_state(labels, predictions)
-                    else:
-                        # Other metrics are uknown when encrypted.
-                        zeros = tf.broadcast_to(0, tf.shape(predictions))
-                        metric.update_state(zeros, zeros)
-
-            metric_results = {m.name: m.result() for m in self.metrics}
-
-            # TensorFlow 2.18.0 added a "CompiledMetrics" metric which holds metrics
-            # passed to compile in it's own dictionary. Keras wants all metrics to
-            # be returned as a flat dictionary. Here we flatten the dictionary.
-            result = {}
-            for key, value in metric_results.items():
-                if isinstance(value, dict):
-                    result.update(value)  # add subdict directly into the dict
-                else:
-                    result[key] = value  # non-subdict elements are just copied
-
-            return result, (
-                None
-                if self.disable_encryption
-                else tf.identity(backprop_context.num_slots)
-            )
+        return grads, max_two_norm, predictions
