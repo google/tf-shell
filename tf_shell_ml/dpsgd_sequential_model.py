@@ -54,9 +54,12 @@ class DpSgdSequential(SequentialBase):
     def compute_grads(self, features, enc_labels):
         predictions_list = []
         max_two_norms_list = []
-        split_features, end_pad = self.split_with_padding(
-            features, len(self.jacobian_devices)
-        )
+
+        with tf.device(self.features_party_dev):
+            split_features, end_pad = self.split_with_padding(
+                features, len(self.jacobian_devices)
+            )
+
         for i, d in enumerate(self.jacobian_devices):
             with tf.device(d):
                 f = tf.identity(split_features[i])  # copy to GPU if needed

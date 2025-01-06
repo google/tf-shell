@@ -6,13 +6,9 @@ import tf_shell
 # to split large tensors into smaller chunks. This file provides functions to
 # do so.
 #
-# Currently, tensors are split into even size chunks. This is not ideal for
-# communication efficiency, as the last chunk is padded and wastes bandwidth.
-# Additionally, the maximum number of splits is limited. These limitations are
-# due to the fact that the tensor shapes may not be known at graph construction
-# time, so we cannot use tf.split with dynamic sizes. Reducing the SAFETY_FACTOR
-# will help control the amount of wasted bytes, but may increase the risk of
-# exceeding the MAX_NUM_SPLITS.
+# As written, the maximum number of splits is limited by MAX_NUM_SPLITS due to
+# not knowing how large ciphertexts are until graph execution time (due to
+# autocontext).
 
 UINT32_MAX = 4294967295  # Maximum size for GRPC
 SAFETY_FACTOR = 0.9  # Leave some headroom below the limit

@@ -822,6 +822,10 @@ Status EstimateNoiseGrowth(utils::MutableGraphView& graph_view,
     std::cout << "Max noise bits: " << log_max_noise << std::endl;
   }
 
+  if (log_max_noise == 0) {
+    return errors::FailedPrecondition("Could not estimate noise growth.");
+  }
+
   *log_noise = log_max_noise;
   return OkStatus();
 }

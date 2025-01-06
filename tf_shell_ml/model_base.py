@@ -276,7 +276,7 @@ class SequentialBase(keras.Sequential):
     ):
         """
         Train the model.
-         
+
         This custom training loop supports inputs from multiple datasets
         (features and laabels), each of which can be located on a different
         device.
@@ -537,7 +537,7 @@ class SequentialBase(keras.Sequential):
 
         Raises:
             ValueError: If the input list of gradient tensors is empty.
-         """
+        """
         if len(grads_list) == 0:
             raise ValueError("No gradients found")
 
@@ -745,6 +745,7 @@ class SequentialBase(keras.Sequential):
         Returns:
             Tensor: The noised gradients.
         """
+
         def _sample_noise():
             n = tf_shell.sample_centered_gaussian_l(
                 context,
@@ -812,7 +813,6 @@ class SequentialBase(keras.Sequential):
 
         return overflowed
 
-
     def shell_train_step(self, features, labels, read_key_from_cache=False):
         """
         The main training loop for the PostScale protocol.
@@ -872,10 +872,15 @@ class SequentialBase(keras.Sequential):
                     backprop_context, grads
                 )
 
-            # Prepare to send gradients to the labels party.
-            chunked_grads, chunked_grads_metadata = large_tensor.split_tensor_list(
-                grads
-            )
+            if self.features_party_dev != self.labels_party_dev:
+                # When the tensor needs to be sent between machines, split it
+                # into chunks to stay within GRPC's 4BG maximum message size.
+                # Note, running this on a single machine sometimes breaks
+                # TensorFlow's optimizer, which then decides to replace the
+                # entire training graph with a const op.
+                chunked_grads, chunked_grads_metadata = large_tensor.split_tensor_list(
+                    grads
+                )
 
             if not self.disable_noise:
                 # Set up the features party side of the distributed noise
@@ -908,10 +913,11 @@ class SequentialBase(keras.Sequential):
                 )
 
         with tf.device(self.labels_party_dev):
-            # Prepare to send gradients to the labels party.
-            grads = large_tensor.reassemble_tensor_list(
-                chunked_grads, chunked_grads_metadata
-            )
+            if self.features_party_dev != self.labels_party_dev:
+                # Reassemble the tensor list after sending it between machines.
+                grads = large_tensor.reassemble_tensor_list(
+                    chunked_grads, chunked_grads_metadata
+                )
 
             if not self.disable_encryption:
                 # Decrypt the weight gradients with the backprop key.
@@ -954,11 +960,6 @@ class SequentialBase(keras.Sequential):
                     flattened_grad_shapes,
                     total_grad_size,
                 )
-            else:
-                # Ensure the gradients are copied to the correct device in the
-                # case when noise is disabled but encryption and masking are
-                # both enabled.
-                grads = [tf.identity(g) for g in grads]
 
             # Unmask the gradients.
             if not self.disable_masking and not self.disable_encryption:
