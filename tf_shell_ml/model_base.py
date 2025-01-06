@@ -98,6 +98,16 @@ class SequentialBase(keras.Sequential):
         )
 
     def train_step(self, features, labels):
+        """
+        Executes a single training step.
+
+        Args:
+            features: The input features for the training step.
+            labels: The corresponding labels for the training step.
+
+        Returns:
+            metrics (dict): The metrics resulting from the training step.
+        """
         metrics, num_slots = self.shell_train_step(
             features, labels, read_key_from_cache=False
         )
@@ -105,21 +115,63 @@ class SequentialBase(keras.Sequential):
 
     @tf.function
     def train_step_with_keygen(self, features, labels):
+        """
+        Perform a single training step as a TensorFlow function, which may be
+        compiled into a TensorFlow graph for performance optimization. This is
+        used when preparing the dataset for training to avoid caching the trace
+        itself, and the cryptographic keys and context.
+
+        Args:
+            features: The input features for the training step.
+            labels: The corresponding labels for the input features.
+
+        Returns:
+            tuple: A tuple containing:
+                - dict: A dictionary of metrics for the training step.
+                - int: The number of slots in the ciphertexts (the ring degree)
+                    used in the computation.
+        """
         return self.shell_train_step(features, labels, read_key_from_cache=False)
 
     @tf.function
     def train_step_tf_func(self, features, labels):
+        """
+        Perform a single training step as a TensorFlow function, which may be
+        compiled into a TensorFlow graph for performance optimization.
+
+        Args:
+            features: The input features for the training step.
+            labels: The corresponding labels for the input features.
+
+        Returns:
+            tuple: A tuple containing:
+                - dict: A dictionary of metrics for the training step.
+                - int: The number of slots in the ciphertexts (the ring degree)
+                used in the computation.
+        """
         # When running the training loop, the caches for encryption keys and
-        # contexts have already been populated and do not need to be read.
+        # contexts have already been populated.
         return self.shell_train_step(features, labels, read_key_from_cache=True)
 
     def compute_grads(self, features, enc_labels):
         raise NotImplementedError()  # Should be overloaded by the subclass.
 
     def prep_dataset_for_model(self, train_features, train_labels):
-        """Prepare the dataset for training with encryption by setting the batch
-        size to the same value as the encryption ring degree. Run the training
-        loop once on dummy data to figure out the batch size.
+        """
+        Prepare the dataset for training with encryption.
+
+        Sets the batch size to the same value as the encryption ring degree. Run
+        the training loop once on dummy inputs to figure out the batch size.
+        Note the batch size is not always known during graph construction, when
+        using autocontext.
+
+        Args:
+            train_features (tf.data.Dataset): The training features dataset.
+            train_labels (tf.data.Dataset): The training labels dataset.
+
+        Returns:
+            tuple: A tuple containing the re-batched training features and labels.
+
         """
         if self.disable_encryption:
             self.batch_size = next(iter(train_features)).shape[0]
@@ -146,14 +198,23 @@ class SequentialBase(keras.Sequential):
         return train_features, train_labels
 
     def fast_prep_dataset_for_model(self, train_features, train_labels):
-        """Prepare the dataset for training with encryption by setting the
-        batch size to the same value as the encryption ring degree. It is faster
-        than `prep_dataset_for_model` because it does not execute the graph,
-        instead tracing and optimizing the graph and extracting the required
-        parameters without actually executing the graph.
+        """
+        Prepare the dataset for training with encryption.
 
-        Since the graph is not executed, caches for keys and the shell context
-        are not written to disk.
+        Sets the batch size to the same value as the encryption ring degree.
+        This method is faster than `prep_dataset_for_model` because it does not
+        execute the graph. Instead, it traces and optimizes the graph,
+        extracting the required parameters without actually executing it.
+
+        Note, since the graph is not executed, caches for keys and the shell
+        context are not written.
+
+        Args:
+            train_features (tf.data.Dataset): The training features dataset.
+            train_labels (tf.data.Dataset): The training labels dataset.
+
+        Returns:
+            tuple: A tuple containing the re-batched training features and labels.
         """
         if self.disable_encryption:
             self.batch_size = next(iter(train_features)).shape[0]
@@ -213,8 +274,38 @@ class SequentialBase(keras.Sequential):
         steps_per_epoch=None,
         verbose=1,
     ):
-        """A custom training loop that supports inputs from multiple datasets,
-        each of which can be on a different device.
+        """
+        Train the model.
+         
+        This custom training loop supports inputs from multiple datasets
+        (features and laabels), each of which can be located on a different
+        device.
+
+        Args:
+            features_dataset (tf.data.Dataset): The dataset containing the
+                features for training.
+            labels_dataset (tf.data.Dataset): The dataset containing the labels
+                for training.
+            epochs (int, optional): Number of epochs to train the model.
+                Defaults to 1.
+            batch_size (int, optional): Number of samples per gradient update.
+                Defaults to 32.
+            callbacks (list, optional): List of `keras.callbacks.Callback`
+                instances. Defaults to None.
+            validation_data (tuple, optional): Data on which to evaluate the
+                loss and any model metrics at the end of each epoch. Defaults to
+                None.
+            steps_per_epoch (int, optional): Total number of steps (batches of
+                samples) before declaring one epoch finished and starting the
+                next epoch. Defaults to None.
+            verbose (int, optional): Verbosity mode. 0 = silent, 1 = progress
+                bar. Defaults to 1.
+
+        Returns:
+            History: A keras `History` object. Its `History.history` attribute
+                is a record of training loss values and metrics values at
+                successive epochs, as well as validation loss values and
+                validation metrics values (if applicable).
         """
         # Prevent TensorFlow from placing ops on devices which were not
         # explicitly assigned for security reasons.
@@ -316,8 +407,25 @@ class SequentialBase(keras.Sequential):
         return self.history
 
     def split_with_padding(self, tensor, num_splits, axis=0, padding_value=0):
-        """Splits a tensor along the given axis, padding if necessary."""
+        """
+        Splits a tensor along the given axis, padding if necessary.
 
+        Args:
+            tensor (tf.Tensor): The input tensor to be split. Requires the shape
+                of the tensor is known.
+            num_splits (int): The number of splits to divide the tensor into.
+            axis (int, optional): The axis along which to split the tensor.
+                Defaults to 0.
+            padding_value (int, optional): The value to use for padding if the
+                tensor's size along the specified axis is not divisible by
+                num_splits. Defaults to 0.
+
+        Returns:
+            tuple: A tuple containing:
+                - List[tf.Tensor]: A list of tensors resulting from the split.
+                - int: The remainder of the division of the tensor's size along
+                  the specified axis by num_splits.
+        """
         # Pad the tensor if necessary
         remainder = tensor.shape[axis] % num_splits
         padded_by = 0
@@ -331,6 +439,23 @@ class SequentialBase(keras.Sequential):
         return tf.split(tensor, num_splits, axis=axis), padded_by
 
     def predict_and_jacobian(self, features, skip_jacobian=False):
+        """
+        Predicts the output for the given features and optionally computes the
+        Jacobian.
+
+        Args:
+            features (tf.Tensor): Input features for the model.
+            skip_jacobian (bool): If True, skips the computation of the
+                Jacobian. Defaults to False.
+
+        Returns:
+            tuple: A tuple containing:
+                - predictions (tf.Tensor): The model output after applying
+                  softmax.
+                - jacobians (list or tf.Tensor): The Jacobian of the last layer
+                  preactivation with respect to the model weights if
+                  skip_jacobian is False, otherwise an empty list.
+        """
         with tf.GradientTape(
             persistent=tf.executing_eagerly() or self.jacobian_pfor
         ) as tape:
@@ -355,9 +480,18 @@ class SequentialBase(keras.Sequential):
         return predictions, jacobians
 
     def jacobian_max_two_norm(self, jacobians):
-        """Takes the output of the jacobian computation and computes the max two
-        norm of the weights over all examples in the batch and all output
-        classes. Do this layer-wise to reduce memory usage."""
+        """
+        Computes the maximum two-norm of the Jacobian over all examples in
+        the batch and all output classes, layer-wise to limit memory usage.
+
+        Args:
+            jacobians (list of tf.Tensor): A list of tensors representing the
+                Jacobians of the model last layer pre-activation with respect to
+                the weights.
+
+        Returns:
+            tf.Tensor: A scalar tensor representing the maximum two-norm.
+        """
         if len(jacobians) == 0:
             return tf.constant(0.0, dtype=tf.keras.backend.floatx())
 
@@ -377,14 +511,33 @@ class SequentialBase(keras.Sequential):
         return tf.sqrt(tf.reduce_max(sum_of_squares))
 
     def flatten_and_pad_grad_list(self, grads_list, slot_size):
-        """Takes as input a list of tensors and flattens them into a single
-        tensor. The input is expected to be of shape:
-            layers list x (weights)
-        where weights may be any shape. The output is a tensor of shape:
-            slot_size x remaining flattened weights
-        which is the input weights flattened, concatenated, and padded out to
-        make the output shape non-ragged.
         """
+        Reshapes list of gradient tensors into a single matrix such that
+        the first dimension matches the number of slots in the ciphertext.
+
+        This packing scheme is used to prepare tensors of arbitrary shape for
+        encryption. The output tensor may be padded with zeros to ensure the
+        total number of elements is divisible by the slot size.
+
+        Args:
+            grads_list (list of tf.Tensor): A list of gradient tensors to be
+                flattened and concatenated.
+            slot_size (int): The number of slots of the encryption scheme.
+
+        Returns:
+            tuple: A tuple containing:
+                - tf.Tensor: The flattened and padded tensor of shape
+                  (slot_size, remaining flattened weights).
+                - list of tf.TensorShape: The original shapes of the gradient
+                  tensors.
+                - list of int: The number of elements in each flattened gradient
+                  tensor.
+                - int: The total number of elements in the concatenated gradient
+                  tensor.
+
+        Raises:
+            ValueError: If the input list of gradient tensors is empty.
+         """
         if len(grads_list) == 0:
             raise ValueError("No gradients found")
 
@@ -411,15 +564,24 @@ class SequentialBase(keras.Sequential):
     def unflatten_and_unpad_grad(
         self, flat_grads, grad_shapes, flattened_grad_shapes, total_grad_size
     ):
-        """Takes as input a flattened and padded gradient tensor and unflattens
-        it into a list of tensors. This undoes the flattening and padding
-        introduced by flatten_and_pad_grad_list(). The input is expected to be
-        of shape:
-            slot_size x remaining flattened weights
-        The output is a list of tensors of shape:
-            layers list x (weights)
         """
+        Takes as input a matrix flat_grads and recovers the original shape of
+        the tensors. This undoes the flattening and padding introduced by
+        flatten_and_pad_grad_list().
 
+        Args:
+            flat_grads (tf.Tensor): The flattened and padded gradient tensor.
+            grad_shapes (list): A list of shapes for each gradient tensor before
+                flattening.
+            flattened_grad_shapes (list): A list of shapes for each gradient
+                tensor after flattening but before padding.
+            total_grad_size (int): The total size of the gradient tensor before
+                padding.
+
+        Returns:
+            list: A list of tensors with their original shapes before flattening
+              and padding.
+        """
         # First reshape to a flat tensor.
         flat_grads = tf.reshape(flat_grads, [-1])
 
@@ -434,7 +596,22 @@ class SequentialBase(keras.Sequential):
         return grads_list
 
     def mask_gradients(self, context, grads):
-        """Adds a random masks to the encrypted gradients between [-t/2, t/2]."""
+        """
+        Adds random masks to the encrypted gradients within the range [-t/2,
+        t/2].
+
+        Args:
+            context (object): The context containing the plaintext modulus.
+            grads (list): A list of gradient tensors to be masked.
+
+        Returns:
+        tuple: A tuple containing:
+            - int64_grads (list): The masked gradients with spoofed dtype and
+              scaling factor.
+            - masks (list): The random masks added to the gradients.
+            - mask_scaling_factors (list): The original scaling factors of the
+              gradients.
+        """
         if self.disable_masking or self.disable_encryption:
             return grads, None
 
@@ -452,9 +629,9 @@ class SequentialBase(keras.Sequential):
             for g in grads
         ]
 
-        # Spoof the gradient's dtype to int64 and scaling factor to 1.
-        # This is necessary so when adding the masks to the gradients, tf_shell
-        # does not attempt to do any casting to floats matching scaling factors.
+        # Spoof the gradient's dtype to int64 and scaling factor to 1. This is
+        # necessary so when adding the masks to the gradients, tf_shell does not
+        # attempt to do any casting to floats matching scaling factors.
         # Conversion back to floating point and handling the scaling factors is
         # done in unmask_gradients.
         int64_grads = [
@@ -477,8 +654,21 @@ class SequentialBase(keras.Sequential):
         return int64_grads, masks, mask_scaling_factors
 
     def unmask_gradients(self, context, grads, masks, mask_scaling_factors):
-        """Subtracts the masks from the gradients."""
+        """
+        Unmasks the gradients by subtracting the masks, and converting to
+        floating point representation using the scaling factors.
 
+        Args:
+            context: The context in which the operation is performed.
+            grads (list of tf.Tensor): The gradients to be unmasked.
+            masks (list of tf.Tensor): The masks to be subtracted from the
+              gradients.
+            mask_scaling_factors (list of float): The scaling factors for the
+              masks.
+
+        Returns:
+            list of tf.Tensor: The unmasked gradients.
+        """
         # Sum the masks over the batch.
         sum_masks = [
             tf_shell.reduce_sum_with_mod(m, 0, context, s)
@@ -501,6 +691,26 @@ class SequentialBase(keras.Sequential):
         return unmasked_grads
 
     def compute_noise_factors(self, context, secret_key, sensitivity):
+        """
+        Computes noise selection vectors, as part of the distributed noise
+        sampling protocol to sample the discrete gaussian distribution.
+
+        Args:
+            context: An object containing the context information, including the
+              number of slots for encryption.
+            secret_key: The secret key used for encryption.
+            sensitivity: The sensitivity value used to compute the noise
+              factors.
+
+        Returns:
+            A tuple (enc_a, enc_b) where:
+                - enc_a: The encrypted noise selection vector `a`.
+                - enc_b: The encrypted noise selection vector `b`.
+
+        Raises:
+            tf.errors.InvalidArgumentError: If the bounded sensitivity exceeds
+              the maximum noise scale defined in `self.dg_params`.
+        """
         bounded_sensitivity = tf.cast(sensitivity, dtype=tf.float32) * tf.sqrt(2.0)
 
         tf.assert_less(
@@ -522,6 +732,19 @@ class SequentialBase(keras.Sequential):
         return enc_a, enc_b
 
     def noise_gradients(self, context, flat_grads, enc_a, enc_b):
+        """
+        Adds encrypted noise to the gradients for differential privacy, as
+        part of the distributed noise sampling protocol.
+
+        Args:
+            context: The context in which the noise is sampled.
+            flat_grads: The flattened gradients to which noise is added.
+            enc_a: Encrypted noise selection vector.
+            enc_b: Encrypted noise selection vector.
+
+        Returns:
+            Tensor: The noised gradients.
+        """
         def _sample_noise():
             n = tf_shell.sample_centered_gaussian_l(
                 context,
@@ -546,9 +769,23 @@ class SequentialBase(keras.Sequential):
         return grads
 
     def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
-        """If the gradient is between [-t/2, -t/4] or [t/4, t/2], the gradient
-        may have overflowed. This also must take the scaling factor into account
-        so the range is divided by the scaling factor.
+        """
+        Print a warning if any of the gradients indicate overflow.
+
+        This function checks if any of the gradients are within the ranges
+        [-t/2, -t/4] or [t/4, t/2], where t is the plaintext modulus, which may
+        indicate an overflow. The check takes into account the scaling factors,
+
+        Args:
+            grads (list of tf.Tensor): List of gradient tensors.
+            scaling_factors (list of float): List of scaling factors
+              corresponding to each gradient tensor.
+            plaintext_modulus (float): The plaintext modulus value.
+            message (str): The message to print if an overflow is detected.
+
+        Returns:
+            tf.Tensor: A boolean tensor indicating whether an overflow was
+              detected.
         """
         # t = tf.cast(plaintext_modulus, grads[0].dtype)
         t_half = plaintext_modulus / 2
