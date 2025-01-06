@@ -30,6 +30,7 @@ from tf_shell.python.shell_tensor import reshape
 from tf_shell.python.shell_tensor import shape
 from tf_shell.python.shell_tensor import broadcast_to
 from tf_shell.python.shell_tensor import split
+from tf_shell.python.shell_tensor import concat
 from tf_shell.python.shell_tensor import segment_sum
 from tf_shell.python.shell_tensor import conv2d
 from tf_shell.python.shell_tensor import conv2d_transpose

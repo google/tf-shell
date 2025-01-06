@@ -71,6 +71,7 @@ modulus_reduce_pt64 = shell_ops.modulus_reduce_pt64
 
 # Shape manipulation.
 expand_dims_variant = shell_ops.expand_dims_variant
+concat_variant = shell_ops.concat_variant
 
 # Segmenmt-based reductions.
 segment_sum_ct = shell_ops.unsorted_ct_segment_sum

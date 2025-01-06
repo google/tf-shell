@@ -264,6 +264,83 @@ class TestShellTensor(tf.test.TestCase):
                 ):
                     self._test_expand_and_reshape(test_context, dim)
 
+    def _test_concat(self, test_context, dim):
+        try:
+            a = test_utils.uniform_for_n_adds(test_context, 0)
+            b = test_utils.uniform_for_n_adds(test_context, 0)
+        except Exception as e:
+            print(
+                f"Note: Skipping test concat with test context `{test_context}`. Not enough precision to support this test."
+            )
+            print(e)
+            return
+
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+        sc = tf_shell.concat([sa, sb], axis=dim)
+        c = tf.concat([a, b], axis=dim)
+        self.assertAllClose(c, tf_shell.to_tensorflow(sc))
+
+        ea = tf_shell.to_encrypted(sa, test_context.key, test_context.shell_context)
+        eb = tf_shell.to_encrypted(sb, test_context.key, test_context.shell_context)
+        ec = tf_shell.concat([ea, eb], axis=dim)
+        self.assertAllClose(c, tf_shell.to_tensorflow(ec, test_context.key))
+
+    def test_concat(self):
+        for test_context in self.test_contexts:
+            for dim in range(1, len(test_context.outer_shape) + 1, 1):
+                with self.subTest(
+                    f"concat on dimension {dim} with context `{test_context}`."
+                ):
+                    self._test_concat(test_context, dim)
+
+    def test_concat_axis_too_small(self):
+        test_context = self.test_contexts[0]
+        a = test_utils.uniform_for_n_adds(test_context, 0)
+        b = test_utils.uniform_for_n_adds(test_context, 0)
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+        self.assertRaisesWithLiteralMatch(
+            ValueError,
+            "Cannot concat over axis 0 for ShellTensor64, this is the batching dimension.",
+            tf_shell.concat,
+            [sa, sb],
+            axis=0,
+        )
+        self.assertRaisesRegex(
+            tf.errors.InvalidArgumentError,
+            ".*Invalid axis to concat over. Must be in the range \[0, 3\)\.",
+            tf_shell.concat,
+            [sa, sb],
+            axis=-100,
+        )
+
+    def _test_concat_shape_inf(self, test_context, dim):
+        a = test_utils.uniform_for_n_adds(test_context, 0)
+        b = test_utils.uniform_for_n_adds(test_context, 0)
+        sa = tf_shell.to_shell_plaintext(a, test_context.shell_context)
+        sb = tf_shell.to_shell_plaintext(b, test_context.shell_context)
+        c = tf.concat([a, b], axis=dim)
+
+        @tf.function
+        def test_functor(sa, sb, dim):
+            sc = tf_shell.concat([sa, sb], axis=dim)
+            # Tests shape inference
+            self.assertEqual(sc.shape.ndims, len(c.shape))
+            # ignore first dim, which is the batch dimension
+            for i in range(1, sc.shape.ndims):
+                self.assertEqual(sc.shape[i], c.shape[i])
+
+        test_functor(sa, sb, dim)
+
+    def test_concat_shape_inf(self):
+        for test_context in self.test_contexts:
+            for dim in range(1, len(test_context.outer_shape) + 1, 1):
+                with self.subTest(
+                    f"concat shape inference on dimension {dim} with context `{test_context}`."
+                ):
+                    self._test_concat_shape_inf(test_context, dim)
+
 
 if __name__ == "__main__":
     tf.test.main()

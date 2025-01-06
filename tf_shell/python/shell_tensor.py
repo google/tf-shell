@@ -1042,7 +1042,7 @@ def reshape(x, shape):
     elif isinstance(x, tf.Tensor):
         return tf.reshape(x, shape)
     else:
-        raise ValueError("Unsupported type for expand_dims")
+        raise ValueError("Unsupported type for reshape")
 
 
 def shape(x):
@@ -1080,19 +1080,17 @@ def broadcast_to(x, shape):
     elif isinstance(x, tf.Tensor):
         return tf.broadcast_to(x, shape)
     else:
-        raise ValueError("Unsupported type for expand_dims")
+        raise ValueError("Unsupported type for broadcast_to")
 
 
-def split(x, num_or_size_splits, axis=0, num_splits=None):
+def split(x, num_or_size_splits, axis=0, num=None):
     if isinstance(x, ShellTensor64):
         if axis == 0:
             raise ValueError(
                 "Cannot split over axis 0 for ShellTensor64, this is the batching dimension."
             )
 
-        split_raw_tensors = tf.split(
-            x._raw_tensor, num_or_size_splits, axis - 1, num_splits
-        )
+        split_raw_tensors = tf.split(x._raw_tensor, num_or_size_splits, axis - 1, num)
         return [
             ShellTensor64(
                 _raw_tensor=r,
@@ -1107,9 +1105,81 @@ def split(x, num_or_size_splits, axis=0, num_splits=None):
             for r in split_raw_tensors
         ]
     elif isinstance(x, tf.Tensor):
-        return tf.split(x, num_or_size_splits, axis, num_splits)
+        return tf.split(x, num_or_size_splits, axis, num)
     else:
-        raise ValueError("Unsupported type for expand_dims")
+        raise ValueError("Unsupported type for split")
+
+
+def all_but_data_equal(x):
+    return tf.reduce_all(
+        tf.concat(
+            [
+                [
+                    tf.equal(
+                        xi._context.plaintext_modulus, x[0]._context.plaintext_modulus
+                    )
+                    for xi in x
+                ],
+                tf.reshape(
+                    [
+                        tf.equal(xi._context.main_moduli, x[0]._context.main_moduli)
+                        for xi in x
+                    ],
+                    [-1],
+                ),
+                [tf.equal(xi._level, x[0]._level) for xi in x],
+                [
+                    tf.equal(xi._num_mod_reductions, x[0]._num_mod_reductions)
+                    for xi in x
+                ],
+                [xi._underlying_dtype == x[0]._underlying_dtype for xi in x],
+                [tf.equal(xi._scaling_factor, x[0]._scaling_factor) for xi in x],
+                [tf.equal(xi._is_enc, x[0]._is_enc) for xi in x],
+                [tf.equal(xi._is_fast_rotated, x[0]._is_fast_rotated) for xi in x],
+            ],
+            axis=0,
+        )
+    )
+
+
+def concat(x, axis=0):
+    if all([isinstance(xi, ShellTensor64) for xi in x]):
+        if axis == 0:
+            raise ValueError(
+                "Cannot concat over axis 0 for ShellTensor64, this is the batching dimension."
+            )
+
+        if len(x) == 0:
+            raise ValueError("Cannot concat an empty list of ShellTensor64.")
+
+        if len(x) == 1:
+            return x[0]
+
+        # All tensors must match.
+        tf.debugging.assert_equal(
+            all_but_data_equal(x),
+            True,
+            message="All tensors must have the same properties.",
+        )
+
+        concat_raw_tensor = shell_ops.concat_variant(
+            axis=axis - 1, values=[xi._raw_tensor for xi in x]
+        )
+        return ShellTensor64(
+            _raw_tensor=concat_raw_tensor,
+            _context=x[0]._context,
+            _level=x[0]._level,
+            _num_mod_reductions=x[0]._num_mod_reductions,
+            _underlying_dtype=x[0]._underlying_dtype,
+            _scaling_factor=x[0]._scaling_factor,
+            _is_enc=x[0]._is_enc,
+            _is_fast_rotated=x[0]._is_fast_rotated,
+        )
+
+    elif all([isinstance(xi, tf.Tensor) for xi in x]):
+        return tf.concat(x, axis)
+    else:
+        raise ValueError("Unsupported type for concat")
 
 
 def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"):

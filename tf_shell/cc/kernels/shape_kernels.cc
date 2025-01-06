@@ -17,14 +17,14 @@ limitations under the License.
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
-// #include "tensorflow/core/framework/variant_op_registry.h"
-// #include "tensorflow/core/kernels/bounds_check.h"
 #include "tensorflow/core/framework/variant.h"
+#include "utils.h"
 
 using tensorflow::DEVICE_CPU;
 using tensorflow::DT_VARIANT;
 using tensorflow::int32;
 using tensorflow::int64;
+using tensorflow::OpInputList;
 using tensorflow::OpKernel;
 using tensorflow::OpKernelConstruction;
 using tensorflow::OpKernelContext;
@@ -95,5 +95,83 @@ class ExpandDimsVariantOp : public OpKernel {
   bool IsExpensive() override { return false; }
 };
 
+class ConcatVariantOp : public OpKernel {
+ public:
+  explicit ConcatVariantOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
+
+  void Compute(OpKernelContext* ctx) override {
+    // Get the axis to concatenate along.
+    OP_REQUIRES_VALUE(int32 axis, ctx, GetScalar<int32>(ctx, 0));
+
+    // Get the list of tensors to concatenate.
+    OpInputList values;
+    OP_REQUIRES_OK(ctx, ctx->input_list("values", &values));
+
+    // Get the number of tensors to concatenate.
+    int const N = values.size();
+
+    // Check that all input tensors have the same shape, except for the
+    // dimension to concatenate along.
+    TensorShape output_shape = values[0].shape();
+    int64 concat_dim_size = 0;
+    for (int i = 0; i < N; ++i) {
+      OP_REQUIRES(ctx, values[i].dtype() == DT_VARIANT,
+                  InvalidArgument("All inputs must be variant tensors."));
+      for (int d = 0; d < values[i].dims(); ++d) {
+        if (d == axis) {
+          concat_dim_size += values[i].dim_size(d);
+        } else {
+          OP_REQUIRES(ctx, values[i].dim_size(d) == output_shape.dim_size(d),
+                      InvalidArgument(
+                          "All input tensors must have the same shape, except "
+                          "for the dimension to concatenate along."));
+        }
+      }
+    }
+    // We emulate numpy's interpretation of the dim axis when
+    // -input.dims() >= dim <= input.dims().
+    if (axis < 0) {
+      axis += output_shape.dims();
+    }
+    OP_REQUIRES(ctx, axis >= 0 && axis < output_shape.dims(),
+                InvalidArgument("Invalid axis to concat over. Must be in the "
+                                "range [0, ",
+                                output_shape.dims(), ")."));
+
+    output_shape.set_dim(axis, concat_dim_size);
+
+    // Allocate output tensor.
+    Tensor* output = nullptr;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, output_shape, &output));
+    auto flat_output = output->flat_inner_outer_dims<Variant>(axis - 1);
+
+    // Concatenate the input tensors along the specified axis.
+    int64 offset = 0;
+    for (int i = 0; i < N; ++i) {
+      // Get the input tensor as a chip using flat_inner_outer_dims() with the
+      // axis to concatenate along as the middle dimension.
+      auto input_flat = values[i].flat_inner_outer_dims<Variant>(axis - 1);
+
+      // Copy the input tensor to the output tensor.
+      for (int64 j = 0; j < input_flat.dimension(0); ++j) {
+        for (int64 k = 0; k < input_flat.dimension(1); ++k) {
+          for (int64 l = 0; l < input_flat.dimension(2); ++l) {
+            flat_output(j, offset + k, l) = input_flat(j, k, l);
+          }
+        }
+      }
+
+      // Update the offset to start at the next chip for subsequent input
+      // tensor.
+      offset += input_flat.dimension(1);
+    }
+  }
+
+  bool IsExpensive() override { return false; }
+};
+
 REGISTER_KERNEL_BUILDER(Name("ExpandDimsVariant").Device(DEVICE_CPU),
                         ExpandDimsVariantOp);
+
+REGISTER_KERNEL_BUILDER(Name("ConcatVariant").Device(DEVICE_CPU),
+                        ConcatVariantOp);

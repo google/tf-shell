@@ -71,6 +71,7 @@ constexpr char kMaxUnpool2dCt64[] = "MaxUnpool2dCt64";
 
 // TensorFlow names
 constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
+constexpr char kConcatVariant[] = "ConcatVariant";
 constexpr char kBroadcastToShape[] = "BroadcastToShape";  // TODO check name
 constexpr char kReshape[] = "Reshape";                    // TODO check name
 constexpr char kConstOpName[] = "Const";
@@ -130,5 +131,6 @@ bool IsConv2d(NodeDef const& node);
 bool IsMaxUnpool2d(NodeDef const& node);
 
 bool IsExpandDimsVariant(NodeDef const& node);
+bool IsConcatVariant(NodeDef const& node);
 bool IsBroadcastToShape(NodeDef const& node);
 bool IsReshape(NodeDef const& node);

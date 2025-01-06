@@ -729,8 +729,18 @@ Status EstimateNodeNoise(
     }
   }
 
+  // Shape Ops.
   else if (IsExpandDimsVariant(*node_def)) {
     *this_noise = node_noise[node_view->GetRegularFanin(0).node_index()];
+  } else if (IsConcatVariant(*node_def)) {
+    // Fanins from 1 to n - 1 are the input tensors to be concatenated.
+    // The first fanin is the axis. The noise is the maximum of the input
+    // tensors.
+    *this_noise = 0;
+    for (int i = 1; i < node_view->NumRegularFanins(); ++i) {
+      *this_noise = std::max(
+          *this_noise, node_noise[node_view->GetRegularFanin(i).node_index()]);
+    }
   }
 
   // Tensorflow Ops.

@@ -21,6 +21,7 @@ using tensorflow::OkStatus;
 using tensorflow::TensorProto;
 using tensorflow::TensorShape;
 using tensorflow::errors::InvalidArgument;
+using tensorflow::shape_inference::ConcatShape;
 using tensorflow::shape_inference::DimensionHandle;
 using tensorflow::shape_inference::InferenceContext;
 using tensorflow::shape_inference::ScalarShape;
@@ -431,6 +432,16 @@ REGISTER_OP("ExpandDimsVariant")
 
       c->set_output(0, output);
       return OkStatus();
+    });
+
+REGISTER_OP("ConcatVariant")
+    .Input("axis: int32")
+    .Input("values: N * T")
+    .Output("output: T")
+    .Attr("N: int >= 2")
+    .Attr("T: type")
+    .SetShapeFn([](InferenceContext* c) {
+      return ConcatShape(c, c->num_inputs() - 1);
     });
 
 // Segment sum where the segment_ids are plaintexts.

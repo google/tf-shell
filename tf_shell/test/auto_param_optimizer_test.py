@@ -193,6 +193,35 @@ def ct_roll(cleartext_a, cleartext_b, use_auto_context=False):
 
 
 @tf.function
+def ct_expand_dims(cleartext_a, cleartext_b, use_auto_context=False):
+    shell_context = (
+        gen_autocontext(test_values_num_bits, 0) if use_auto_context else gen_context()
+    )
+    key = tf_shell.create_key64(shell_context)
+    a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
+
+    intermediate = tf_shell.expand_dims(a, axis=1)
+
+    result = tf_shell.to_tensorflow(intermediate, key)
+    return result
+
+
+@tf.function
+def ct_concat(cleartext_a, cleartext_b, use_auto_context=False):
+    shell_context = (
+        gen_autocontext(test_values_num_bits, 0) if use_auto_context else gen_context()
+    )
+    key = tf_shell.create_key64(shell_context)
+    a = tf_shell.to_encrypted(cleartext_a, key, shell_context)
+    b = tf_shell.to_encrypted(cleartext_b, key, shell_context)
+
+    intermediate = tf_shell.concat([a, b], axis=1)
+
+    result = tf_shell.to_tensorflow(intermediate, key)
+    return result
+
+
+@tf.function
 def multi_context(cleartext_a, cleartext_b, use_auto_context=False):
     shell_context1 = (
         gen_autocontext(test_values_num_bits * 2, 10)  # Add noise so log_n matched
@@ -336,6 +365,12 @@ class TestAutoParamOptimizer(tf.test.TestCase):
 
         with self.subTest(f"Optimizer for roll."):
             self._test_func(ct_roll)
+
+        with self.subTest(f"Optimizer for expand_dims."):
+            self._test_func(ct_expand_dims)
+
+        with self.subTest(f"Optimizer for concat."):
+            self._test_func(ct_concat)
 
         with self.subTest(f"Optimizer for multi context."):
             self._test_func(multi_context, num_autocontexts=2)

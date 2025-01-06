@@ -69,7 +69,8 @@ StatusOr<T> GetScalar(OpKernelContext* ctx, int index) {
   Tensor const& input = ctx->input(index);
 
   if (!TensorShapeUtils::IsScalar(input.shape())) {
-    return InvalidArgument("Input must be scalar tensor");
+    return InvalidArgument("Input must be scalar tensor. Got shape: ",
+                           input.shape().DebugString());
   }
 
   return input.scalar<T>()(0);
