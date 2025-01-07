@@ -690,7 +690,7 @@ class SequentialBase(keras.Sequential):
 
         return unmasked_grads
 
-    def compute_noise_factors(self, context, secret_key, sensitivity):
+    def compute_noise_factors(self, context, secret_key, max_two_norm):
         """
         Computes noise selection vectors, as part of the distributed noise
         sampling protocol to sample the discrete gaussian distribution.
@@ -699,7 +699,7 @@ class SequentialBase(keras.Sequential):
             context: An object containing the context information, including the
               number of slots for encryption.
             secret_key: The secret key used for encryption.
-            sensitivity: The sensitivity value used to compute the noise
+            max_two_norm: Maximum L2 norm of per-example gradients.
               factors.
 
         Returns:
@@ -711,7 +711,15 @@ class SequentialBase(keras.Sequential):
             tf.errors.InvalidArgumentError: If the bounded sensitivity exceeds
               the maximum noise scale defined in `self.dg_params`.
         """
-        bounded_sensitivity = tf.cast(sensitivity, dtype=tf.float32) * tf.sqrt(2.0)
+        # The sensitivity of the PostScale protocol is the maximum L2 norm of
+        # the per-example gradients (computed with tf.jacobian) multiplied by
+        # sqrt(2).
+        sensitivity = tf.cast(max_two_norm, dtype=tf.float32) * tf.sqrt(2.0)
+
+        # Ensure the sensitivity is at least as large as the base scale, since
+        # the base_scale is the smallest scale distribution which the protocol
+        # can sample.
+        bounded_sensitivity = tf.maximum(sensitivity, self.dg_params.base_scale)
 
         tf.assert_less(
             bounded_sensitivity,
