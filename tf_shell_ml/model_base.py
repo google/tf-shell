@@ -108,50 +108,19 @@ class SequentialBase(keras.Sequential):
         Returns:
             metrics (dict): The metrics resulting from the training step.
         """
-        metrics, num_slots = self.shell_train_step(
+        metrics, batch_size_should_be = self.shell_train_step(
             features, labels, read_key_from_cache=False
         )
         return metrics
 
     @tf.function
-    def train_step_with_keygen(self, features, labels):
+    def train_step_tf_func(self, features, labels, read_key_from_cache):
         """
-        Perform a single training step as a TensorFlow function, which may be
-        compiled into a TensorFlow graph for performance optimization. This is
-        used when preparing the dataset for training to avoid caching the trace
-        itself, and the cryptographic keys and context.
-
-        Args:
-            features: The input features for the training step.
-            labels: The corresponding labels for the input features.
-
-        Returns:
-            tuple: A tuple containing:
-                - dict: A dictionary of metrics for the training step.
-                - int: The number of slots in the ciphertexts (the ring degree)
-                    used in the computation.
-        """
-        return self.shell_train_step(features, labels, read_key_from_cache=False)
-
-    @tf.function
-    def train_step_tf_func(self, features, labels):
-        """
-        Perform a single training step as a TensorFlow function, which may be
-        compiled into a TensorFlow graph for performance optimization.
-
-        Args:
-            features: The input features for the training step.
-            labels: The corresponding labels for the input features.
-
-        Returns:
-            tuple: A tuple containing:
-                - dict: A dictionary of metrics for the training step.
-                - int: The number of slots in the ciphertexts (the ring degree)
-                used in the computation.
+        tf.function wrapper around shell train step.
         """
         # When running the training loop, the caches for encryption keys and
         # contexts have already been populated.
-        return self.shell_train_step(features, labels, read_key_from_cache=True)
+        return self.shell_train_step(features, labels, read_key_from_cache)
 
     def compute_grads(self, features, enc_labels):
         raise NotImplementedError()  # Should be overloaded by the subclass.
@@ -173,26 +142,29 @@ class SequentialBase(keras.Sequential):
             tuple: A tuple containing the re-batched training features and labels.
 
         """
+        # If neither encryption nor noise are enabled, no encryption is used
+        # and the batch size is the same as the input batch size.
         if self.disable_encryption and self.disable_noise:
             self.batch_size = next(iter(train_features)).shape[0]
             self.dataset_prepped = True
             return train_features, train_labels
 
-        # Run the training loop once on dummy data to figure out the batch size.
-        # Use a separate tf.function to avoid caching the trace so keys and
-        # context are written to cache and read on next trace.
-        metrics, num_slots = self.train_step_with_keygen(
-            next(iter(train_features)), next(iter(train_labels))
+        # Run the training loop once on dummy data. This writes encryption
+        # contexts and keys to caches.
+        metrics, batch_size_should_be = self.train_step_tf_func(
+            next(iter(train_features)),
+            next(iter(train_labels)),
+            read_key_from_cache=False,
         )
 
-        self.batch_size = num_slots.numpy()
+        self.batch_size = batch_size_should_be.numpy()
 
         with tf.device(self.features_party_dev):
             train_features = train_features.rebatch(
-                num_slots.numpy(), drop_remainder=True
+                self.batch_size, drop_remainder=True
             )
         with tf.device(self.labels_party_dev):
-            train_labels = train_labels.rebatch(num_slots.numpy(), drop_remainder=True)
+            train_labels = train_labels.rebatch(self.batch_size, drop_remainder=True)
 
         self.dataset_prepped = True
         return train_features, train_labels
@@ -224,8 +196,10 @@ class SequentialBase(keras.Sequential):
         # Call the training step with keygen to trace the graph. Note, since the
         # graph is not executed, the caches for encryption keys and contexts are
         # not written to disk.
-        func = self.train_step_with_keygen.get_concrete_function(
-            next(iter(train_features)), next(iter(train_labels))
+        func = self.train_step_tf_func.get_concrete_function(
+            next(iter(train_features)),
+            next(iter(train_labels)),
+            read_key_from_cache=False,
         )
 
         # Optimize the graph using tf_shells HE-specific optimizers.
@@ -254,6 +228,7 @@ class SequentialBase(keras.Sequential):
 
         log_n = get_tensor_by_name(optimized_graph, context_node.input[0]).tolist()
         self.batch_size = 2**log_n
+        # TODO: Create the context and keys from the graph parameters.
 
         with tf.device(self.features_party_dev):
             train_features = train_features.rebatch(2**log_n, drop_remainder=True)
@@ -356,7 +331,9 @@ class SequentialBase(keras.Sequential):
                 zip(features_dataset, labels_dataset)
             ):
                 callback_list.on_train_batch_begin(step, logs)
-                logs, num_slots = self.train_step_tf_func(batch_x, batch_y)
+                logs, batch_size_should_be = self.train_step_tf_func(
+                    batch_x, batch_y, read_key_from_cache=True
+                )
                 callback_list.on_train_batch_end(step, logs)
                 gc.collect()
                 if steps_per_epoch is not None and step + 1 >= steps_per_epoch:
@@ -821,7 +798,7 @@ class SequentialBase(keras.Sequential):
 
         return overflowed
 
-    def shell_train_step(self, features, labels, read_key_from_cache=False):
+    def shell_train_step(self, features, labels, read_key_from_cache):
         """
         The main training loop for the PostScale protocol.
 
@@ -838,8 +815,8 @@ class SequentialBase(keras.Sequential):
 
         Returns:
             result: Dictionary of metric results.
-            num_slots: Number of slots in the backpropagation context, or None
-                if encryption is disabled.
+            batch_size_should_be: Number of slots in encryption (ciphertext ring
+                degree), or None if encryption is disabled.
         """
         with tf.device(self.labels_party_dev):
             labels = tf.cast(labels, tf.keras.backend.floatx())
@@ -848,7 +825,7 @@ class SequentialBase(keras.Sequential):
             else:
                 backprop_context = self.backprop_context_fn(read_key_from_cache)
                 backprop_secret_key = tf_shell.create_key64(
-                    backprop_context, self.cache_path
+                    backprop_context, read_key_from_cache, self.cache_path
                 )
                 # Encrypt the batch of secret labels.
                 enc_labels = tf_shell.to_encrypted(
@@ -894,7 +871,9 @@ class SequentialBase(keras.Sequential):
                 # Set up the features party side of the distributed noise
                 # sampling sub-protocol.
                 noise_context = self.noise_context_fn(read_key_from_cache)
-                noise_secret_key = tf_shell.create_key64(noise_context, self.cache_path)
+                noise_secret_key = tf_shell.create_key64(
+                    noise_context, read_key_from_cache, self.cache_path
+                )
 
                 # The noise context must have the same number of slots
                 # (encryption ring degree) as used in backpropagation.
@@ -1015,8 +994,11 @@ class SequentialBase(keras.Sequential):
                 else:
                     result[key] = value  # non-subdict elements are just copied
 
-            return result, (
-                None
-                if self.disable_encryption
-                else tf.identity(backprop_context.num_slots)
-            )
+            if not self.disable_encryption:
+                ret_batch_size = tf.identity(backprop_context.num_slots)
+            elif not self.disable_noise:
+                ret_batch_size = tf.identity(noise_context.num_slots)
+            else:
+                ret_batch_size = None
+
+            return result, ret_batch_size

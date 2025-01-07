@@ -26,18 +26,23 @@ class ShellKey64(tf.experimental.ExtensionType):
         return self._raw_keys_at_level[level - 1]  # 0th level does not exist.
 
 
-def create_key64(context, cache_path=None):
+def create_key64(context, read_from_cache=False, cache_path=None):
     if not isinstance(context, ShellContext64):
         raise ValueError("context must be a ShellContext64")
+
+    if read_from_cache and cache_path == None:
+        raise ValueError(
+            "A `cache_path` must be provided when `read_from_cache` is True."
+        )
 
     with tf.name_scope("create_key64"):
         if cache_path is not None:
             key_path = cache_path + "/" + context.id_str + "_key"
-            exists = tf.io.gfile.exists(key_path)
-            if exists:
-                cached_keys = tf.io.read_file(key_path)
-                cached_keys = tf.io.parse_tensor(cached_keys, out_type=tf.variant)
-                return ShellKey64(_raw_keys_at_level=cached_keys)
+
+        if read_from_cache:
+            cached_keys = tf.io.read_file(key_path)
+            cached_keys = tf.io.parse_tensor(cached_keys, out_type=tf.variant)
+            return ShellKey64(_raw_keys_at_level=cached_keys)
 
         # Generate the keys.
         num_keys = context.level
@@ -84,7 +89,7 @@ class ShellRotationKey64(tf.experimental.ExtensionType):
         return self._raw_keys_at_level[level - 1]  # 0th level does not exist.
 
 
-def create_rotation_key64(context, key, cache_path=None):
+def create_rotation_key64(context, key, read_from_cache=False, cache_path=None):
     """Create rotation keys for any multiplicative depth of the given context.
     Rotation key contains keys to perform an arbitrary number of slot rotations.
     Since rotation key generation is expensive, the caller can choose to skip
@@ -96,14 +101,19 @@ def create_rotation_key64(context, key, cache_path=None):
     if not isinstance(key, ShellKey64):
         raise ValueError("key must be a ShellKey64.")
 
+    if read_from_cache and cache_path == None:
+        raise ValueError(
+            "A `cache_path` must be provided when `read_from_cache` is True."
+        )
+
     with tf.name_scope("create_rotation_key64"):
         if cache_path is not None:
             key_path = cache_path + "/" + context.id_str + "_rotkey"
-            exists = tf.io.gfile.exists(key_path)
-            if exists:
-                cached_keys = tf.io.read_file(key_path)
-                cached_keys = tf.io.parse_tensor(cached_keys, out_type=tf.variant)
-                return ShellRotationKey64(_raw_keys_at_level=cached_keys)
+
+        if read_from_cache:
+            cached_keys = tf.io.read_file(key_path)
+            cached_keys = tf.io.parse_tensor(cached_keys, out_type=tf.variant)
+            return ShellRotationKey64(_raw_keys_at_level=cached_keys)
 
         # Generate the keys.
         num_keys = context.level
@@ -149,7 +159,7 @@ class ShellFastRotationKey64(tf.experimental.ExtensionType):
         return self._raw_keys_at_level[level - 1]  # 0th level does not exist.
 
 
-def create_fast_rotation_key64(context, key, cache_path=None):
+def create_fast_rotation_key64(context, key, read_from_cache=False, cache_path=None):
     """Create fast rotation keys for any multiplicative depth of the given context.
     Rotation key contains keys *decrypt* a previously "fast" rotated ciphertext.
     These keys are much faster to generated than regular rotation keys, and
@@ -162,14 +172,19 @@ def create_fast_rotation_key64(context, key, cache_path=None):
     if not isinstance(key, ShellKey64):
         raise ValueError("key must be a ShellKey64.")
 
+    if read_from_cache and cache_path == None:
+        raise ValueError(
+            "A `cache_path` must be provided when `read_from_cache` is True."
+        )
+
     with tf.name_scope("create_fast_rotation_key64"):
         if cache_path is not None:
             key_path = cache_path + "/" + context.id_str + "_fastrotkey"
-            exists = tf.io.gfile.exists(key_path)
-            if exists:
-                cached_keys = tf.io.read_file(key_path)
-                cached_keys = tf.io.parse_tensor(cached_keys, out_type=tf.variant)
-                return ShellFastRotationKey64(_raw_keys_at_level=cached_keys)
+
+        if read_from_cache:
+            cached_keys = tf.io.read_file(key_path)
+            cached_keys = tf.io.parse_tensor(cached_keys, out_type=tf.variant)
+            return ShellFastRotationKey64(_raw_keys_at_level=cached_keys)
 
         # Generate the keys.
         num_keys = context.level
