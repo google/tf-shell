@@ -12,7 +12,7 @@ import tf_shell
 
 UINT32_MAX = 4294967295  # Maximum size for GRPC
 SAFETY_FACTOR = 0.9  # Leave some headroom below the limit
-MAX_NUM_SPLITS = 10  # Maximum number of splits
+MAX_NUM_SPLITS = 100  # Maximum number of splits
 
 
 def calculate_tf_shell_split_sizes(context, total_elements):
