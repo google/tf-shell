@@ -76,11 +76,6 @@ class DpSgdSequential(SequentialBase):
                 max_two_norms_list.append(self.jacobian_max_two_norm(jacobians))
 
         with tf.device(self.features_party_dev):
-            # For some reason, when running the jacobian on multiple devices,
-            # the weights must be touched otherwise training loss goes to NaN.
-            # Maybe it is to ensure the weights are on assigned to
-            # features_party device when the final gradient is added to weights?
-            _ = self(features, training=True, with_softmax=False)
             predictions = tf.concat(predictions_list, axis=0)
             max_two_norm = tf.reduce_max(max_two_norms_list)
 
