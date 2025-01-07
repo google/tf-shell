@@ -173,7 +173,7 @@ class SequentialBase(keras.Sequential):
             tuple: A tuple containing the re-batched training features and labels.
 
         """
-        if self.disable_encryption:
+        if self.disable_encryption and self.disable_noise:
             self.batch_size = next(iter(train_features)).shape[0]
             self.dataset_prepped = True
             return train_features, train_labels
@@ -216,7 +216,7 @@ class SequentialBase(keras.Sequential):
         Returns:
             tuple: A tuple containing the re-batched training features and labels.
         """
-        if self.disable_encryption:
+        if self.disable_encryption and self.disable_noise:
             self.batch_size = next(iter(train_features)).shape[0]
             self.dataset_prepped = True
             return train_features, train_labels
