@@ -248,11 +248,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                 # with zeros replicate the scalar across all slots and broadcast
                 # to the correct shape.
                 other = tf.broadcast_to(
-                    other,
-                    tf.concat(
-                        [tf.expand_dims(self._context.num_slots, 0), other.shape[1:]],
-                        axis=0,
-                    ),
+                    other, tf.expand_dims(self._context.num_slots, 0)
                 )
 
             elif other.shape[0] == 1 and len(other.shape) == len(self.shape):
