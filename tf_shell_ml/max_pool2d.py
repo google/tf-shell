@@ -65,7 +65,6 @@ class MaxPool2D(keras.layers.Layer):
         )
 
         if training:
-            self._layer_input_shape = inputs.shape.as_list()
             self._layer_intermediate = argmax
 
         return outputs
@@ -93,7 +92,7 @@ class MaxPool2D(keras.layers.Layer):
                 self.pool_size,
                 self.strides,
                 self.padding_str,
-                output_shape=self._layer_input_shape,
+                output_shape=indices.shape.as_list(),
             )
 
         return grad_weights, d_x
