@@ -67,12 +67,11 @@ class PostScaleSequential(SequentialBase):
                 max_two_norms_list.append(self.jacobian_max_two_norm(jacobians))
 
         with tf.device(self.features_party_dev):
-            # For some reason, when running the jacobian on an accelerator, the
-            # weights must be touched otherwise training loss goes to NaN. Maybe
-            # it is to ensure the weights are on assigned to features_party
-            # device for later, when the final gradient is added to weights (on
-            # CPU)?
-            tf.print(self.trainable_variables, output_stream="file:///dev/null")
+            # Reset the internal state of the layers as if they were called with
+            # the single (unsplit for GPU) batch of features. This is necessary
+            # So the backward pass below is computed correctly, which is
+            # performed on the unsplit batch of labels.
+            _ = self(features, training=True, with_softmax=False)
 
             predictions = tf.concat(predictions_list, axis=0)
             max_two_norm = tf.reduce_max(max_two_norms_list)
