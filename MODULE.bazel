@@ -1,6 +1,6 @@
 module(
     name = "tf-shell",
-    version = "0.1.19",
+    version = "0.1.20",
 )
 
 SUPPORTED_PYTHON_VERSIONS = [
