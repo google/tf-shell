@@ -289,6 +289,9 @@ class SequentialBase(keras.Sequential):
         # Turn on the shell optimizers.
         tf_shell.enable_optimization()
 
+        # Enable randomized rounding.
+        tf_shell.enable_randomized_rounding()
+
         if not self.dataset_prepped:
             features_dataset, labels_dataset = self.prep_dataset_for_model(
                 features_dataset, labels_dataset

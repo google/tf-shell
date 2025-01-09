@@ -541,8 +541,14 @@ Status EstimateNodeNoise(
   auto const* node_def = node_view->node();
 
   uint64_t* this_noise = &node_noise[node_index];
-  uint64_t noise_a = node_noise[node_view->GetRegularFanin(1).node_index()];
-  uint64_t noise_b = node_noise[node_view->GetRegularFanin(2).node_index()];
+  uint64_t noise_a = 0;
+  uint64_t noise_b = 0;
+  if (node_view->GetRegularFanin(1).node_index() < node_noise.size()) {
+    noise_a = node_noise[node_view->GetRegularFanin(1).node_index()];
+  }
+  if (node_view->GetRegularFanin(2).node_index() < node_noise.size()) {
+    noise_b = node_noise[node_view->GetRegularFanin(2).node_index()];
+  }
 
   // Setup constants for estimating rotation noise.
   // TODO: each of these should be calculated based on the actual parameters.
@@ -578,24 +584,50 @@ Status EstimateNodeNoise(
 
   // Scalar multiplication operations.
   else if (IsMulCtTfScalar(*node_def)) {
-    auto const* scalar_node_def =
-        node_view->GetRegularFanin(2).node_view()->node();
+    auto scalar_node_view = node_view->GetRegularFanin(2).node_view();
+    auto const* scalar_node_def = scalar_node_view->node();
 
-    uint64_t scalar_value = 0;
-    Status s = GetScalarConstValue<uint64_t, DT_UINT64>(*scalar_node_def,
-                                                        &scalar_value);
-    if (s.ok()) {
-      *this_noise = noise_a + BitWidth(scalar_value);
-    } else {
-      // Try to get the scalar value from the node again as an int64.
-      int64_t scalar_value = 0;
-      Status s = GetScalarConstValue<int64_t, DT_INT64>(*scalar_node_def,
-                                                        &scalar_value);
+    // Otherwise this is a normal multiplication
+    Status s;
+    uint64_t scalar_uint64 = 0;
+    s = GetScalarConstValue<uint64_t, DT_UINT64>(*scalar_node_def,
+                                                 &scalar_uint64);
+    if (!s.ok()) {
+      int64_t scalar_int64 = 0;
+      s = GetScalarConstValue<int64_t, DT_INT64>(*scalar_node_def,
+                                                 &scalar_int64);
       if (!s.ok()) {
-        return s;
+        // If there was a cast in the chain of ops traversed above, input
+        // might be a float.
+        float scalar_float = 0;
+        s = GetScalarConstValue<float, DT_FLOAT>(*scalar_node_def,
+                                                 &scalar_float);
+        if (!s.ok()) {
+          double scalar_double = 0;
+          s = GetScalarConstValue<double, DT_DOUBLE>(*scalar_node_def,
+                                                     &scalar_double);
+          if (!s.ok()) {
+            static bool warning_printed = false;
+            if (!warning_printed) {
+              std::cout << "WARNING: Moduli autotune could not determine size "
+                           "of MulCtTf plaintext operand. Noise budget may be "
+                           "underestimated."
+                        << std::endl;
+              warning_printed = true;
+            }
+            *this_noise = noise_a;
+          } else {
+            *this_noise =
+                noise_a + BitWidth(static_cast<int64_t>(scalar_double));
+          }
+        } else {
+          *this_noise = noise_a + BitWidth(static_cast<int64_t>(scalar_float));
+        }
+      } else {
+        *this_noise = noise_a + BitWidth(scalar_int64);
       }
-      int64_t abs_scalar_value = std::abs(scalar_value);
-      *this_noise = noise_a + BitWidth(abs_scalar_value);
+    } else {
+      *this_noise = noise_a + BitWidth(scalar_uint64);
     }
   }
 

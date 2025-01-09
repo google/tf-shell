@@ -512,10 +512,44 @@ def _get_shell_dtype_from_underlying(type):
         raise ValueError(f"Unsupported type {type}")
 
 
+_ENALBE_RANDOMIZED_ROUNDING = False
+
+
+def enable_randomized_rounding(enable=True):
+    global _ENALBE_RANDOMIZED_ROUNDING
+    _ENALBE_RANDOMIZED_ROUNDING = enable
+
+
+def randomized_rounding(tensor):
+    """
+    Performs randomized rounding on a tensorflow tensor with dynamic/unknown shape.
+    """
+    print("randomized_rounding", flush=True)
+    with tf.name_scope("randomized_rounding"):
+        with tf.name_scope("input_shape"):
+            dynamic_shape = tf.shape(tensor)
+
+        floor = tf.floor(tensor)
+        decimal_part = tensor - floor
+        random_mask = (
+            tf.random.uniform(dynamic_shape, dtype=tensor.dtype) < decimal_part
+        )
+        return floor + tf.cast(random_mask, dtype=tensor.dtype)
+
+
 def _encode_scaling(tf_tensor, scaling_factor=1):
+    if isinstance(tf_tensor, ShellTensor64):
+        raise ValueError(f"Unsupported type for encoding. Got {type(tf_tensor)}.")
+
     with tf.name_scope("encode_scaling"):
         if tf_tensor.dtype in [tf.float16, tf.float32, tf.float64]:
-            return tf.cast(tf.round(tf_tensor * scaling_factor), tf.int64)
+            global _ENALBE_RANDOMIZED_ROUNDING
+            if _ENALBE_RANDOMIZED_ROUNDING:
+                return tf.cast(
+                    randomized_rounding(tf_tensor * scaling_factor), tf.int64
+                )
+            else:
+                return tf.cast(tf.round(tf_tensor * scaling_factor), tf.int64)
         elif tf_tensor.dtype in [tf.uint8, tf.uint16, tf.uint32, tf.uint64]:
             # Pass unsigned datatypes to shell as uint64.
             return tf.cast(tf_tensor, tf.uint64)
