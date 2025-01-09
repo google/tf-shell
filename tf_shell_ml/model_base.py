@@ -32,7 +32,7 @@ class SequentialBase(keras.Sequential):
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         noise_multiplier=1.0,
-        noise_max_scale=5000000.0,
+        noise_max_scale=500000000.0,
         noise_base_scale=7.6,
         cache_path=None,
         jacobian_pfor=False,
