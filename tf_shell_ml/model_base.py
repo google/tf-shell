@@ -32,7 +32,7 @@ class SequentialBase(keras.Sequential):
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         noise_multiplier=1.0,
-        noise_max_scale=5000.0,
+        noise_max_scale=5000000.0,
         noise_base_scale=7.6,
         cache_path=None,
         jacobian_pfor=False,
@@ -487,90 +487,45 @@ class SequentialBase(keras.Sequential):
 
         return tf.sqrt(tf.reduce_max(sum_of_squares))
 
-    def flatten_and_pad_grad_list(self, grads_list, slot_size):
-        """
-        Reshapes list of gradient tensors into a single matrix such that
-        the first dimension matches the number of slots in the ciphertext.
+    def flatten_and_pad_grad(self, grad, dim_0_sz):
+        num_el = tf.cast(tf.size(grad), dtype=tf.int64)
 
-        This packing scheme is used to prepare tensors of arbitrary shape for
-        encryption. The output tensor may be padded with zeros to ensure the
-        total number of elements is divisible by the slot size.
+        flat = tf.reshape(grad, [-1])
+        pad_len = dim_0_sz - tf.math.floormod(num_el, dim_0_sz)
+        padded = tf.concat([flat, tf.zeros(pad_len, dtype=grad.dtype)], axis=0)
+        flat_padded = tf.reshape(padded, [dim_0_sz, -1])
+        metadata = {
+            "original_shape": tf.shape(grad),
+            "padding": pad_len,
+        }
+        return flat_padded, metadata
 
-        Args:
-            grads_list (list of tf.Tensor): A list of gradient tensors to be
-                flattened and concatenated.
-            slot_size (int): The number of slots of the encryption scheme.
+    def unflatten_grad(self, grad, metadata):
+        padding = metadata["padding"]
+        orig_shape = metadata["original_shape"]
 
-        Returns:
-            tuple: A tuple containing:
-                - tf.Tensor: The flattened and padded tensor of shape
-                  (slot_size, remaining flattened weights).
-                - list of tf.TensorShape: The original shapes of the gradient
-                  tensors.
-                - list of int: The number of elements in each flattened gradient
-                  tensor.
-                - int: The total number of elements in the concatenated gradient
-                  tensor.
+        flat_grad = tf.reshape(grad, [-1])
+        unpadded_flat_grad = flat_grad[:-padding]
+        shaped_grad = tf.reshape(unpadded_flat_grad, orig_shape)
+        return shaped_grad
 
-        Raises:
-            ValueError: If the input list of gradient tensors is empty.
-        """
-        if len(grads_list) == 0:
-            raise ValueError("No gradients found")
+    def flatten_and_pad_grad_list(self, grads_list, dim_0_sz):
+        all_grads = []
+        all_metadata = []
+        for grad in grads_list:
+            flat, metadata = self.flatten_and_pad_grad(grad, dim_0_sz)
+            all_grads.append(flat)
+            all_metadata.append(metadata)
 
-        grad_shapes = [g.shape for g in grads_list]
-        flattened_grad_shapes = [s.num_elements() for s in grad_shapes]
-        total_grad_size = sum(flattened_grad_shapes)
+        return all_grads, all_metadata
 
-        flat_grad_list = [tf.reshape(g, [-1]) for g in grads_list]
-        # ^ layers list x (flattened weights)
+    def unflatten_grad_list(self, flat_grads, metadata_list):
+        grads = []
+        for flat, metadata in zip(flat_grads, metadata_list):
+            grad = self.unflatten_grad(flat, metadata)
+            grads.append(grad)
 
-        flat_grads = tf.concat(flat_grad_list, axis=0)
-        # ^ all flattened weights
-
-        pad_len = slot_size - tf.math.floormod(
-            tf.cast(total_grad_size, dtype=tf.int64), slot_size
-        )
-        padded_flat_grads = tf.concat(
-            [flat_grads, tf.zeros(pad_len, dtype=flat_grads.dtype)], axis=0
-        )
-        out = tf.reshape(padded_flat_grads, [slot_size, -1])
-
-        return out, grad_shapes, flattened_grad_shapes, total_grad_size
-
-    def unflatten_and_unpad_grad(
-        self, flat_grads, grad_shapes, flattened_grad_shapes, total_grad_size
-    ):
-        """
-        Takes as input a matrix flat_grads and recovers the original shape of
-        the tensors. This undoes the flattening and padding introduced by
-        flatten_and_pad_grad_list().
-
-        Args:
-            flat_grads (tf.Tensor): The flattened and padded gradient tensor.
-            grad_shapes (list): A list of shapes for each gradient tensor before
-                flattening.
-            flattened_grad_shapes (list): A list of shapes for each gradient
-                tensor after flattening but before padding.
-            total_grad_size (int): The total size of the gradient tensor before
-                padding.
-
-        Returns:
-            list: A list of tensors with their original shapes before flattening
-              and padding.
-        """
-        # First reshape to a flat tensor.
-        flat_grads = tf.reshape(flat_grads, [-1])
-
-        # Remove the padding.
-        flat_grads = flat_grads[:total_grad_size]
-
-        # Split the flat tensor into the original shapes.
-        grads_list = tf_shell.split(flat_grads, flattened_grad_shapes, axis=0)
-
-        # Reshape to the original shapes.
-        grads_list = [tf.reshape(g, s) for g, s in zip(grads_list, grad_shapes)]
-        return grads_list
+        return grads
 
     def mask_gradients(self, context, grads):
         """
@@ -594,7 +549,6 @@ class SequentialBase(keras.Sequential):
 
         t = tf.cast(tf.identity(context.plaintext_modulus), dtype=tf.int64)
         t_half = t // 2
-        mask_scaling_factors = [g._scaling_factor for g in grads]
 
         masks = [
             tf.random.uniform(
@@ -628,7 +582,7 @@ class SequentialBase(keras.Sequential):
         # Add the masks.
         int64_grads = [(g + m) for g, m in zip(int64_grads, masks)]
 
-        return int64_grads, masks, mask_scaling_factors
+        return int64_grads, masks
 
     def unmask_gradients(self, context, grads, masks, mask_scaling_factors):
         """
@@ -667,7 +621,9 @@ class SequentialBase(keras.Sequential):
 
         return unmasked_grads
 
-    def compute_noise_factors(self, context, secret_key, max_two_norm):
+    def compute_noise_factors(
+        self, context, secret_key, max_two_norm, mask_scaling_factors
+    ):
         """
         Computes noise selection vectors, as part of the distributed noise
         sampling protocol to sample the discrete gaussian distribution.
@@ -680,7 +636,7 @@ class SequentialBase(keras.Sequential):
               factors.
 
         Returns:
-            A tuple (enc_a, enc_b) where:
+            dict: A dictionary containing the following arrays, one per scaling factor:
                 - enc_a: The encrypted noise selection vector `a`.
                 - enc_b: The encrypted noise selection vector `b`.
 
@@ -688,6 +644,7 @@ class SequentialBase(keras.Sequential):
             tf.errors.InvalidArgumentError: If the bounded sensitivity exceeds
               the maximum noise scale defined in `self.dg_params`.
         """
+
         # The sensitivity of the PostScale protocol is the maximum L2 norm of
         # the per-example gradients (computed with tf.jacobian) multiplied by
         # sqrt(2).
@@ -698,25 +655,39 @@ class SequentialBase(keras.Sequential):
         # can sample.
         bounded_sensitivity = tf.maximum(sensitivity, self.dg_params.base_scale)
 
-        tf.assert_less(
-            bounded_sensitivity,
-            self.dg_params.max_scale,
-            message="Sensitivity is too large for the maximum noise scale.",
-        )
+        noise_factors = {
+            "enc_as": [],
+            "enc_bs": [],
+        }
 
-        a, b = tf_shell.sample_centered_gaussian_f(bounded_sensitivity, self.dg_params)
+        for sf in mask_scaling_factors:
+            # When the noise is added to the gradients, the gradients are scaled
+            # by the `mask scaling factors`. The noise must be scaled by the
+            # same amount.
+            scaled_sensitivity = bounded_sensitivity * sf
 
-        def _prep_noise_factor(x):
-            x = tf.expand_dims(x, 0)
-            x = tf.expand_dims(x, 0)
-            x = tf.repeat(x, context.num_slots, axis=0)
-            return tf_shell.to_encrypted(x, secret_key, context)
+            tf.assert_less(
+                scaled_sensitivity,
+                self.dg_params.max_scale,
+                message="Sensitivity is too large for the maximum noise scale.",
+            )
 
-        enc_a = _prep_noise_factor(a)
-        enc_b = _prep_noise_factor(b)
-        return enc_a, enc_b
+            a, b = tf_shell.sample_centered_gaussian_f(
+                scaled_sensitivity, self.dg_params
+            )
 
-    def noise_gradients(self, context, flat_grads, enc_a, enc_b):
+            def _prep_noise_factor(x):
+                x = tf.expand_dims(x, 0)
+                x = tf.expand_dims(x, 0)
+                x = tf.repeat(x, context.num_slots, axis=0)
+                return tf_shell.to_encrypted(x, secret_key, context)
+
+            noise_factors["enc_as"].append(_prep_noise_factor(a))
+            noise_factors["enc_bs"].append(_prep_noise_factor(b))
+
+        return noise_factors
+
+    def noise_gradients(self, context, flat_grads, noise_factors):
         """
         Adds encrypted noise to the gradients for differential privacy, as
         part of the distributed noise sampling protocol.
@@ -731,28 +702,32 @@ class SequentialBase(keras.Sequential):
             Tensor: The noised gradients.
         """
 
-        def _sample_noise():
-            n = tf_shell.sample_centered_gaussian_l(
-                context,
-                tf.size(flat_grads, out_type=tf.int64),
-                self.dg_params,
-            )
-            # The shape prefix of the noise samples must match the shape
-            # of the masked gradients. The last dimension is the noise
-            # sub-samples.
-            n = tf.reshape(
-                n, tf.concat([tf.shape(flat_grads), [tf.shape(n)[1]]], axis=0)
-            )
-            return n
+        noised_grads = []
+        for grad, enc_a, enc_b in zip(
+            flat_grads, noise_factors["enc_as"], noise_factors["enc_bs"]
+        ):
 
-        y1 = _sample_noise()
-        y2 = _sample_noise()
+            def _sample_noise():
+                n = tf_shell.sample_centered_gaussian_l(
+                    context,
+                    tf.size(grad, out_type=tf.int64),
+                    self.dg_params,
+                )
+                # The shape prefix of the noise samples must match the shape
+                # of the masked gradients. The last dimension is the noise
+                # sub-samples.
+                n = tf.reshape(n, tf.concat([tf.shape(grad), [tf.shape(n)[1]]], axis=0))
+                return n
 
-        enc_x1 = tf_shell.reduce_sum(enc_a * y1, axis=2)
-        enc_x2 = tf_shell.reduce_sum(enc_b * y2, axis=2)
-        enc_noise = enc_x1 + enc_x2
-        grads = enc_noise + flat_grads
-        return grads
+            y1 = _sample_noise()
+            y2 = _sample_noise()
+
+            enc_x1 = tf_shell.reduce_sum(enc_a * y1, axis=2)
+            enc_x2 = tf_shell.reduce_sum(enc_b * y2, axis=2)
+            enc_noise = enc_x1 + enc_x2
+            noised_grads.append(enc_noise + grad)
+
+        return noised_grads
 
     def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
         """
@@ -836,26 +811,30 @@ class SequentialBase(keras.Sequential):
         grads, max_two_norm, predictions = self.compute_grads(features, enc_labels)
 
         with tf.device(self.features_party_dev):
+            # Store the scaling factors of the gradients before masking, as
+            # masking sets them to 1.
+            if not self.disable_encryption and not self.disable_masking:
+                backprop_scaling_factors = [g._scaling_factor for g in grads]
+            else:
+                backprop_scaling_factors = [1] * len(grads)
+
             # Check if the backproped gradients overflowed.
             if not self.disable_encryption and self.check_overflow_INSECURE:
                 # Note, checking the gradients requires decryption on the
                 # features party which breaks security of the protocol.
-                bp_scaling_factors = [g._scaling_factor for g in grads]
                 dec_grads = [
                     tf_shell.to_tensorflow(g, backprop_secret_key) for g in grads
                 ]
                 self.warn_on_overflow(
                     dec_grads,
-                    bp_scaling_factors,
+                    backprop_scaling_factors,
                     tf.identity(backprop_context.plaintext_modulus),
                     "WARNING: Backprop gradient may have overflowed.",
                 )
 
             # Mask the encrypted gradients.
             if not self.disable_masking and not self.disable_encryption:
-                grads, masks, mask_scaling_factors = self.mask_gradients(
-                    backprop_context, grads
-                )
+                grads, masks = self.mask_gradients(backprop_context, grads)
 
             if self.features_party_dev != self.labels_party_dev:
                 # When the tensor needs to be sent between machines, split it
@@ -895,8 +874,11 @@ class SequentialBase(keras.Sequential):
 
                 # Compute the noise factors for the distributed noise sampling
                 # sub-protocol.
-                enc_a, enc_b = self.compute_noise_factors(
-                    noise_context, noise_secret_key, max_two_norm
+                noise_factors = self.compute_noise_factors(
+                    noise_context,
+                    noise_secret_key,
+                    max_two_norm,
+                    backprop_scaling_factors,
                 )
 
         with tf.device(self.labels_party_dev):
@@ -917,7 +899,7 @@ class SequentialBase(keras.Sequential):
             else:
                 grads = [
                     tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
-                    for g, s in zip(grads, mask_scaling_factors)
+                    for g, s in zip(grads, backprop_scaling_factors)
                 ]
 
             if not self.disable_noise:
@@ -925,33 +907,28 @@ class SequentialBase(keras.Sequential):
                 # the encrypted noise. This is special because the masked
                 # gradients are no longer batched, so the packing must be done
                 # manually.
-                (flat_grads, grad_shapes, flattened_grad_shapes, total_grad_size) = (
-                    self.flatten_and_pad_grad_list(
-                        grads, tf.identity(noise_context.num_slots)
-                    )
+                flat_grads, flat_metadata = self.flatten_and_pad_grad_list(
+                    grads, tf.identity(noise_context.num_slots)
                 )
 
                 # Add the encrypted noise to the masked gradients.
-                grads = self.noise_gradients(noise_context, flat_grads, enc_a, enc_b)
+                grads = self.noise_gradients(noise_context, flat_grads, noise_factors)
 
         with tf.device(self.features_party_dev):
             if not self.disable_noise:
                 # The gradients must be first be decrypted using the noise
                 # secret key.
-                flat_grads = tf_shell.to_tensorflow(grads, noise_secret_key)
+                flat_grads = [
+                    tf_shell.to_tensorflow(g, noise_secret_key) for g in grads
+                ]
 
                 # Unpack the noised grads after decryption.
-                grads = self.unflatten_and_unpad_grad(
-                    flat_grads,
-                    grad_shapes,
-                    flattened_grad_shapes,
-                    total_grad_size,
-                )
+                grads = self.unflatten_grad_list(flat_grads, flat_metadata)
 
             # Unmask the gradients.
             if not self.disable_masking and not self.disable_encryption:
                 grads = self.unmask_gradients(
-                    backprop_context, grads, masks, mask_scaling_factors
+                    backprop_context, grads, masks, backprop_scaling_factors
                 )
 
             if not self.disable_noise:
