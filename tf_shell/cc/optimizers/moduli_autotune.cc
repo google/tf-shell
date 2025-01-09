@@ -910,6 +910,14 @@ Status ReplaceAutoparamWithContext(utils::MutableGraphView& graph_view,
     }
   }
 
+  // This op does not currently handle controlling or controlled fanins/outs.
+  if (autocontext->GetControllingFanins().size() > 0 ||
+      autocontext->GetControlledFanouts().size() > 0) {
+    return errors::Unimplemented(
+        "Replacing AutoShellContext with ShellContext does not currently "
+        "support controlling or controlled fanins/outs.");
+  }
+
   TF_RETURN_IF_ERROR(mutation->Apply());
 
   return OkStatus();
