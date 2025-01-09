@@ -27,7 +27,7 @@ class PostScaleSequential(SequentialBase):
         **kwargs,
     ):
         for l in layers:
-            if "tf_shell_ml" in getattr(a, "__module__", None):
+            if "tf_shell_ml" in getattr(l, "__module__", None):
                 raise ValueError(
                     "tf_shell_ml.PostScaleSequential does not support tf_shell layers"
                 )
