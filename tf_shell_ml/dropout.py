@@ -54,7 +54,10 @@ class ShellDropout(keras.layers.Layer):
     def build(self, input_shape):
         self.units_in = int(input_shape[1])
 
-    def call(self, inputs, training=False):
+    def reset_split_forward_mode(self):
+        self._layer_intermediate = []
+
+    def call(self, inputs, training=False, split_forward_mode=False):
         if not training or self.rate == 0.0:
             return inputs
 
@@ -70,10 +73,16 @@ class ShellDropout(keras.layers.Layer):
             seed=self.seed,
         )
 
-        self._layer_intermediate = dropout_mask
-        self.outputs = inputs * dropout_mask
-        return self.outputs
+        if training:
+            if split_forward_mode:
+                self._layer_intermediate.append(dropout_mask)
+            else:
+                self._layer_intermediate = [dropout_mask]
+
+        output = inputs * dropout_mask
+        return output
 
     def backward(self, dy, rotation_key=None):
-        d_x = dy * self._layer_intermediate
+        dropout_mask = tf.concat(self._layer_intermediate, axis=0)
+        d_x = dy * dropout_mask
         return [], d_x

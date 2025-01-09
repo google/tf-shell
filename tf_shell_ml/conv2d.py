@@ -59,6 +59,9 @@ class Conv2D(keras.layers.Layer):
                 f"Invalid grad_reduction type: {grad_reduction} (must be 'galois', 'fast', or 'none')"
             )
 
+    def reset_split_forward_mode(self):
+        self._layer_intermediate = []
+
     def get_config(self):
         config = super().get_config()
         config.update(
@@ -120,7 +123,7 @@ class Conv2D(keras.layers.Layer):
             name="kernel",
         )
 
-    def call(self, inputs, training=False):
+    def call(self, inputs, training=False, split_forward_mode=False):
         """Inputs are expected to be in NHWC format, i.e.
         [batch, height, width, channels]
         """
@@ -133,7 +136,10 @@ class Conv2D(keras.layers.Layer):
         )
 
         if training:
-            self._layer_intermediate = outputs
+            if split_forward_mode:
+                self._layer_intermediate.append(outputs)
+            else:
+                self._layer_intermediate = [outputs]
 
         if self.activation is not None:
             outputs = self.activation(outputs)
@@ -143,7 +149,7 @@ class Conv2D(keras.layers.Layer):
     def backward(self, dy, rotation_key=None):
         """Compute the gradient."""
         x = self._layer_input
-        z = self._layer_intermediate
+        z = tf.concat(self._layer_intermediate, axis=0)
         kernel = self.weights[0]
         grad_weights = []
         batch_size = tf.shape(x)[0] // 2

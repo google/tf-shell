@@ -86,7 +86,10 @@ class ShellDense(keras.layers.Layer):
                 name="kernel",
             )
 
-    def call(self, inputs, training=False):
+    def reset_split_forward_mode(self):
+        self._layer_intermediate = []
+
+    def call(self, inputs, training=False, split_forward_mode=False):
         if training:
             self._layer_input = inputs
 
@@ -95,7 +98,11 @@ class ShellDense(keras.layers.Layer):
         else:
             outputs = tf.matmul(inputs, self.weights[0])
 
-        self._layer_intermediate = outputs
+        if training:
+            if split_forward_mode:
+                self._layer_intermediate.append(outputs)
+            else:
+                self._layer_intermediate = [outputs]
 
         if self.activation is not None:
             outputs = self.activation(outputs)
@@ -105,7 +112,8 @@ class ShellDense(keras.layers.Layer):
     def backward(self, dy, rotation_key=None):
         """dense backward"""
         x = self._layer_input
-        z = self._layer_intermediate
+        z = tf.concat(self._layer_intermediate, axis=0)
+        self._layer_intermediate = []
         kernel = self.weights[0]
         d_ws = []
 

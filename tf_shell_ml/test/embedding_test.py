@@ -78,7 +78,7 @@ class TestEmbedding(tf.test.TestCase):
 
         @tf.function
         def forward_backward(x):
-            y = embedding_layer(x)
+            y = embedding_layer(x, training=True)
 
             dy = tf.ones_like(y)
             enc_dy = tf_shell.to_encrypted(dy, key, context)

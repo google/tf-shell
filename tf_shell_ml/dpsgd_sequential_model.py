@@ -43,7 +43,7 @@ class DpSgdSequential(SequentialBase):
     def call(self, features, training=False, with_softmax=True):
         predictions = features
         for l in self.layers:
-            predictions = l(predictions, training=training)
+            predictions = l(predictions, training=training, split_forward_mode=True)
 
         if not with_softmax:
             return predictions
@@ -52,6 +52,10 @@ class DpSgdSequential(SequentialBase):
         return tf.nn.softmax(predictions)
 
     def compute_grads(self, features, enc_labels):
+        # Reset layers for forward pass over multiple devices.
+        for l in self.layers:
+            l.reset_split_forward_mode()
+
         predictions_list = []
         max_two_norms_list = []
 
@@ -76,12 +80,6 @@ class DpSgdSequential(SequentialBase):
                 max_two_norms_list.append(self.jacobian_max_two_norm(jacobians))
 
         with tf.device(self.features_party_dev):
-            # Reset the internal state of the layers as if they were called with
-            # the single (unsplit for GPU) batch of features. This is necessary
-            # So the backward pass below is computed correctly, which is
-            # performed on the unsplit batch of labels.
-            _ = self(features, training=True, with_softmax=False)
-
             predictions = tf.concat(predictions_list, axis=0)
             max_two_norm = tf.reduce_max(max_two_norms_list)
 

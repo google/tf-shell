@@ -28,7 +28,10 @@ class Flatten(keras.layers.Layer):
         self.input_shape = input_shape
         self.flat_shape = [prod(input_shape[1:])]
 
-    def call(self, inputs, training=False):
+    def reset_split_forward_mode(self):
+        pass
+
+    def call(self, inputs, training=False, split_forward_mode=False):
         self.batch_size = tf.shape(inputs)[0]
         return tf.reshape(inputs, [self.batch_size] + self.flat_shape)
 

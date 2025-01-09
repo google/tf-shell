@@ -52,10 +52,15 @@ class MaxPool2D(keras.layers.Layer):
         )
         return config
 
-    def call(self, inputs, training=False):
+    def reset_split_forward_mode(self):
+        self._layer_intermediate = []
+        self._layer_input_shape = None
+
+    def call(self, inputs, training=False, split_forward_mode=False):
         """Inputs are expected to be in NHWC format, i.e.
         [batch, height, width, channels]
         """
+        # TODO: Something is setting `outputs` to inputs in dpsgd model.
         outputs, argmax = tf.nn.max_pool_with_argmax(
             inputs,
             self.pool_size,
@@ -65,13 +70,27 @@ class MaxPool2D(keras.layers.Layer):
         )
 
         if training:
-            self._layer_intermediate = argmax
+            if split_forward_mode:
+                self._layer_intermediate.append(argmax)
+                if self._layer_input_shape is None:
+                    self._layer_input_shape = inputs.shape.as_list()
+                else:
+                    # if self._layer_input_shape[1:] != inputs.shape.as_list()[1:]:
+                    #     raise ValueError(
+                    #         f"Expected input shape {self._layer_input_shape[1:]}, "
+                    #         f"got {inputs.shape.as_list()[1:]}"
+                    #     )
+                    self._layer_input_shape[0] += inputs.shape.as_list()[0]
+
+            else:
+                self._layer_intermediate = [argmax]
+                self._layer_input_shape = inputs.shape.as_list()
 
         return outputs
 
     def backward(self, dy, rotation_key=None):
         """Compute the gradient."""
-        indices = self._layer_intermediate
+        indices = tf.concat(self._layer_intermediate, axis=0)
         grad_weights = []
 
         # On the forward pass, inputs may be batched differently than the
@@ -92,7 +111,7 @@ class MaxPool2D(keras.layers.Layer):
                 self.pool_size,
                 self.strides,
                 self.padding_str,
-                output_shape=indices.shape.as_list(),
+                output_shape=self._layer_input_shape,
             )
 
         return grad_weights, d_x

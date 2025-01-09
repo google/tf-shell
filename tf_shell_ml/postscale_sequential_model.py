@@ -26,15 +26,13 @@ class PostScaleSequential(SequentialBase):
         *args,
         **kwargs,
     ):
+        for l in layers:
+            if "tf_shell_ml" in getattr(a, "__module__", None):
+                raise ValueError(
+                    "tf_shell_ml.PostScaleSequential does not support tf_shell layers"
+                )
+
         super().__init__(layers, *args, **kwargs)
-
-        if len(self.layers) > 0:
-            self.layers[0].is_first_layer = True
-
-            # Override the activation of the last layer. Set it to linear so
-            # when the jacobian is computed, the derivative of the activation
-            # function is a no-op. This is required for the post scale protocol.
-            self.layers[-1].activation = tf.keras.activations.linear
 
     def call(self, inputs, training=False, with_softmax=True):
         prediction = super().call(inputs, training)
@@ -67,12 +65,6 @@ class PostScaleSequential(SequentialBase):
                 max_two_norms_list.append(self.jacobian_max_two_norm(jacobians))
 
         with tf.device(self.features_party_dev):
-            # Reset the internal state of the layers as if they were called with
-            # the single (unsplit for GPU) batch of features. This is necessary
-            # So the backward pass below is computed correctly, which is
-            # performed on the unsplit batch of labels.
-            _ = self(features, training=True, with_softmax=False)
-
             predictions = tf.concat(predictions_list, axis=0)
             max_two_norm = tf.reduce_max(max_two_norms_list)
             jacobians = [tf.concat(j, axis=0) for j in zip(*jacobians_list)]

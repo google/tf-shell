@@ -62,7 +62,10 @@ class ShellEmbedding(keras.layers.Layer):
             dtype=tf.keras.backend.floatx(),
         )
 
-    def call(self, inputs):
+    def reset_split_forward_mode(self):
+        self._layer_intermediate = []
+
+    def call(self, inputs, training=False, split_forward_mode=False):
         if inputs.dtype != tf.int64:
             # When using model.fit() keras will cast the input to float.
             inputs = tf.cast(inputs, tf.int64)
@@ -70,7 +73,12 @@ class ShellEmbedding(keras.layers.Layer):
         if inputs.ndim != 2:
             raise ValueError(f"Embedding layer expects rank 2 input. Got {inputs}.")
 
-        self._layer_input = inputs
+        if training:
+            if split_forward_mode:
+                self._layer_intermediate.append(inputs)
+            else:
+                self._layer_intermediate = [inputs]
+
         outputs = tf.experimental.numpy.take(self.embeddings, inputs, axis=0)
         return outputs
 
@@ -103,15 +111,13 @@ class ShellEmbedding(keras.layers.Layer):
         with (2*batch_size) slots. tf_shell.segment_sum must pull apart the
         packing dimension of the values by masking with a one-hot.
         """
-        batch_size = tf.shape(self._layer_input)[0] // 2
-
-        if dy.ndim != self._layer_input.ndim + 1:
+        indices = tf.concat(self._layer_intermediate, axis=0)
+        if dy.ndim != indices.ndim + 1:
             raise ValueError(
-                f"Embedding layer dy ndims exptected {self._layer_input.ndim + 1}. Got {dy}."
+                f"Embedding layer dy ndims exptected {indices + 1}. Got {dy}."
             )
         sentence_len = dy.shape[1]
 
-        indices = self._layer_input
         values = dy
 
         indices = tf.where(
