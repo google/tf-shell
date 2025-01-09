@@ -111,7 +111,7 @@ class ShellEmbedding(keras.layers.Layer):
         with (2*batch_size) slots. tf_shell.segment_sum must pull apart the
         packing dimension of the values by masking with a one-hot.
         """
-        indices = tf.concat(self._layer_intermediate, axis=0)
+        indices = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         if dy.ndim != indices.ndim + 1:
             raise ValueError(
                 f"Embedding layer dy ndims exptected {indices + 1}. Got {dy}."

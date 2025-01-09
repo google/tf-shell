@@ -90,7 +90,7 @@ class MaxPool2D(keras.layers.Layer):
 
     def backward(self, dy, rotation_key=None):
         """Compute the gradient."""
-        indices = tf.concat(self._layer_intermediate, axis=0)
+        indices = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         grad_weights = []
 
         # On the forward pass, inputs may be batched differently than the

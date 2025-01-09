@@ -88,21 +88,23 @@ class ShellDense(keras.layers.Layer):
 
     def reset_split_forward_mode(self):
         self._layer_intermediate = []
+        self._layer_input = []
 
     def call(self, inputs, training=False, split_forward_mode=False):
-        if training:
-            self._layer_input = inputs
-
+        kernel = tf.identity(self.weights[0])
         if self.use_bias:
-            outputs = tf.matmul(inputs, self.weights[0]) + self.weights[1]
+            bias = tf.identity(self.weights[1])
+            outputs = tf.matmul(inputs, kernel) + bias
         else:
-            outputs = tf.matmul(inputs, self.weights[0])
+            outputs = tf.matmul(inputs, kernel)
 
         if training:
             if split_forward_mode:
                 self._layer_intermediate.append(outputs)
+                self._layer_input.append(inputs)
             else:
                 self._layer_intermediate = [outputs]
+                self._layer_input = [inputs]
 
         if self.activation is not None:
             outputs = self.activation(outputs)
@@ -111,10 +113,10 @@ class ShellDense(keras.layers.Layer):
 
     def backward(self, dy, rotation_key=None):
         """dense backward"""
-        x = self._layer_input
-        z = tf.concat(self._layer_intermediate, axis=0)
+        x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
+        z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         self._layer_intermediate = []
-        kernel = self.weights[0]
+        kernel = tf.identity(self.weights[0])
         d_ws = []
 
         # On the forward pass, inputs may be batched differently than the

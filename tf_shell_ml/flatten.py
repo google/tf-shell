@@ -41,7 +41,7 @@ class Flatten(keras.layers.Layer):
         # ciphertext scheme when not in eager mode. Pad them to match the
         # ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
-            new_shape[0] = dy._context.num_slots
+            new_shape[0] = tf.identity(dy._context.num_slots)
         else:
             new_shape[0] = dy.shape[0]
         dw = []

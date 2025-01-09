@@ -127,9 +127,7 @@ class Conv2D(keras.layers.Layer):
         """Inputs are expected to be in NHWC format, i.e.
         [batch, height, width, channels]
         """
-        kernel = self.weights[0]
-        if training:
-            self._layer_input = inputs
+        kernel = tf.identity(self.weights[0])
 
         outputs = tf.nn.conv2d(
             inputs, kernel, strides=self.strides, padding=self.tf_padding
@@ -138,8 +136,10 @@ class Conv2D(keras.layers.Layer):
         if training:
             if split_forward_mode:
                 self._layer_intermediate.append(outputs)
+                self._layer_input.append(inputs)
             else:
                 self._layer_intermediate = [outputs]
+                self._layer_input = [inputs]
 
         if self.activation is not None:
             outputs = self.activation(outputs)
@@ -148,9 +148,9 @@ class Conv2D(keras.layers.Layer):
 
     def backward(self, dy, rotation_key=None):
         """Compute the gradient."""
-        x = self._layer_input
-        z = tf.concat(self._layer_intermediate, axis=0)
-        kernel = self.weights[0]
+        x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
+        z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
+        kernel = tf.identity(self.weights[0])
         grad_weights = []
         batch_size = tf.shape(x)[0] // 2
 

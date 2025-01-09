@@ -83,6 +83,8 @@ class ShellDropout(keras.layers.Layer):
         return output
 
     def backward(self, dy, rotation_key=None):
-        dropout_mask = tf.concat(self._layer_intermediate, axis=0)
+        dropout_mask = tf.concat(
+            [tf.identity(z) for z in self._layer_intermediate], axis=0
+        )
         d_x = dy * dropout_mask
         return [], d_x

@@ -23,9 +23,15 @@ class GlobalAveragePooling1D(keras.layers.Layer):
     def __init__(self):
         super().__init__()
 
-    def call(self, inputs, training=False):
+    def reset_split_forward_mode(self):
+        self._layer_intermediate = 0
+
+    def call(self, inputs, training=False, split_forward_mode=False):
         if training:
-            self._layer_intermediate = tf.shape(inputs)[1]
+            if split_forward_mode:
+                self._layer_intermediate += tf.shape(tf.identity(inputs))[1]
+            else:
+                self._layer_intermediate = tf.shape(tf.identity(inputs))[1]
 
         outputs = tf.reduce_sum(inputs, axis=1)
         outputs /= tf.cast(tf.shape(inputs)[1], tf.keras.backend.floatx())
@@ -33,9 +39,10 @@ class GlobalAveragePooling1D(keras.layers.Layer):
         return outputs
 
     def backward(self, dy, rotation_key=None):
+        avg_dim = tf.identity(self._layer_intermediate)
         dx = tf_shell.expand_dims(dy, axis=1)
         dx = tf_shell.broadcast_to(
-            dx, (tf_shell.shape(dx)[0], self._layer_intermediate, tf_shell.shape(dx)[2])
+            dx, (tf_shell.shape(dx)[0], avg_dim, tf_shell.shape(dx)[2])
         )
         return [], dx
 
