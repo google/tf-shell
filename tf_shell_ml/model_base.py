@@ -50,7 +50,7 @@ class SequentialBase(keras.Sequential):
         self.noise_context_fn = noise_context_fn
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
-        self.noise_multiplier = noise_multiplier
+        self.noise_multiplier = float(noise_multiplier)
         self.cache_path = cache_path
         self.jacobian_pfor = jacobian_pfor
         self.jacobian_pfor_iterations = jacobian_pfor_iterations
@@ -653,6 +653,8 @@ class SequentialBase(keras.Sequential):
         # sqrt(2).
         sensitivity = tf.cast(max_two_norm, dtype=tf.float32) * tf.sqrt(2.0)
 
+        sensitivity *= self.noise_multiplier
+
         # Ensure the sensitivity is at least as large as the base scale, since
         # the base_scale is the smallest scale distribution which the protocol
         # can sample.
@@ -865,6 +867,12 @@ class SequentialBase(keras.Sequential):
                         noise_context.num_slots,
                         message="Backprop and noise contexts must have the same number of slots.",
                     )
+                else:
+                    tf.assert_equal(
+                        tf.identity(noise_context.num_slots),
+                        tf.shape(features)[0],
+                        message="Noise context must have the same number of slots as the batch size.",
+                    )
 
                 # The noise scaling factor must always be 1. Encryptions already
                 # have the scaling factor applied when the noise is applied,
@@ -942,6 +950,13 @@ class SequentialBase(keras.Sequential):
                         noise_context.plaintext_modulus,
                         "WARNING: Noised gradient may have overflowed.",
                     )
+
+            # When encryption is disabled but the noise protocol is enabled,
+            # the gradients are ints. Convert them to floats.
+            grads = [tf.cast(g, dtype=tf.keras.backend.floatx()) for g in grads]
+
+            # Normalize the gradient by the batch size.
+            grads = [g / tf.cast(tf.shape(g)[0], g.dtype) for g in grads]
 
             # Apply the gradients to the model.
             self.optimizer.apply_gradients(zip(grads, self.weights))
