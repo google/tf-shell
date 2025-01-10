@@ -524,7 +524,6 @@ def randomized_rounding(tensor):
     """
     Performs randomized rounding on a tensorflow tensor with dynamic/unknown shape.
     """
-    print("randomized_rounding", flush=True)
     with tf.name_scope("randomized_rounding"):
         with tf.name_scope("input_shape"):
             dynamic_shape = tf.shape(tensor)
