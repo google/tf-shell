@@ -36,10 +36,10 @@ class TestModel(tf.test.TestCase):
         x_train, x_test = x_train[:, :350], x_test[:, :350]
 
         labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-        labels_dataset = labels_dataset.batch(2**10)
+        labels_dataset = labels_dataset.batch(2**12)
 
         features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-        features_dataset = features_dataset.batch(2**10)
+        features_dataset = features_dataset.batch(2**12)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
@@ -59,14 +59,14 @@ class TestModel(tf.test.TestCase):
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=23,
                 scaling_factor=16,
-                noise_offset_log2=9,
+                noise_offset_log2=14,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
             noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=25,
                 scaling_factor=1,
-                noise_offset_log2=2,
+                noise_offset_log2=0,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),

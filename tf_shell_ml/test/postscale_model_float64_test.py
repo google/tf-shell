@@ -36,10 +36,10 @@ class TestModel(tf.test.TestCase):
         x_train, x_test = x_train[:, :350], x_test[:, :350]
 
         labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-        labels_dataset = labels_dataset.batch(2**10)
+        labels_dataset = labels_dataset.batch(2**12)
 
         features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-        features_dataset = features_dataset.batch(2**10)
+        features_dataset = features_dataset.batch(2**12)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)

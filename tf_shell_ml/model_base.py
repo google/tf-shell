@@ -870,7 +870,7 @@ class SequentialBase(keras.Sequential):
                 else:
                     tf.assert_equal(
                         tf.identity(noise_context.num_slots),
-                        tf.shape(features)[0],
+                        tf.shape(features, out_type=tf.int64)[0],
                         message="Noise context must have the same number of slots as the batch size.",
                     )
 

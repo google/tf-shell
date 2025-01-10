@@ -61,6 +61,7 @@ class Conv2D(keras.layers.Layer):
 
     def reset_split_forward_mode(self):
         self._layer_intermediate = []
+        self._layer_input = []
 
     def get_config(self):
         config = super().get_config()

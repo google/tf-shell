@@ -74,11 +74,11 @@ class TestDistribModel(tf.test.TestCase):
 
         with tf.device(labels_party_dev):
             labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-            labels_dataset = labels_dataset.batch(2**10)
+            labels_dataset = labels_dataset.batch(2**12)
 
         with tf.device(features_party_dev):
             features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-            features_dataset = features_dataset.batch(2**10)
+            features_dataset = features_dataset.batch(2**12)
 
             val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
             val_dataset = val_dataset.batch(32)
@@ -101,7 +101,7 @@ class TestDistribModel(tf.test.TestCase):
                 lambda read_from_cache: tf_shell.create_autocontext64(
                     log2_cleartext_sz=23,
                     scaling_factor=16,
-                    noise_offset_log2=9,
+                    noise_offset_log2=14,
                     read_from_cache=read_from_cache,
                     cache_path=cache,
                 ),

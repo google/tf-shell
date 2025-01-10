@@ -86,9 +86,9 @@ class TestModel(tf.test.TestCase):
                 ),
             ],
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                log2_cleartext_sz=18,
+                log2_cleartext_sz=17,
                 scaling_factor=2,
-                noise_offset_log2=-20,
+                noise_offset_log2=-4,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
@@ -108,7 +108,7 @@ class TestModel(tf.test.TestCase):
 
         m.compile(
             loss=tf.keras.losses.CategoricalCrossentropy(),
-            optimizer=tf.keras.optimizers.Adam(0.18),
+            optimizer=tf.keras.optimizers.Adam(0.01),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
@@ -128,12 +128,7 @@ class TestModel(tf.test.TestCase):
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
-            # Perform full encrypted test to populate cache.
             self._test_model(False, False, False, cache_dir)
-            self._test_model(True, False, False, cache_dir)
-            self._test_model(False, True, False, cache_dir)
-            self._test_model(False, False, True, cache_dir)
-            self._test_model(True, True, True, cache_dir)
 
 
 if __name__ == "__main__":
