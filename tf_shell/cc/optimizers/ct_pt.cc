@@ -103,8 +103,12 @@ bool FindAddOrSub(utils::MutableGraphView& graph_view, int node_index,
   auto const& inner_fanin_0 = inner_node_view->GetRegularFanin(0);
   auto const* inner_context_node_view = inner_fanin_0.node_view();
 
-  // If the contexts do not match, the pattern should not be matched..
+  // If the contexts do not match, the pattern should not be matched.
   if (context_node_view->node_index() != inner_context_node_view->node_index())
+    return false;
+
+  // If the devices do not match, the pattern should not be matched.
+  if (outer_node_def->device() != inner_node_view->node()->device())
     return false;
 
   auto const& inner_fanin_1 = inner_node_view->GetRegularFanin(1);

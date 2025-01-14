@@ -118,6 +118,12 @@ bool FindPtPt(utils::MutableGraphView& graph_view, int node_index,
       return false;
     }
 
+    // Check all ops have the same device.
+    if (outer_node_def->device() != input_a_node_def->device() ||
+        outer_node_def->device() != input_b_node_def->device()) {
+      return false;
+    }
+
     auto const& encode_b_fanin_0 = input_b_node_view->GetRegularFanin(1);
     auto const* tf_input_b_node_view = encode_b_fanin_0.node_view();
 
