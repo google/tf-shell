@@ -124,6 +124,7 @@ class TestModel(tf.test.TestCase):
             validation_data=val_dataset,
         )
 
+        print(history.history["val_categorical_accuracy"][-1])
         self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.13)
 
     def test_model(self):

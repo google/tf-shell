@@ -525,9 +525,7 @@ def randomized_rounding(tensor):
     Performs randomized rounding on a tensorflow tensor with dynamic/unknown shape.
     """
     with tf.name_scope("randomized_rounding"):
-        with tf.name_scope("input_shape"):
-            dynamic_shape = tf.shape(tensor)
-
+        dynamic_shape = tf.shape(tensor)
         floor = tf.floor(tensor)
         decimal_part = tensor - floor
         random_mask = (
@@ -574,7 +572,7 @@ def _decode_scaling(scaled_tensor, output_dtype, scaling_factor):
             raise ValueError(f"Unsupported dtype {output_dtype}")
 
 
-def to_shell_plaintext(tensor, context):
+def to_shell_plaintext(tensor, context, override_scaling_factor=None):
     """Converts a Tensorflow tensor to a ShellTensor which holds a plaintext.
     Under the hood, this means encoding the Tensorflow tensor to a BGV style
     polynomial representation with the sign and scaling factor encoded as
@@ -591,8 +589,13 @@ def to_shell_plaintext(tensor, context):
         return tensor  # Do nothing, already a shell plaintext.
 
     elif isinstance(tensor, tf.Tensor):
+        if override_scaling_factor is not None:
+            scaling_factor = override_scaling_factor
+        else:
+            scaling_factor = context.scaling_factor
+
         # Shell tensor represents floats as integers * scaling_factor.
-        scaled_tensor = _encode_scaling(tensor, context.scaling_factor)
+        scaled_tensor = _encode_scaling(tensor, scaling_factor)
 
         # Pad the tensor to the correct number of slots.
         with tf.name_scope("pad_to_slots"):
@@ -617,7 +620,7 @@ def to_shell_plaintext(tensor, context):
             _level=context.level,
             _num_mod_reductions=0,
             _underlying_dtype=tensor.dtype,
-            _scaling_factor=context.scaling_factor,
+            _scaling_factor=scaling_factor,
             _is_enc=False,
         )
     else:

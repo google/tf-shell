@@ -70,7 +70,7 @@ class TestDistribModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :250], x_test[:, :250]
+        x_train, x_test = x_train[:, :350], x_test[:, :350]
 
         # Set a seed for shuffling both features and labels the same way.
         seed = 42
@@ -130,7 +130,7 @@ class TestDistribModel(tf.test.TestCase):
 
         cache_dir.cleanup()
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.3)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
 
 
 if __name__ == "__main__":

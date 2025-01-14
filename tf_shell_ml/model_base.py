@@ -108,6 +108,9 @@ class SequentialBase(keras.Sequential):
         Returns:
             metrics (dict): The metrics resulting from the training step.
         """
+        # When called from outside this class, the caches for encryption keys
+        # and contexts are not guaranteed to be populated, so set
+        # read_key_from_cache to False.
         metrics, batch_size_should_be = self.shell_train_step(
             features, labels, read_key_from_cache=False
         )
@@ -118,8 +121,6 @@ class SequentialBase(keras.Sequential):
         """
         tf.function wrapper around shell train step.
         """
-        # When running the training loop, the caches for encryption keys and
-        # contexts have already been populated.
         return self.shell_train_step(features, labels, read_key_from_cache)
 
     def compute_grads(self, features, enc_labels):
@@ -334,6 +335,9 @@ class SequentialBase(keras.Sequential):
                 zip(features_dataset, labels_dataset)
             ):
                 callback_list.on_train_batch_begin(step, logs)
+                # The caches for encryption keys and contexts have already been
+                # populated during the dataset preparation step. Set
+                # read_key_from_cache to True.
                 logs, batch_size_should_be = self.train_step_tf_func(
                     batch_x, batch_y, read_key_from_cache=True
                 )
@@ -530,6 +534,53 @@ class SequentialBase(keras.Sequential):
 
         return grads
 
+    def spoof_int_gradients(self, grads):
+        """
+        Spoofs the gradients to have dtype int64 and a scaling factor of 1.
+
+        Args:
+            grads (list of tf_shell.ShellTensor): The list of gradient tensors
+                to be spoofed.
+
+        Returns:
+            list of tf_shell.ShellTensor64: The list of gradient tensors with
+                dtype int64 and scaling factor 1.
+        """
+        int64_grads = [
+            tf_shell.ShellTensor64(
+                _raw_tensor=g._raw_tensor,
+                _context=g._context,
+                _level=g._level,
+                _num_mod_reductions=g._num_mod_reductions,
+                _underlying_dtype=tf.int64,  # Spoof the dtype.
+                _scaling_factor=1,  # Spoof the scaling factor.
+                _is_enc=g._is_enc,
+                _is_fast_rotated=g._is_fast_rotated,
+            )
+            for g in grads
+        ]
+        return int64_grads
+
+    def unspoof_int_gradients(self, int64_grads, orig_scaling_factors):
+        """
+        Recover the floating point gradients from spoofed int64 gradients using
+        the original scaling factors.
+
+        Args:
+            int64_grads (list of tf.Tensor): List of gradients that have been
+                spoofed as int64 with scaling factor 1.
+            orig_scaling_factors (list of float): List of original scaling
+                factors used to spoof the gradients.
+
+        Returns:
+            list of tf.Tensor: List of recovered floating point gradients.
+        """
+        grads = [
+            tf.cast(g, tf.keras.backend.floatx()) / s
+            for g, s in zip(int64_grads, orig_scaling_factors)
+        ]
+        return grads
+
     def mask_gradients(self, context, grads):
         """
         Adds random masks to the encrypted gradients within the range [-t/2,
@@ -547,9 +598,6 @@ class SequentialBase(keras.Sequential):
             - mask_scaling_factors (list): The original scaling factors of the
               gradients.
         """
-        if self.disable_masking or self.disable_encryption:
-            return grads, None
-
         t = tf.cast(tf.identity(context.plaintext_modulus), dtype=tf.int64)
         t_half = t // 2
 
@@ -563,29 +611,18 @@ class SequentialBase(keras.Sequential):
             for g in grads
         ]
 
-        # Spoof the gradient's dtype to int64 and scaling factor to 1. This is
-        # necessary so when adding the masks to the gradients, tf_shell does not
-        # attempt to do any casting to floats matching scaling factors.
-        # Conversion back to floating point and handling the scaling factors is
-        # done in unmask_gradients.
-        int64_grads = [
-            tf_shell.ShellTensor64(
-                _raw_tensor=g._raw_tensor,
-                _context=g._context,
-                _level=g._level,
-                _num_mod_reductions=g._num_mod_reductions,
-                _underlying_dtype=tf.int64,  # Spoof the dtype.
-                _scaling_factor=1,  # Spoof the scaling factor.
-                _is_enc=g._is_enc,
-                _is_fast_rotated=g._is_fast_rotated,
-            )
-            for g in grads
+        # Convert to shell plaintexts manually to avoid using the scaling factor
+        # in the 'grads[i]' contexts when the addition happens in the next line
+        # below.
+        shell_masks = [
+            tf_shell.to_shell_plaintext(m, context, override_scaling_factor=1)
+            for m in masks
         ]
 
         # Add the masks.
-        int64_grads = [(g + m) for g, m in zip(int64_grads, masks)]
+        masked_grads = [(g + m) for g, m in zip(grads, shell_masks)]
 
-        return int64_grads, masks
+        return masked_grads, masks
 
     def unmask_gradients(self, context, grads, masks, mask_scaling_factors):
         """
@@ -614,12 +651,6 @@ class SequentialBase(keras.Sequential):
         unmasked_grads = [
             tf_shell.reduce_sum_with_mod(mg, 0, context, s)
             for mg, s in zip(masks_and_grads, mask_scaling_factors)
-        ]
-
-        # Recover the floating point values using the scaling factors.
-        unmasked_grads = [
-            tf.cast(g, tf.keras.backend.floatx()) / s
-            for g, s in zip(unmasked_grads, mask_scaling_factors)
         ]
 
         return unmasked_grads
@@ -748,10 +779,6 @@ class SequentialBase(keras.Sequential):
               corresponding to each gradient tensor.
             plaintext_modulus (float): The plaintext modulus value.
             message (str): The message to print if an overflow is detected.
-
-        Returns:
-            tf.Tensor: A boolean tensor indicating whether an overflow was
-              detected.
         """
         # t = tf.cast(plaintext_modulus, grads[0].dtype)
         t_half = plaintext_modulus / 2
@@ -775,8 +802,6 @@ class SequentialBase(keras.Sequential):
             ),
             lambda: tf.identity(overflowed),
         )
-
-        return overflowed
 
     def shell_train_step(self, features, labels, read_key_from_cache):
         """
@@ -816,12 +841,11 @@ class SequentialBase(keras.Sequential):
         grads, max_two_norm, predictions = self.compute_grads(features, enc_labels)
 
         with tf.device(self.features_party_dev):
-            # Store the scaling factors of the gradients before masking, as
-            # masking sets them to 1.
-            if not self.disable_encryption and not self.disable_masking:
-                backprop_scaling_factors = [g._scaling_factor for g in grads]
-            else:
+            # Store the scaling factors of the gradients.
+            if self.disable_encryption:
                 backprop_scaling_factors = [1] * len(grads)
+            else:
+                backprop_scaling_factors = [g._scaling_factor for g in grads]
 
             # Check if the backproped gradients overflowed.
             if not self.disable_encryption and self.check_overflow_INSECURE:
@@ -836,6 +860,12 @@ class SequentialBase(keras.Sequential):
                     tf.identity(backprop_context.plaintext_modulus),
                     "WARNING: Backprop gradient may have overflowed.",
                 )
+
+            # Spoof encrypted gradients as int64 with scaling factor 1 for
+            # subsequent masking and noising, so the intermediate decryption
+            # is not affected by the scaling factors.
+            if not self.disable_encryption:
+                grads = self.spoof_int_gradients(grads)
 
             # Mask the encrypted gradients.
             if not self.disable_masking and not self.disable_encryption:
@@ -941,6 +971,11 @@ class SequentialBase(keras.Sequential):
                 grads = self.unmask_gradients(
                     backprop_context, grads, masks, backprop_scaling_factors
                 )
+
+            # Recover the original scaling factor of the gradients if they were
+            # originally encrypted.
+            if not self.disable_encryption:
+                grads = self.unspoof_int_gradients(grads, backprop_scaling_factors)
 
             if not self.disable_noise:
                 if self.check_overflow_INSECURE:
