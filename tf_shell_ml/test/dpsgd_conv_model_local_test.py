@@ -38,19 +38,19 @@ class TestModel(tf.test.TestCase):
         x_test = x_test[:, clip_by : (28 - clip_by), clip_by : (28 - clip_by), :]
 
         labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-        labels_dataset = labels_dataset.batch(2**12)
+        labels_dataset = labels_dataset.batch(2**10)
 
         features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-        features_dataset = features_dataset.batch(2**12)
+        features_dataset = features_dataset.batch(2**10)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
 
         m = tf_shell_ml.DpSgdSequential(
             [
-                # Model from tensorflow-privacy tutorial. The first layer may
-                # be skipped and the model still has ~95% accuracy (plaintext,
-                # no input clipping).
+                # Model from tensorflow-privacy tutorial. The first conv and
+                # maxpool layer may be skipped and the model still has ~95%
+                # accuracy (plaintext, no input image clipping).
                 # tf_shell_ml.Conv2D(
                 #     filters=16,
                 #     kernel_size=8,
@@ -124,8 +124,7 @@ class TestModel(tf.test.TestCase):
             validation_data=val_dataset,
         )
 
-        print(history.history["val_categorical_accuracy"][-1])
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.13)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.20)
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:

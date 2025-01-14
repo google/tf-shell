@@ -900,12 +900,6 @@ class SequentialBase(keras.Sequential):
                         noise_context.num_slots,
                         message="Backprop and noise contexts must have the same number of slots.",
                     )
-                else:
-                    tf.assert_equal(
-                        tf.identity(noise_context.num_slots),
-                        tf.shape(features, out_type=tf.int64)[0],
-                        message="Noise context must have the same number of slots as the batch size.",
-                    )
 
                 # The noise scaling factor must always be 1. Encryptions already
                 # have the scaling factor applied when the noise is applied,
