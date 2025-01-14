@@ -78,7 +78,12 @@ def optimize_shell_graph(
     # Grappler determines fetch ops from collection 'train_op'.
     meta_graph_def.collection_def[ops.GraphKeys.TRAIN_OP].CopyFrom(fetch_collection)
 
-    grappler_session_config = config_pb2.ConfigProto()
+    # For a clean slate, create a new grappler session config as below
+    #   # grappler_session_config = config_pb2.ConfigProto()
+    # But to retain other settings, like soft device placement, copy from the
+    # existing config.
+    grappler_session_config = context.context().config
+
     grappler_session_config.graph_options.rewrite_options.CopyFrom(rewriter_config)
     optimized_graph_def = tf_optimizer.OptimizeGraph(
         grappler_session_config, meta_graph_def, graph_id=b"tf_graph"
