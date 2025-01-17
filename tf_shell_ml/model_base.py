@@ -81,6 +81,10 @@ class SequentialBase(keras.Sequential):
                 self.layers[-1].activation,
             )
 
+        # Unset the last layer's activation function. Derived classes handle
+        # the softmax activation manually.
+        layers[-1].activation = tf.keras.activations.linear
+
         if len(self.jacobian_devices) == 0:
             raise ValueError("No devices specified for Jacobian computation.")
 
