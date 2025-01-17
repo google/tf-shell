@@ -67,10 +67,7 @@ class DpSgdSequential(SequentialBase):
         for i, d in enumerate(self.jacobian_devices):
             with tf.device(d):
                 f = tf.identity(split_features[i])  # copy to GPU if needed
-                prediction, jacobians = self.predict_and_jacobian(
-                    f,
-                    skip_jacobian=self.disable_noise,  # Jacobian only needed for noise.
-                )
+                prediction, jacobians = self.predict_and_jacobian(f)
                 if i == len(self.jacobian_devices) - 1 and end_pad > 0:
                     # The last device's features may have been padded for even
                     # split jacobian computation across multiple devices.

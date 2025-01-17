@@ -430,41 +430,35 @@ class SequentialBase(keras.Sequential):
         # Split the tensor
         return tf.split(tensor, num_splits, axis=axis), padded_by
 
-    def predict_and_jacobian(self, features, skip_jacobian=False):
+    def predict_and_jacobian(self, features):
         """
         Predicts the output for the given features and optionally computes the
         Jacobian.
 
         Args:
             features (tf.Tensor): Input features for the model.
-            skip_jacobian (bool): If True, skips the computation of the
-                Jacobian. Defaults to False.
 
         Returns:
             tuple: A tuple containing:
                 - predictions (tf.Tensor): The model output after applying
                   softmax.
                 - jacobians (list or tf.Tensor): The Jacobian of the last layer
-                  preactivation with respect to the model weights if
-                  skip_jacobian is False, otherwise an empty list.
+                  preactivation with respect to the model weights.
         """
         with tf.GradientTape(
             persistent=tf.executing_eagerly() or self.jacobian_pfor
         ) as tape:
             predictions = self(features, training=True, with_softmax=False)
 
-        if skip_jacobian:
-            jacobians = []
-        else:
-            jacobians = tape.jacobian(
-                predictions,
-                self.trainable_variables,
-                # unconnected_gradients=tf.UnconnectedGradients.ZERO, broken with pfor
-                parallel_iterations=self.jacobian_pfor_iterations,
-                experimental_use_pfor=self.jacobian_pfor,
-            )
-            # ^  layers list x (batch size x num output classes x weights) matrix
-            # dy_pred_j/dW_sample_class
+        jacobians = tape.jacobian(
+            predictions,
+            self.trainable_variables,
+            # unconnected_gradients=tf.UnconnectedGradients.ZERO, broken with pfor
+            parallel_iterations=self.jacobian_pfor_iterations,
+            experimental_use_pfor=self.jacobian_pfor,
+        )
+        # ^  layers list x (batch size x num output classes x weights) matrix
+        # dy_pred_j/dW_sample_class
 
         # Compute the last layer's activation manually since we skipped it above.
         predictions = tf.nn.softmax(predictions)
