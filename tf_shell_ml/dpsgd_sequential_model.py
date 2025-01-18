@@ -69,8 +69,9 @@ class DpSgdSequential(SequentialBase):
 
     def compute_grads(self, features, enc_labels):
         scaling_factor = (
-            enc_labels.scaling_factor if hasattr(enc_labels, "scaling_factor") else 1
+            enc_labels.scaling_factor if hasattr(enc_labels, "scaling_factor") else float("inf")
         )
+        scaling_factor = tf.cast(scaling_factor, dtype=tf.keras.backend.floatx())
 
         # Reset layers for forward pass over multiple devices.
         for l in self.layers:
@@ -110,21 +111,34 @@ class DpSgdSequential(SequentialBase):
                     tf.sign(prediction) / scaling_factor
                 )
 
-                for possible_label_i in range(self.out_classes):
+                def cond(possible_label_i, sensitivity):
+                    return possible_label_i < self.out_classes
+
+                def body(possible_label_i, sensitivity):
                     possible_label = tf.one_hot(
                         possible_label_i,
                         self.out_classes,
                         dtype=tf.keras.backend.floatx(),
                     )
-                    dJ_dz = (
-                        worst_case_prediction - possible_label
-                    )  # Broadcasts to batch subset.
+                    dJ_dz = worst_case_prediction - possible_label
                     possible_grads = self._backward(
                         dJ_dz, sensitivity_analysis_factor=scaling_factor
                     )
 
                     max_norm = self.max_per_example_global_norm(possible_grads)
                     sensitivity = tf.maximum(sensitivity, max_norm)
+                    return possible_label_i + 1, sensitivity
+
+                # Using a tf.while_loop (vs. a python for loop) is preferred as
+                # it does not encode the unrolled loop into the graph, which may
+                # require lots of memory. The `parallel_iterations` argument
+                # allows explicit control over the loop's parallelism.
+                # Increasing parallel_iterations may be faster at the expense of
+                # memory usage.
+                possible_label_i = tf.constant(0)
+                sensitivity = tf.while_loop(
+                    cond, body, [possible_label_i, sensitivity], parallel_iterations=1
+                )[1]
 
                 max_two_norms_list.append(sensitivity)
 
