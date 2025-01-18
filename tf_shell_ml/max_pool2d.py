@@ -60,7 +60,24 @@ class MaxPool2D(keras.layers.Layer):
         """Inputs are expected to be in NHWC format, i.e.
         [batch, height, width, channels]
         """
-        # TODO: Something is setting `outputs` to inputs in dpsgd model.
+
+        # Tensorflow 2.18.0 has a bug in the graph optimizer where if the
+        # input tensor here is a ReLU op, it will be reordered with the
+        # max_pool_with_argmax op below. If this were a normal max_pool
+        # op, this would be a legitamate transformation. However, the
+        # optimizer does not correctly handle the fact that max_pool_with_argmax
+        # returns two values. When it rearranges the ReLU op after MP,
+        # it fogets the fact that there are two outputs. This makes it
+        # appear as though the `argmax` or `output` tensors are actually
+        # the inputs.
+        # This TODO in tensorflow may be related:
+        # https://github.com/tensorflow/tensorflow/blob/7573c297de8ec216dc85855937b3625f63b0a4e5/tensorflow/core/grappler/optimizers/arithmetic_optimizer.cc#L1734
+        #
+        # To work around this, we add a 0.0 to the input tensor. Control
+        # dependencies and other methods to prevent the optimizer from
+        # reordering the ops did not work.
+        inputs = inputs + 0.0
+
         outputs, argmax = tf.nn.max_pool_with_argmax(
             inputs,
             self.pool_size,

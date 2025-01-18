@@ -153,7 +153,7 @@ class Conv2D(keras.layers.Layer):
         z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         kernel = tf.identity(self.weights[0])
         grad_weights = []
-        batch_size = tf.shape(x)[0] // 2
+        batch_size = tf.shape(x)[0]
 
         # To perform sensitivity analysis, add a small perturbation to the
         # intermediate state, dictated by the sensitivity_analysis_factor.
@@ -178,7 +178,7 @@ class Conv2D(keras.layers.Layer):
             d_x = None  # no gradient needed for first layer
         else:
             exp_kernel = tf.expand_dims(kernel, axis=0)
-            exp_kernel = tf.repeat(exp_kernel, batch_size * 2, axis=0)
+            exp_kernel = tf.repeat(exp_kernel, batch_size, axis=0)
             d_x = tf_shell.conv2d_transpose(
                 dy,
                 exp_kernel,
