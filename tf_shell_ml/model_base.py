@@ -19,7 +19,7 @@ from tensorflow.keras.callbacks import CallbackList
 import tf_shell
 import time
 import gc
-from tf_shell_ml import large_tensor
+import tf_shell_ml
 
 
 class SequentialBase(keras.Sequential):
@@ -59,7 +59,7 @@ class SequentialBase(keras.Sequential):
         )
         self.disable_encryption = disable_encryption
         self.disable_masking = disable_masking
-        self.disable_noise = disable_noise
+        self.disable_noise = False if noise_multiplier == 0.0 else disable_noise
         self.check_overflow_INSECURE = check_overflow_INSECURE
         self.dataset_prepped = False
 
@@ -72,14 +72,17 @@ class SequentialBase(keras.Sequential):
                 "WARNING: `jacobian_pfor` may be incompatible with `disable_encryption`."
             )
 
-        if len(self.layers) > 0 and not (
-            self.layers[-1].activation is tf.keras.activations.softmax
-            or self.layers[-1].activation is tf.nn.softmax
-        ):
-            raise ValueError(
-                "The model must have a softmax activation function on the final layer. Saw",
-                self.layers[-1].activation,
-            )
+        if len(self.layers) > 0:
+            if not (
+                self.layers[-1].activation is tf.keras.activations.softmax
+                or self.layers[-1].activation is tf.nn.softmax
+            ):
+                raise ValueError(
+                    "The model must have a softmax activation function on the final layer. Saw",
+                    self.layers[-1].activation,
+                )
+
+            self.out_classes = self.layers[-1].units
 
         # Unset the last layer's activation function. Derived classes handle
         # the softmax activation manually.
@@ -434,84 +437,6 @@ class SequentialBase(keras.Sequential):
         # Split the tensor
         return tf.split(tensor, num_splits, axis=axis), padded_by
 
-    def predict_and_jacobian(self, features):
-        """
-        Predicts the output for the given features and optionally computes the
-        Jacobian.
-
-        Args:
-            features (tf.Tensor): Input features for the model.
-
-        Returns:
-            tuple: A tuple containing:
-                - predictions (tf.Tensor): The model output after applying
-                  softmax.
-                - jacobians (list or tf.Tensor): The Jacobian of the last layer
-                  preactivation with respect to the model weights.
-        """
-        with tf.GradientTape(
-            persistent=tf.executing_eagerly() or self.jacobian_pfor
-        ) as tape:
-            predictions = self(features, training=True, with_softmax=False)
-
-        jacobians = tape.jacobian(
-            predictions,
-            self.trainable_variables,
-            # unconnected_gradients=tf.UnconnectedGradients.ZERO, broken with pfor
-            parallel_iterations=self.jacobian_pfor_iterations,
-            experimental_use_pfor=self.jacobian_pfor,
-        )
-        # ^  layers list x (batch size x num output classes x weights) matrix
-        # dy_pred_j/dW_sample_class
-
-        # Compute the last layer's activation manually since we skipped it above.
-        predictions = tf.nn.softmax(predictions)
-
-        return predictions, jacobians
-
-    def jacobian_max_two_norm(self, jacobians):
-        """
-        Computes the maximum two-norm of the Jacobian over all examples in
-        the batch and all output classes, layer-wise to limit memory usage.
-
-        Args:
-            jacobians (list of tf.Tensor): A list of tensors representing the
-                Jacobians of the model last layer pre-activation with respect to
-                the weights.
-
-        Returns:
-            tf.Tensor: A scalar tensor representing the maximum two-norm.
-        """
-        if len(jacobians) == 0:
-            return tf.constant(0.0, dtype=tf.keras.backend.floatx())
-
-        batch_size = jacobians[0].shape[0]
-        num_output_classes = jacobians[0].shape[1]
-
-        # Sum of squares accumulates the l2 norm squared of the per-example,
-        # per-output class gradients.
-        sum_of_squares = tf.zeros(
-            [batch_size, num_output_classes], dtype=tf.keras.backend.floatx()
-        )
-
-        for j in jacobians:
-            # Ignore the batch size and num output classes dimensions and
-            # recover just the number of dimensions in the weights.
-            num_weight_dims = len(j.shape) - 2
-            reduce_sum_dims = range(2, 2 + num_weight_dims)
-            sum_of_squares += tf.reduce_sum(tf.square(j), axis=reduce_sum_dims)
-
-        # Find the largest two l2 norms over the output classes.
-        top_2_l2s = tf.sqrt(tf.math.top_k(sum_of_squares, k=2).values)
-
-        # Compute their sum, i.e. ||v|| + ||w|| where v and w are the two
-        # largest per-class gradients by l2 norm, for every per-example
-        # gradient.
-        max_two_norm = tf.reduce_sum(top_2_l2s, axis=1)
-
-        # Return the maximum over the examples.
-        return tf.reduce_max(max_two_norm)
-
     def flatten_and_pad_grad(self, grad, dim_0_sz):
         num_el = tf.cast(tf.size(grad), dtype=tf.int64)
 
@@ -551,6 +476,33 @@ class SequentialBase(keras.Sequential):
             grads.append(grad)
 
         return grads
+
+    def max_per_example_global_norm(self, grads):
+        """
+        Computes the maximum per-example global norm of the gradients.
+
+        Args:
+            grads (list of tf.Tensor): The list of gradient tensors.
+
+        Returns:
+            tf.Tensor: Scalar of the maximum global norm of the gradients.
+        """
+        if len(grads) == 0:
+            return tf.constant(0.0, dtype=tf.keras.backend.floatx())
+
+        # Sum of squares accumulates the l2 norm squared of the per-example
+        # gradients.
+        sum_of_squares = tf.zeros([grads[0].shape[0]], dtype=tf.keras.backend.floatx())
+        for g in grads:
+            # Ignore the batch size and num output classes
+            # dimensions and recover just the number of dimensions
+            # in the weights.
+            num_weight_dims = len(g.shape) - 1
+            weight_dims = range(1, 1 + num_weight_dims)
+            sum_of_squares += tf.reduce_sum(tf.square(g), axis=weight_dims)
+
+        max_norm = tf.sqrt(tf.reduce_max(sum_of_squares))
+        return max_norm
 
     def spoof_int_gradients(self, grads):
         """
@@ -902,8 +854,8 @@ class SequentialBase(keras.Sequential):
                 # Note, running this on a single machine sometimes breaks
                 # TensorFlow's optimizer, which then decides to replace the
                 # entire training graph with a const op.
-                chunked_grads, chunked_grads_metadata = large_tensor.split_tensor_list(
-                    grads
+                chunked_grads, chunked_grads_metadata = (
+                    tf_shell_ml.large_tensor.split_tensor_list(grads)
                 )
 
             if not self.disable_noise:
@@ -944,7 +896,7 @@ class SequentialBase(keras.Sequential):
         with tf.device(self.labels_party_dev):
             if self.features_party_dev != self.labels_party_dev:
                 # Reassemble the tensor list after sending it between machines.
-                grads = large_tensor.reassemble_tensor_list(
+                grads = tf_shell_ml.large_tensor.reassemble_tensor_list(
                     chunked_grads, chunked_grads_metadata
                 )
 

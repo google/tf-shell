@@ -82,7 +82,7 @@ class ShellEmbedding(keras.layers.Layer):
         outputs = tf.experimental.numpy.take(self.embeddings, inputs, axis=0)
         return outputs
 
-    def backward(self, dy, rotation_key=None):
+    def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         """
         dy is shape (batch_size, sentence_length, output_dimension)
         _layer_input is (batch_size, sentence_length)
@@ -134,7 +134,10 @@ class ShellEmbedding(keras.layers.Layer):
             reduction=self.grad_reduction,
         )
 
-        return [summedvalues], tf.zeros(0)
+        # The output of this function has the same scaling factor as the input.
+        new_sensitivity_analysis_factor = sensitivity_analysis_factor
+
+        return [summedvalues], tf.zeros(0), new_sensitivity_analysis_factor
 
     @staticmethod
     def unpack(plaintext_packed_dx):

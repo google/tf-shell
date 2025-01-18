@@ -88,7 +88,7 @@ class MaxPool2D(keras.layers.Layer):
 
         return outputs
 
-    def backward(self, dy, rotation_key=None):
+    def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         """Compute the gradient."""
         indices = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         grad_weights = []
@@ -114,7 +114,10 @@ class MaxPool2D(keras.layers.Layer):
                 output_shape=self._layer_input_shape,
             )
 
-        return grad_weights, d_x
+        # The output of this function has the same scaling factor as the input.
+        new_sensitivity_analysis_factor = sensitivity_analysis_factor
+
+        return grad_weights, d_x, new_sensitivity_analysis_factor
 
     def unpacking_funcs(self):
         return []

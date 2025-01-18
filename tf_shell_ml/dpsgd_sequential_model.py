@@ -51,7 +51,27 @@ class DpSgdSequential(SequentialBase):
         # purposes.
         return tf.nn.softmax(predictions)
 
+    def _backward(self, dJ_dz, sensitivity_analysis_factor=None):
+        # Backward pass. dJ_dz is the derivative of the loss with respect to the
+        # last layer pre-activation.
+        dJ_dw = []  # Derivatives of the loss with respect to the weights.
+        dJ_dx = [dJ_dz]  # Derivatives of the loss with respect to the inputs.
+        sa_factor = sensitivity_analysis_factor
+        for l in reversed(self.layers):
+            dw, dx, new_sa_factor = l.backward(
+                dJ_dx[-1], sensitivity_analysis_factor=sa_factor
+            )
+            dJ_dw.extend(dw)
+            dJ_dx.append(dx)
+            sa_factor = new_sa_factor
+
+        return [g for g in reversed(dJ_dw)]
+
     def compute_grads(self, features, enc_labels):
+        scaling_factor = (
+            enc_labels.scaling_factor if hasattr(enc_labels, "scaling_factor") else 1
+        )
+
         # Reset layers for forward pass over multiple devices.
         for l in self.layers:
             l.reset_split_forward_mode()
@@ -67,29 +87,56 @@ class DpSgdSequential(SequentialBase):
         for i, d in enumerate(self.jacobian_devices):
             with tf.device(d):
                 f = tf.identity(split_features[i])  # copy to GPU if needed
-                prediction, jacobians = self.predict_and_jacobian(f)
+
+                # First compute the real prediction.
+                prediction = self.call(f, training=True, with_softmax=True)
+
+                # prediction, jacobians = self.TEST_predict_and_jacobian(f) # TEST
+
                 if i == len(self.jacobian_devices) - 1 and end_pad > 0:
-                    # The last device's features may have been padded for even
-                    # split jacobian computation across multiple devices.
+                    # The last device's features may have been padded.
                     prediction = prediction[:-end_pad]
-                    jacobians = jacobians[:-end_pad]
                 predictions_list.append(prediction)
-                max_two_norms_list.append(self.jacobian_max_two_norm(jacobians))
+
+                # Next perform the sensitivity analysis. Straightforward
+                # backpropagation has mul/add depth proportional to the number
+                # of layers and the encoding error accumulates through each op.
+                # It is difficult to tightly bound and easier to simply compute.
+                #
+                # Perform backpropagation (in plaintext) for every possible
+                # label using the worst casse quantization of weights.
+                sensitivity = tf.constant(0.0, dtype=tf.keras.backend.floatx())
+                worst_case_prediction = prediction + (
+                    tf.sign(prediction) / scaling_factor
+                )
+
+                for possible_label_i in range(self.out_classes):
+                    possible_label = tf.one_hot(
+                        possible_label_i,
+                        self.out_classes,
+                        dtype=tf.keras.backend.floatx(),
+                    )
+                    dJ_dz = (
+                        worst_case_prediction - possible_label
+                    )  # Broadcasts to batch subset.
+                    possible_grads = self._backward(
+                        dJ_dz, sensitivity_analysis_factor=scaling_factor
+                    )
+
+                    max_norm = self.max_per_example_global_norm(possible_grads)
+                    sensitivity = tf.maximum(sensitivity, max_norm)
+
+                max_two_norms_list.append(sensitivity)
 
         with tf.device(self.features_party_dev):
             predictions = tf.concat(predictions_list, axis=0)
             max_two_norm = tf.reduce_max(max_two_norms_list)
 
-            # Backward pass.
-            dx = enc_labels.__rsub__(predictions)  # Derivative of CCE loss and softmax.
-            dJ_dw = []  # Derivatives of the loss with respect to the weights.
-            dJ_dx = [dx]  # Derivatives of the loss with respect to the inputs.
-            for l in reversed(self.layers):
-                dw, dx = l.backward(dJ_dx[-1])
-                dJ_dw.extend(dw)
-                dJ_dx.append(dx)
+            dJ_dz = enc_labels.__rsub__(
+                predictions
+            )  # Derivative of CCE loss and softmax.
 
-            # Reverse the order to match the order of the layers.
-            grads = [g for g in reversed(dJ_dw)]
+            # Backward pass.
+            grads = self._backward(dJ_dz)
 
         return grads, max_two_norm, predictions

@@ -35,7 +35,7 @@ class Flatten(keras.layers.Layer):
         self.batch_size = tf.shape(inputs)[0]
         return tf.reshape(inputs, [self.batch_size] + self.flat_shape)
 
-    def backward(self, dy, rotation_key=None):
+    def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         new_shape = list(self.input_shape)
         # On the forward pass, inputs may be batched differently than the
         # ciphertext scheme when not in eager mode. Pad them to match the
@@ -46,4 +46,8 @@ class Flatten(keras.layers.Layer):
             new_shape[0] = dy.shape[0]
         dw = []
         dx = tf_shell.reshape(dy, new_shape)
-        return dw, dx
+
+        # The output of this function has the same scaling factor as the input.
+        new_sensitivity_analysis_factor = sensitivity_analysis_factor
+
+        return dw, dx, new_sensitivity_analysis_factor

@@ -38,13 +38,17 @@ class GlobalAveragePooling1D(keras.layers.Layer):
 
         return outputs
 
-    def backward(self, dy, rotation_key=None):
+    def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         avg_dim = tf.identity(self._layer_intermediate)
         dx = tf_shell.expand_dims(dy, axis=1)
         dx = tf_shell.broadcast_to(
             dx, (tf_shell.shape(dx)[0], avg_dim, tf_shell.shape(dx)[2])
         )
-        return [], dx
+
+        # The output of this function has the same scaling factor as the input.
+        new_sensitivity_analysis_factor = sensitivity_analysis_factor
+
+        return [], dx, new_sensitivity_analysis_factor
 
     @staticmethod
     def unpack(packed_dw):

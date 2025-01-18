@@ -111,13 +111,20 @@ class ShellDense(keras.layers.Layer):
 
         return outputs
 
-    def backward(self, dy, rotation_key=None):
+    def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         """dense backward"""
         x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
         z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
-        self._layer_intermediate = []
         kernel = tf.identity(self.weights[0])
         d_ws = []
+
+        # To perform sensitivity analysis, add a small perturbation to the
+        # intermediate state, dictated by the sensitivity_analysis_factor.
+        # The perturbation has the same sign as the underlying value.
+        if sensitivity_analysis_factor is not None:
+            x = x + (tf.sign(x) / sensitivity_analysis_factor)
+            z = z + (tf.sign(z) / sensitivity_analysis_factor)
+            kernel = kernel + (tf.sign(kernel) / sensitivity_analysis_factor)
 
         # On the forward pass, inputs may be batched differently than the
         # ciphertext scheme when not in eager mode. Pad them to match the
@@ -158,7 +165,15 @@ class ShellDense(keras.layers.Layer):
 
             d_ws.append(d_bias)
 
-        return d_ws, d_x
+        # Both dw an dx have a mul depth of 1 in this function. Thus, the
+        # sensitivity factor is squared.
+        new_sensitivity_analysis_factor = (
+            sensitivity_analysis_factor**2
+            if sensitivity_analysis_factor is not None
+            else None
+        )
+
+        return d_ws, d_x, new_sensitivity_analysis_factor
 
     @staticmethod
     def unpack(plaintext_packed_dx):
