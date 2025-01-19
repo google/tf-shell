@@ -136,8 +136,8 @@ class ShellDense(keras.layers.Layer):
         # ciphertext scheme when not in eager mode. Pad them to match the
         # ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
-            padding = [[0, dy._context.num_slots - self._layer_input_shape [0]]] + [
-                [0, 0] for _ in range(len(self._layer_input_shape ) - 1)
+            padding = [[0, dy._context.num_slots - self._layer_input_shape[0]]] + [
+                [0, 0] for _ in range(len(self._layer_input_shape) - 1)
             ]
             x = tf.pad(x, padding)
 

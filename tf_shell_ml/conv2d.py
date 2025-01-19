@@ -173,9 +173,9 @@ class Conv2D(keras.layers.Layer):
         # ciphertext scheme. Pad them to match the ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
             with tf.name_scope("conv_pad"):
-                batch_padding = [[0, dy._context.num_slots - self._layer_input_shape[0]]] + [
-                    [0, 0] for _ in range(len(self._layer_input_shape) - 1)
-                ]
+                batch_padding = [
+                    [0, dy._context.num_slots - self._layer_input_shape[0]]
+                ] + [[0, 0] for _ in range(len(self._layer_input_shape) - 1)]
                 x = tf.pad(x, batch_padding)
 
         if self.activation_deriv is not None:

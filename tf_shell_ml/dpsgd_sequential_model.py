@@ -69,7 +69,9 @@ class DpSgdSequential(SequentialBase):
 
     def compute_grads(self, features, enc_labels):
         scaling_factor = (
-            enc_labels.scaling_factor if hasattr(enc_labels, "scaling_factor") else float("inf")
+            enc_labels.scaling_factor
+            if hasattr(enc_labels, "scaling_factor")
+            else float("inf")
         )
         scaling_factor = tf.cast(scaling_factor, dtype=tf.keras.backend.floatx())
 

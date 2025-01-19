@@ -20,7 +20,7 @@ import numpy as np
 import tf_shell
 import tf_shell_ml
 
-epochs = 6
+epochs = 2
 batch_size = 2**12
 
 # Prepare the dataset.
@@ -72,9 +72,9 @@ def train_step(x, y):
     # Backward pass.
     dJ_dy_pred = y.__rsub__(y_pred)  # Derivative of CCE loss and softmax.
 
-    dJ_dw1, dJ_dx1 = output_layer.backward(dJ_dy_pred, None)
+    dJ_dw1, dJ_dx1, _ = output_layer.backward(dJ_dy_pred, None)
 
-    dJ_dw0, dJ_dx0_unused = hidden_layer.backward(dJ_dx1, None)
+    dJ_dw0, dJ_dx0_unused, _ = hidden_layer.backward(dJ_dx1, None)
 
     return dJ_dw1, dJ_dw0
 

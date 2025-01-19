@@ -76,7 +76,7 @@ class TestConv2D(tf.test.TestCase):
         self.assertAllClose(y, tf_y)
 
         # Next check backward pass.
-        dws, dx = conv_layer.backward(tf.ones_like(y), rotation_key)
+        dws, dx, _ = conv_layer.backward(tf.ones_like(y), rotation_key)
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(im)
             y = tf_conv_layer(im)
@@ -130,13 +130,13 @@ class TestConv2D(tf.test.TestCase):
             enc_dy = tf_shell.to_encrypted(dy, key, context)
 
             # Encrypted backward pass.
-            enc_dw, enc_dx = conv_layer.backward(enc_dy, rotation_key)
+            enc_dw, enc_dx, _ = conv_layer.backward(enc_dy, rotation_key)
             dw = tf_shell.to_tensorflow(enc_dw[0], key)
             # dw = conv_layer.unpack(dw)  # for layer reduction 'fast' or 'galois'
             dx = tf_shell.to_tensorflow(enc_dx, key)
 
             # Plaintext backward pass.
-            pt_dws, pt_dx = conv_layer.backward(dy, None)
+            pt_dws, pt_dx, _ = conv_layer.backward(dy, None)
             pt_dw = pt_dws[0]  # No unpack required for pt.
 
             return dw, dx, dw.shape, dx.shape, pt_dw, pt_dx

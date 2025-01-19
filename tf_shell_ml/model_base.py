@@ -820,7 +820,9 @@ class SequentialBase(keras.Sequential):
                 # than the plaintext modulus.
                 tf.assert_less(
                     max_two_norm,
-                    tf.cast(backprop_context.plaintext_modulus, tf.keras.backend.floatx()),
+                    tf.cast(
+                        backprop_context.plaintext_modulus, tf.keras.backend.floatx()
+                    ),
                     message="Gradient may be too large for the backprop context's plaintext modulus. Reduce the sensitivity by reducing the gradient norms (e.g. reducing the backprop scaling factor), or increase the backprop context's plaintext modulus.",
                 )
 

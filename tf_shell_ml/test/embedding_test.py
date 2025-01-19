@@ -83,7 +83,7 @@ class TestEmbedding(tf.test.TestCase):
             dy = tf.ones_like(y)
             enc_dy = tf_shell.to_encrypted(dy, key, context)
 
-            enc_dw, _ = embedding_layer.backward(enc_dy, rotation_key)
+            enc_dw, _, _ = embedding_layer.backward(enc_dy, rotation_key)
             dw = tf_shell.to_tensorflow(enc_dw[0], key)
             if reduction == "none":
                 dw = tf.reduce_sum(dw, axis=0)

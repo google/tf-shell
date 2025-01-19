@@ -100,7 +100,7 @@ class TestDistribModel(tf.test.TestCase):
                 ],
                 lambda read_from_cache: tf_shell.create_autocontext64(
                     log2_cleartext_sz=23,
-                    scaling_factor=16,
+                    scaling_factor=4,
                     noise_offset_log2=14,
                     read_from_cache=read_from_cache,
                     cache_path=cache,
@@ -119,7 +119,7 @@ class TestDistribModel(tf.test.TestCase):
 
             m.compile(
                 loss=tf.keras.losses.CategoricalCrossentropy(),
-                optimizer=tf.keras.optimizers.Adam(0.05),
+                optimizer=tf.keras.optimizers.Adam(0.1),
                 metrics=[tf.keras.metrics.CategoricalAccuracy()],
             )
 

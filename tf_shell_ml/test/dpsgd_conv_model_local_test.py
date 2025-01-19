@@ -41,7 +41,7 @@ class TestModel(tf.test.TestCase):
         labels_dataset = labels_dataset.batch(2**10)
 
         features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-        features_dataset = features_dataset.batch(2**10)
+        features_dataset = features_dataset.batch(2**12)
 
         val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
         val_dataset = val_dataset.batch(32)
@@ -103,12 +103,12 @@ class TestModel(tf.test.TestCase):
             disable_masking=disable_masking,
             disable_noise=disable_noise,
             cache_path=cache,
-            # check_overflow_INSECURE=True,
+            check_overflow_INSECURE=True,
         )
 
         m.compile(
             loss=tf.keras.losses.CategoricalCrossentropy(),
-            optimizer=tf.keras.optimizers.Adam(0.01),
+            optimizer=tf.keras.optimizers.Adam(0.01, beta_1=0.8),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
@@ -119,7 +119,7 @@ class TestModel(tf.test.TestCase):
             features_dataset,
             labels_dataset,
             steps_per_epoch=1,
-            epochs=1,
+            epochs=8,
             verbose=1,
             validation_data=val_dataset,
         )
