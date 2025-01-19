@@ -89,6 +89,7 @@ class ShellDense(keras.layers.Layer):
     def reset_split_forward_mode(self):
         self._layer_intermediate = []
         self._layer_input = []
+        self._layer_input_shape = None
 
     def call(self, inputs, training=False, split_forward_mode=False):
         kernel = tf.identity(self.weights[0])
@@ -100,11 +101,16 @@ class ShellDense(keras.layers.Layer):
 
         if training:
             if split_forward_mode:
+                if self._layer_input_shape is None:
+                    self._layer_input_shape = inputs.shape.as_list()
+                else:
+                    self._layer_input_shape[0] += inputs.shape.as_list()[0]
                 self._layer_intermediate.append(outputs)
                 self._layer_input.append(inputs)
             else:
                 self._layer_intermediate = [outputs]
                 self._layer_input = [inputs]
+                self._layer_input_shape = inputs.shape.as_list()
 
         if self.activation is not None:
             outputs = self.activation(outputs)
@@ -130,8 +136,8 @@ class ShellDense(keras.layers.Layer):
         # ciphertext scheme when not in eager mode. Pad them to match the
         # ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
-            padding = [[0, dy._context.num_slots - x.shape[0]]] + [
-                [0, 0] for _ in range(len(x.shape) - 1)
+            padding = [[0, dy._context.num_slots - self._layer_input_shape [0]]] + [
+                [0, 0] for _ in range(len(self._layer_input_shape ) - 1)
             ]
             x = tf.pad(x, padding)
 

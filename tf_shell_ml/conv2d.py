@@ -62,6 +62,7 @@ class Conv2D(keras.layers.Layer):
     def reset_split_forward_mode(self):
         self._layer_intermediate = []
         self._layer_input = []
+        self._layer_input_shape = None
 
     def get_config(self):
         config = super().get_config()
@@ -136,11 +137,16 @@ class Conv2D(keras.layers.Layer):
 
         if training:
             if split_forward_mode:
+                if self._layer_input_shape is None:
+                    self._layer_input_shape = inputs.shape.as_list()
+                else:
+                    self._layer_input_shape[0] += inputs.shape.as_list()[0]
                 self._layer_intermediate.append(outputs)
                 self._layer_input.append(inputs)
             else:
                 self._layer_intermediate = [outputs]
                 self._layer_input = [inputs]
+                self._layer_input_shape = inputs.shape.as_list()
 
         if self.activation is not None:
             outputs = self.activation(outputs)
@@ -166,10 +172,11 @@ class Conv2D(keras.layers.Layer):
         # On the forward pass, x may be batched differently than the
         # ciphertext scheme. Pad them to match the ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
-            batch_padding = [[0, dy._context.num_slots - x.shape[0]]] + [
-                [0, 0] for _ in range(len(x.shape) - 1)
-            ]
-            x = tf.pad(x, batch_padding)
+            with tf.name_scope("conv_pad"):
+                batch_padding = [[0, dy._context.num_slots - self._layer_input_shape[0]]] + [
+                    [0, 0] for _ in range(len(self._layer_input_shape) - 1)
+                ]
+                x = tf.pad(x, batch_padding)
 
         if self.activation_deriv is not None:
             dy = self.activation_deriv(z, dy)
