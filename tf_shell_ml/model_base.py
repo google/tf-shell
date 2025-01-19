@@ -594,7 +594,7 @@ class SequentialBase(keras.Sequential):
 
         return masked_grads, masks
 
-    def unmask_gradients(self, context, grads, masks, mask_scaling_factors):
+    def unmask_gradients(self, context, grads, masks):
         """
         Unmasks the gradients by subtracting the masks, and converting to
         floating point representation using the scaling factors.
@@ -611,16 +611,12 @@ class SequentialBase(keras.Sequential):
             list of tf.Tensor: The unmasked gradients.
         """
         # Sum the masks over the batch.
-        sum_masks = [
-            tf_shell.reduce_sum_with_mod(m, 0, context, s)
-            for m, s in zip(masks, mask_scaling_factors)
-        ]
+        sum_masks = [tf_shell.reduce_sum_with_mod(m, 0, context, 1) for m in masks]
 
         # Unmask the batch gradient.
         masks_and_grads = [tf.stack([-m, g]) for m, g in zip(sum_masks, grads)]
         unmasked_grads = [
-            tf_shell.reduce_sum_with_mod(mg, 0, context, s)
-            for mg, s in zip(masks_and_grads, mask_scaling_factors)
+            tf_shell.reduce_sum_with_mod(mg, 0, context, 1) for mg in masks_and_grads
         ]
 
         return unmasked_grads
@@ -912,8 +908,8 @@ class SequentialBase(keras.Sequential):
                 grads = [tf.reduce_sum(g, axis=0) for g in grads]
             else:
                 grads = [
-                    tf_shell.reduce_sum_with_mod(g, 0, backprop_context, s)
-                    for g, s in zip(grads, backprop_scaling_factors)
+                    tf_shell.reduce_sum_with_mod(g, 0, backprop_context, 1)
+                    for g in grads
                 ]
 
             if not self.disable_noise:
@@ -941,9 +937,7 @@ class SequentialBase(keras.Sequential):
 
             # Unmask the gradients.
             if not self.disable_masking and not self.disable_encryption:
-                grads = self.unmask_gradients(
-                    backprop_context, grads, masks, backprop_scaling_factors
-                )
+                grads = self.unmask_gradients(backprop_context, grads, masks)
 
             # Recover the original scaling factor of the gradients if they were
             # originally encrypted.
