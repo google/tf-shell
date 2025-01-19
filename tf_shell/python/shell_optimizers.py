@@ -65,7 +65,7 @@ def optimize_shell_graph(
         frozen_func = func
 
     meta_graph_def = saver.export_meta_graph(
-        graph_def=frozen_func.graph.as_graph_def(add_shapes=True),
+        graph_def=frozen_func.graph.as_graph_def(add_shapes=False),
         graph=frozen_func.graph,
     )
 
