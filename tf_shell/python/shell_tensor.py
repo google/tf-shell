@@ -766,6 +766,47 @@ def to_tensorflow(s_tensor, key=None):
     )
 
 
+def mask_with_pt(x, mask):
+    if not isinstance(mask, tf.Tensor):
+        raise ValueError(f"Mask must be a TensorFlow Tensor. Got {type(mask)}.")
+
+    if isinstance(x, ShellTensor64):
+        # Do not encode the mask with a scaling factor, it is 0 or 1.
+        shell_mask = to_shell_plaintext(mask, x._context, override_scaling_factor=1)
+
+        matched_x, matched_mask = _match_moduli(x, shell_mask)
+
+        if x._is_enc:
+            raw_result = shell_ops.mul_ct_pt64(
+                matched_x._context._get_context_at_level(matched_x._level),
+                matched_x._raw_tensor,
+                matched_mask._raw_tensor,
+            )
+        else:
+            raw_result = shell_ops.mul_pt_pt64(
+                matched_x._context._get_context_at_level(matched_x._level),
+                matched_x._raw_tensor,
+                matched_mask._raw_tensor,
+            )
+
+        return ShellTensor64(
+            _raw_tensor=raw_result,
+            _context=matched_x._context,
+            _level=matched_x._level,
+            _num_mod_reductions=matched_x._num_mod_reductions,
+            _underlying_dtype=matched_x._underlying_dtype,
+            _scaling_factor=matched_x._scaling_factor,  # Same sacling factor
+            _is_enc=matched_x._is_enc,
+            _is_fast_rotated=matched_x._is_fast_rotated,
+        )
+
+    elif isinstance(x, tf.Tensor):
+        return x * mask
+
+    else:
+        raise ValueError(f"Unsupported type for mask_with_pt. Got {type(x)}.")
+
+
 def roll(x, shift, rotation_key=None):
     if isinstance(x, ShellTensor64):
         if not isinstance(rotation_key, ShellRotationKey64):

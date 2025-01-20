@@ -31,7 +31,10 @@ def relu_deriv(y, dy):
         tf.constant(1, dtype=tf.keras.backend.floatx()),
         tf.constant(0, dtype=tf.keras.backend.floatx()),
     )
-    return dy * mask
+
+    # Use a special tf_shell function to multiply by a binary mask, without
+    # affecting the scaling factor in the case when dy is a ShellTensor.
+    return tf_shell.mask_with_pt(dy, mask)
 
 
 def sigmoid(x):
