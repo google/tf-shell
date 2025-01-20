@@ -512,6 +512,27 @@ def _get_shell_dtype_from_underlying(type):
         raise ValueError(f"Unsupported type {type}")
 
 
+def worst_case_rounding(tensor, scaling_factor):
+    """
+    Rounds a tensor to the largest absolute fractional value of the scaling
+    factor.
+
+    This function pairs with randomized_rounding() and will return the
+    worst-case randomized rounding of the tensor, i.e., the tensor with the
+    largest L2 norm after being randomly rounded.
+    """
+    if scaling_factor == 0 or scaling_factor == float("inf"):
+        return tensor
+
+    with tf.name_scope("worst_case_rounding"):
+        scaled_tensor = tensor * scaling_factor
+        ceil = tf.math.ceil(scaled_tensor)
+        floor = tf.math.floor(scaled_tensor)
+
+        worst_case = tf.where(scaled_tensor > 0, ceil, floor)
+        return worst_case / scaling_factor
+
+
 _ENALBE_RANDOMIZED_ROUNDING = False
 
 
@@ -522,16 +543,19 @@ def enable_randomized_rounding(enable=True):
 
 def randomized_rounding(tensor):
     """
-    Performs randomized rounding on a tensorflow tensor with dynamic/unknown shape.
+    Performs randomized rounding on a tensorflow tensor.
     """
     with tf.name_scope("randomized_rounding"):
-        dynamic_shape = tf.shape(tensor)
-        floor = tf.floor(tensor)
-        decimal_part = tensor - floor
-        random_mask = (
-            tf.random.uniform(dynamic_shape, dtype=tensor.dtype) < decimal_part
+        ceil = tf.math.ceil(tensor)
+        floor = tf.math.floor(tensor)
+        decimal_part = tf.where(tensor > 0, tensor - floor, ceil - tensor)
+
+        randomness = tf.random.uniform(tf.shape(tensor), dtype=tensor.dtype)
+        round_up_mask = tf.where(
+            tensor >= 0, randomness < decimal_part, randomness > decimal_part
         )
-        return floor + tf.cast(random_mask, dtype=tensor.dtype)
+
+        return tf.where(round_up_mask, ceil, floor)
 
 
 def _encode_scaling(tf_tensor, scaling_factor=1):

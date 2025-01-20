@@ -107,7 +107,14 @@ class MaxPool2D(keras.layers.Layer):
 
     def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         """Compute the gradient."""
-        indices = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
+        if sensitivity_analysis_factor is not None:
+            # When performing sensitivity analysis, use the most recent
+            # intermediate state.
+            indices = self._layer_intermediate[-1]
+        else:
+            indices = tf.concat(
+                [tf.identity(z) for z in self._layer_intermediate], axis=0
+            )
         grad_weights = []
 
         # On the forward pass, inputs may be batched differently than the

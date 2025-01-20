@@ -83,9 +83,14 @@ class ShellDropout(keras.layers.Layer):
         return output
 
     def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
-        dropout_mask = tf.concat(
-            [tf.identity(z) for z in self._layer_intermediate], axis=0
-        )
+        if sensitivity_analysis_factor is not None:
+            # When performing sensitivity analysis, use the most recent
+            # intermediate state.
+            dropout_mask = self._layer_intermediate[-1]
+        else:
+            dropout_mask = tf.concat(
+                [tf.identity(z) for z in self._layer_intermediate], axis=0
+            )
 
         # Both dx has a mul depth of 1 in this function. Thus, the sensitivity
         # factor is squared.

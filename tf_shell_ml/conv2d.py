@@ -155,19 +155,26 @@ class Conv2D(keras.layers.Layer):
 
     def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         """Compute the gradient."""
+        if sensitivity_analysis_factor is not None:
+            # When performing sensitivity analysis, use the most recent
+            # intermediate state.
+            x = self._layer_input[-1]
+            z = self._layer_intermediate[-1]
+        else:
+            x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
+            z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
         z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         kernel = tf.identity(self.weights[0])
         grad_weights = []
         batch_size = tf.shape(x)[0]
 
-        # To perform sensitivity analysis, add a small perturbation to the
-        # intermediate state, dictated by the sensitivity_analysis_factor.
-        # The perturbation has the same sign as the underlying value.
+        # To perform sensitivity analysis, assume the worst case rounding for
+        # the intermediate state, dictated by the sensitivity_analysis_factor.
         if sensitivity_analysis_factor is not None:
-            x = x + (tf.sign(x) / sensitivity_analysis_factor)
-            z = z + (tf.sign(z) / sensitivity_analysis_factor)
-            kernel = kernel + (tf.sign(kernel) / sensitivity_analysis_factor)
+            x = tf_shell.worst_case_rounding(x, sensitivity_analysis_factor)
+            z = tf_shell.worst_case_rounding(z, sensitivity_analysis_factor)
+            kernel = tf_shell.worst_case_rounding(kernel, sensitivity_analysis_factor)
 
         # On the forward pass, x may be batched differently than the
         # ciphertext scheme. Pad them to match the ciphertext scheme.

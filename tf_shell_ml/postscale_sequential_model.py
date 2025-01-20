@@ -141,11 +141,11 @@ class PostScaleSequential(SequentialBase):
                 # possible label using the worst casse quantization of the
                 # jacobian.
                 sensitivity = tf.constant(0.0, dtype=tf.keras.backend.floatx())
-                worst_case_quantized_jacobians = [
-                    j + (tf.sign(j) / scaling_factor) for j in jacobians
+                worst_case_jacobians = [
+                    tf_shell.worst_case_rounding(j, scaling_factor) for j in jacobians
                 ]
-                worst_case_prediction = prediction + (
-                    tf.sign(prediction) / scaling_factor
+                worst_case_prediction = tf_shell.worst_case_rounding(
+                    prediction, scaling_factor
                 )
 
                 def cond(possible_label_i, sensitivity):
@@ -158,9 +158,7 @@ class PostScaleSequential(SequentialBase):
                         dtype=tf.keras.backend.floatx(),
                     )
                     dJ_dz = worst_case_prediction - possible_label
-                    possible_grads = self._backward(
-                        dJ_dz, worst_case_quantized_jacobians
-                    )
+                    possible_grads = self._backward(dJ_dz, worst_case_jacobians)
 
                     max_norm = self.max_per_example_global_norm(possible_grads)
                     sensitivity = tf.maximum(sensitivity, max_norm)

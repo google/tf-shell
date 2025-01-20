@@ -94,13 +94,6 @@ class DpSgdSequential(SequentialBase):
                 # First compute the real prediction.
                 prediction = self.call(f, training=True, with_softmax=True)
 
-                # prediction, jacobians = self.TEST_predict_and_jacobian(f) # TEST
-
-                if i == len(self.jacobian_devices) - 1 and end_pad > 0:
-                    # The last device's features may have been padded.
-                    prediction = prediction[:-end_pad]
-                predictions_list.append(prediction)
-
                 # Next perform the sensitivity analysis. Straightforward
                 # backpropagation has mul/add depth proportional to the number
                 # of layers and the encoding error accumulates through each op.
@@ -109,8 +102,8 @@ class DpSgdSequential(SequentialBase):
                 # Perform backpropagation (in plaintext) for every possible
                 # label using the worst casse quantization of weights.
                 sensitivity = tf.constant(0.0, dtype=tf.keras.backend.floatx())
-                worst_case_prediction = prediction + (
-                    tf.sign(prediction) / scaling_factor
+                worst_case_prediction = tf_shell.worst_case_rounding(
+                    prediction, scaling_factor
                 )
 
                 def cond(possible_label_i, sensitivity):
@@ -126,6 +119,10 @@ class DpSgdSequential(SequentialBase):
                     possible_grads = self._backward(
                         dJ_dz, sensitivity_analysis_factor=scaling_factor
                     )
+                    if i == len(self.jacobian_devices) - 1 and end_pad > 0:
+                        # The last device's features may have been padded.
+                        # Remove the extra gradients before computing the norm.
+                        possible_grads = [g[:-end_pad] for g in possible_grads]
 
                     max_norm = self.max_per_example_global_norm(possible_grads)
                     sensitivity = tf.maximum(sensitivity, max_norm)
@@ -142,6 +139,10 @@ class DpSgdSequential(SequentialBase):
                     cond, body, [possible_label_i, sensitivity], parallel_iterations=1
                 )[1]
 
+                if i == len(self.jacobian_devices) - 1 and end_pad > 0:
+                    # The last device's features may have been padded.
+                    prediction = prediction[:-end_pad]
+                predictions_list.append(prediction)
                 max_two_norms_list.append(sensitivity)
 
         with tf.device(self.features_party_dev):
