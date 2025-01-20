@@ -141,10 +141,7 @@ class ShellEmbedding(keras.layers.Layer):
             reduction=self.grad_reduction,
         )
 
-        # The output of this function has the same scaling factor as the input.
-        new_sensitivity_analysis_factor = sensitivity_analysis_factor
-
-        return [summedvalues], tf.zeros(0), new_sensitivity_analysis_factor
+        return [summedvalues], None
 
     @staticmethod
     def unpack(plaintext_packed_dx):

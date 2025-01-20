@@ -70,13 +70,13 @@ def train_step(x, y, hidden_layer, output_layer):
     # Backward pass.
     dJ_dy_pred = y.__rsub__(y_pred)  # Derivative of CCE loss and softmax.
 
-    dJ_dw1, dJ_dx1, _ = output_layer.backward(dJ_dy_pred, rotation_key)
+    dJ_dw1, dJ_dx1 = output_layer.backward(dJ_dy_pred, rotation_key)
 
     # Mod reduce will reduce noise but increase the plaintext error.
     # if isinstance(dJ_dx1, tf_shell.ShellTensor64):
     #     dJ_dx1.get_mod_reduced()
 
-    dJ_dw0, dJ_dx0_unused, _ = hidden_layer.backward(dJ_dx1, rotation_key)
+    dJ_dw0, dJ_dx0_unused = hidden_layer.backward(dJ_dx1, rotation_key)
 
     # Only return the weight gradients at [0], not the bias gradients at [1].
     return dJ_dw1[0], dJ_dw0[0]

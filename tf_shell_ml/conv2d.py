@@ -155,24 +155,25 @@ class Conv2D(keras.layers.Layer):
 
     def backward(self, dy, rotation_key=None, sensitivity_analysis_factor=None):
         """Compute the gradient."""
+        kernel = tf.identity(self.weights[0])
+
         if sensitivity_analysis_factor is not None:
             # When performing sensitivity analysis, use the most recent
             # intermediate state.
             x = self._layer_input[-1]
             z = self._layer_intermediate[-1]
-        else:
-            x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
-            z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
-        kernel = tf.identity(self.weights[0])
-        grad_weights = []
-        batch_size = tf.shape(x)[0]
 
-        # To perform sensitivity analysis, assume the worst case rounding for
-        # the intermediate state, dictated by the sensitivity_analysis_factor.
-        if sensitivity_analysis_factor is not None:
+            # To perform sensitivity analysis, assume the worst case rounding for
+            # the intermediate state, dictated by the sensitivity_analysis_factor.
             x = tf_shell.worst_case_rounding(x, sensitivity_analysis_factor)
             z = tf_shell.worst_case_rounding(z, sensitivity_analysis_factor)
             kernel = tf_shell.worst_case_rounding(kernel, sensitivity_analysis_factor)
+        else:
+            x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
+            z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
+
+        grad_weights = []
+        batch_size = tf.shape(x)[0]
 
         # On the forward pass, x may be batched differently than the
         # ciphertext scheme. Pad them to match the ciphertext scheme.
@@ -224,15 +225,7 @@ class Conv2D(keras.layers.Layer):
 
         grad_weights.append(d_w)
 
-        # Both dw an dx have a mul depth of 1 in this function. Thus, the
-        # sensitivity factor is squared.
-        new_sensitivity_analysis_factor = (
-            sensitivity_analysis_factor**2
-            if sensitivity_analysis_factor is not None
-            else None
-        )
-
-        return grad_weights, d_x, new_sensitivity_analysis_factor
+        return grad_weights, d_x
 
     @staticmethod
     def unpack(plaintext_packed_dx):

@@ -56,14 +56,12 @@ class DpSgdSequential(SequentialBase):
         # last layer pre-activation.
         dJ_dw = []  # Derivatives of the loss with respect to the weights.
         dJ_dx = [dJ_dz]  # Derivatives of the loss with respect to the inputs.
-        sa_factor = sensitivity_analysis_factor
         for l in reversed(self.layers):
-            dw, dx, new_sa_factor = l.backward(
-                dJ_dx[-1], sensitivity_analysis_factor=sa_factor
+            dw, dx = l.backward(
+                dJ_dx[-1], sensitivity_analysis_factor=sensitivity_analysis_factor
             )
             dJ_dw.extend(dw)
             dJ_dx.append(dx)
-            sa_factor = new_sa_factor
 
         return [g for g in reversed(dJ_dw)]
 

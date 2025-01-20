@@ -47,7 +47,4 @@ class Flatten(keras.layers.Layer):
         dw = []
         dx = tf_shell.reshape(dy, new_shape)
 
-        # The output of this function has the same scaling factor as the input.
-        new_sensitivity_analysis_factor = sensitivity_analysis_factor
-
-        return dw, dx, new_sensitivity_analysis_factor
+        return dw, dx

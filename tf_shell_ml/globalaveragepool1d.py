@@ -45,10 +45,7 @@ class GlobalAveragePooling1D(keras.layers.Layer):
             dx, (tf_shell.shape(dx)[0], avg_dim, tf_shell.shape(dx)[2])
         )
 
-        # The output of this function has the same scaling factor as the input.
-        new_sensitivity_analysis_factor = sensitivity_analysis_factor
-
-        return [], dx, new_sensitivity_analysis_factor
+        return [], dx
 
     @staticmethod
     def unpack(packed_dw):

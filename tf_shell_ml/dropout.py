@@ -87,18 +87,18 @@ class ShellDropout(keras.layers.Layer):
             # When performing sensitivity analysis, use the most recent
             # intermediate state.
             dropout_mask = self._layer_intermediate[-1]
+
+            # To perform sensitivity analysis, assume the worst case rounding
+            # for the intermediate state, dictated by the
+            # sensitivity_analysis_factor.
+            # Note: The dropout mask is not necessarily 0 or 1.
+            dropout_mask = tf_shell.worst_case_rounding(
+                dropout_mask, sensitivity_analysis_factor
+            )
         else:
             dropout_mask = tf.concat(
                 [tf.identity(z) for z in self._layer_intermediate], axis=0
             )
 
-        # Both dx has a mul depth of 1 in this function. Thus, the sensitivity
-        # factor is squared.
-        new_sensitivity_analysis_factor = (
-            sensitivity_analysis_factor**2
-            if sensitivity_analysis_factor is not None
-            else None
-        )
-
         d_x = dy * dropout_mask
-        return [], d_x, new_sensitivity_analysis_factor
+        return [], d_x

@@ -72,9 +72,9 @@ def train_step(x, y):
     # Backward pass.
     dJ_dy_pred = y.__rsub__(y_pred)  # Derivative of CCE loss and softmax.
 
-    dJ_dw1, dJ_dx1, _ = output_layer.backward(dJ_dy_pred, None)
+    dJ_dw1, dJ_dx1 = output_layer.backward(dJ_dy_pred)
 
-    dJ_dw0, dJ_dx0_unused, _ = hidden_layer.backward(dJ_dx1, None)
+    dJ_dw0, dJ_dx0_unused = hidden_layer.backward(dJ_dx1)
 
     return dJ_dw1, dJ_dw0
 

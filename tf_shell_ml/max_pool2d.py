@@ -132,10 +132,7 @@ class MaxPool2D(keras.layers.Layer):
                 output_shape=input_shape,
             )
 
-        # The output of this function has the same scaling factor as the input.
-        new_sensitivity_analysis_factor = sensitivity_analysis_factor
-
-        return grad_weights, d_x, new_sensitivity_analysis_factor
+        return grad_weights, d_x
 
     def unpacking_funcs(self):
         return []

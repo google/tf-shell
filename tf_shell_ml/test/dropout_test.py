@@ -70,10 +70,10 @@ class TestDropout(tf.test.TestCase):
         notrain_y = dropout_layer.call(x, training=True)
         dy = tf.ones_like(notrain_y)
 
-        dw, dx, _ = dropout_layer.backward(dy, None)
+        dw, dx = dropout_layer.backward(dy)
 
         enc_dy = tf_shell.to_encrypted(dy, key, context)
-        enc_dw, enc_dx, _ = dropout_layer.backward(enc_dy, None)
+        enc_dw, enc_dx = dropout_layer.backward(enc_dy)
         dec_dx = tf_shell.to_tensorflow(enc_dx, key)
 
         self.assertEmpty(dw)

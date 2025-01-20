@@ -66,7 +66,7 @@ class TestMaxPoll2d(tf.test.TestCase):
         self.assertAllClose(y, tf_y)
 
         # Next check backward pass.
-        _, dx, _ = layer.backward(tf.ones_like(y), rotation_key)
+        _, dx = layer.backward(tf.ones_like(y), rotation_key)
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(im)
             y = tf_layer(im)
@@ -107,11 +107,11 @@ class TestMaxPoll2d(tf.test.TestCase):
             enc_dy = tf_shell.to_encrypted(dy, key, context)
 
             # Encrypted backward pass.
-            _, enc_dx, _ = layer.backward(enc_dy, rotation_key)
+            _, enc_dx = layer.backward(enc_dy, rotation_key)
             dx = tf_shell.to_tensorflow(enc_dx, key)
 
             # Plaintext backward pass.
-            _, pt_dx, _ = layer.backward(dy, None)
+            _, pt_dx = layer.backward(dy)
 
             return dx, dx.shape, pt_dx
 
