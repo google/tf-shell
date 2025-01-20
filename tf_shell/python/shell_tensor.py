@@ -1366,7 +1366,13 @@ def conv2d(
                     x, kernel, strides=strides, padding=tf_padding, dilations=dilations
                 )
 
-            res = tf.map_fn(single_conv, (x, filt), fn_output_signature=x.dtype)
+            output_signature = tf.TensorSpec.from_tensor(single_conv((x[0], filt[0])))
+            res = tf.map_fn(
+                single_conv,
+                (x, filt),
+                fn_output_signature=output_signature,
+                name="shell_conv2dtf",
+            )
             res = tf.squeeze(res, axis=1)
         else:
             # When the number of channels in x and filt are different, mimic
@@ -1395,7 +1401,15 @@ def conv2d(
             # Use a 3d convolution with dummy channel dimension.
             x_exp = tf.expand_dims(x, -1)
             filt_exp = tf.expand_dims(filt, -2)
-            res = tf.map_fn(single_conv, (x_exp, filt_exp), fn_output_signature=x.dtype)
+            output_signature = tf.TensorSpec.from_tensor(
+                single_conv((x_exp[0], filt_exp[0]))
+            )
+            res = tf.map_fn(
+                single_conv,
+                (x_exp, filt_exp),
+                fn_output_signature=output_signature,
+                name="shell_conv2dtf_with_chan",
+            )
             res = tf.squeeze(res, axis=1)  # Remove fake batch size.
 
         # Trim the output shape to the requested size. When using a
@@ -1502,7 +1516,10 @@ def conv2d_transpose(
                     x, kernel, tf_output_shape, strides=strides, padding=tf_padding
                 )
 
-            res = tf.map_fn(single_conv, (x, filt), fn_output_signature=x.dtype)
+            output_signature = tf.TensorSpec.from_tensor(single_conv((x[0], filt[0])))
+            res = tf.map_fn(
+                single_conv, (x, filt), fn_output_signature=output_signature
+            )
             res = tf.squeeze(res, axis=1)  # Remove fake batch size.
         else:
             # When the number of channels in x and filt are different, mimic
@@ -1542,7 +1559,12 @@ def conv2d_transpose(
             # Use a 3d convolution with dummy channel dimension.
             x_exp = tf.expand_dims(x, -1)
             filt_exp = tf.expand_dims(filt, -2)
-            res = tf.map_fn(single_conv, (x_exp, filt_exp), fn_output_signature=x.dtype)
+            output_signature = tf.TensorSpec.from_tensor(
+                single_conv((x_exp[0], filt_exp[0]))
+            )
+            res = tf.map_fn(
+                single_conv, (x_exp, filt_exp), fn_output_signature=output_signature
+            )
             res = tf.squeeze(res, axis=1)  # Remove fake batch size.
 
         return res
