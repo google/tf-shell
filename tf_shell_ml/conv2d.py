@@ -163,8 +163,6 @@ class Conv2D(keras.layers.Layer):
         else:
             x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
             z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
-        x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
-        z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)
         kernel = tf.identity(self.weights[0])
         grad_weights = []
         batch_size = tf.shape(x)[0]

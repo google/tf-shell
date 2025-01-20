@@ -54,7 +54,7 @@ class MaxPool2D(keras.layers.Layer):
 
     def reset_split_forward_mode(self):
         self._layer_intermediate = []
-        self._layer_input_shape = None
+        self._layer_input_shapes = []
 
     def call(self, inputs, training=False, split_forward_mode=False):
         """Inputs are expected to be in NHWC format, i.e.
@@ -89,19 +89,10 @@ class MaxPool2D(keras.layers.Layer):
         if training:
             if split_forward_mode:
                 self._layer_intermediate.append(argmax)
-                if self._layer_input_shape is None:
-                    self._layer_input_shape = inputs.shape.as_list()
-                else:
-                    # if self._layer_input_shape[1:] != inputs.shape.as_list()[1:]:
-                    #     raise ValueError(
-                    #         f"Expected input shape {self._layer_input_shape[1:]}, "
-                    #         f"got {inputs.shape.as_list()[1:]}"
-                    #     )
-                    self._layer_input_shape[0] += inputs.shape.as_list()[0]
-
+                self._layer_input_shapes.append(inputs.shape.as_list())
             else:
                 self._layer_intermediate = [argmax]
-                self._layer_input_shape = inputs.shape.as_list()
+                self._layer_input_shapes = [inputs.shape.as_list()]
 
         return outputs
 
@@ -111,18 +102,21 @@ class MaxPool2D(keras.layers.Layer):
             # When performing sensitivity analysis, use the most recent
             # intermediate state.
             indices = self._layer_intermediate[-1]
+            input_shape = self._layer_input_shapes[-1]
         else:
             indices = tf.concat(
                 [tf.identity(z) for z in self._layer_intermediate], axis=0
             )
+            input_shape = self._layer_input_shapes[0]
+            input_shape[0] += sum([x[0] for x in self._layer_input_shapes[1:]])
         grad_weights = []
 
         # On the forward pass, inputs may be batched differently than the
         # ciphertext scheme when not in eager mode. Pad them to match the
         # ciphertext scheme.
         if isinstance(dy, tf_shell.ShellTensor64):
-            padding = [[0, dy._context.num_slots - self._layer_input_shape[0]]] + [
-                [0, 0] for _ in range(len(self._layer_input_shape) - 1)
+            padding = [[0, dy._context.num_slots - input_shape[0]]] + [
+                [0, 0] for _ in range(len(input_shape) - 1)
             ]
             indices = tf.pad(indices, padding)
 
@@ -135,7 +129,7 @@ class MaxPool2D(keras.layers.Layer):
                 self.pool_size,
                 self.strides,
                 self.padding_str,
-                output_shape=self._layer_input_shape,
+                output_shape=input_shape,
             )
 
         # The output of this function has the same scaling factor as the input.
