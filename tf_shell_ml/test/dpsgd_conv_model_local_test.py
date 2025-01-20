@@ -112,9 +112,6 @@ class TestModel(tf.test.TestCase):
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
-        m.build([None, 28 - (2 * clip_by), 28 - (2 * clip_by), 1])
-        m.summary()
-
         history = m.fit(
             features_dataset,
             labels_dataset,
