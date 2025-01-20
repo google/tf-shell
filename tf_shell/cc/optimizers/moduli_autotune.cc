@@ -761,10 +761,8 @@ Status EstimateNodeNoise(
     }
   }
 
-  // Shape Ops.
-  else if (IsExpandDimsVariant(*node_def)) {
-    *this_noise = node_noise[node_view->GetRegularFanin(0).node_index()];
-  } else if (IsConcatCt(*node_def)) {
+  // tf-shell shape ops.
+  else if (IsConcatCt(*node_def)) {
     // Fanins from 1 to n - 1 are the input tensors to be concatenated.
     // The first fanin is the axis. The noise is the maximum of the input
     // tensors.
@@ -776,7 +774,11 @@ Status EstimateNodeNoise(
   }
 
   // Tensorflow Ops.
-  else if (IsReshape(*node_def)) {
+  else if (IsExpandDimsVariant(*node_def)) {
+    *this_noise = node_noise[node_view->GetRegularFanin(0).node_index()];
+  } else if (IsReshape(*node_def)) {
+    *this_noise = node_noise[node_view->GetRegularFanin(0).node_index()];
+  } else if (IsSplitV(*node_def)) {
     *this_noise = node_noise[node_view->GetRegularFanin(0).node_index()];
   }
 
@@ -844,6 +846,15 @@ Status EstimateNoiseGrowth(utils::MutableGraphView& graph_view,
       TF_ASSIGN_OR_RETURN(bool is_same_autocontext,
                           DecryptUsesSameContext(node_view, autocontext));
       if (is_same_autocontext) {
+        // If this is a decrypt node, and the context is the same, the noise
+        // should never be zero. If it is, this means there is a problem with
+        // the noise estimation.
+        if (node_noise[i] == 0) {
+          return errors::FailedPrecondition(
+              "Noise budget of decrypt node is zero. Could not estimate noise "
+              "growth. Check the noise estimation logic.");
+        }
+
         // Update the maximum noise budget.
         log_max_noise = std::max(log_max_noise, node_noise[i]);
       }
@@ -1019,7 +1030,7 @@ Status OptimizeAutocontext(utils::MutableGraphView& graph_view,
         BitWidth(params.t) + log_max_noise + auto_params.noise_offset_bits;
 
     // Adjust the noise budget to account for the encryption noise.
-    if (total_ct_bits > log_q) {
+    if (total_ct_bits > static_cast<uint64_t>(log_q)) {
       if constexpr (debug_moduli) {
         std::cout << "Noise budget exceeded "
                   << "(plaintext bits: " << BitWidth(params.t)

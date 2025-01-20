@@ -26,16 +26,14 @@ def calculate_tf_shell_split_sizes(context, total_elements):
     Returns:
         List of split sizes that sum to total_elements
     """
+    num_slots = tf.cast(context.num_slots, dtype=tf.int64)
+    num_main_moduli = tf.size(context.main_moduli, out_type=tf.int64)
 
     # Each element in the shell tensor is a tuple of polynomials, one for
     # each component of the ciphertext, which have `ring degree` elements.
     # In tf_shell, these are represented with uint64_t values. Serialziation
     # also includes the power_of_s (int) and the error (double).
-    bytes_per_element = (
-        tf.cast(context.num_slots, dtype=tf.int64)
-        * 2
-        * (tf.size(context.main_moduli, out_type=tf.int64) * 8 + 4 + 8)
-    )
+    bytes_per_element = num_slots * 2 * (num_main_moduli * 8 + 4 + 8)
     max_elements = tf.cast(
         tf.constant(int(UINT32_MAX * SAFETY_FACTOR), dtype=tf.int64)
         / bytes_per_element,
@@ -124,38 +122,45 @@ def split_tensor(tensor):
         - List of tensor chunks
         - Metadata dictionary with original shape and other info needed for reassembly
     """
-    if isinstance(tensor, tf_shell.ShellTensor64):
-        shape = tf_shell.shape(tensor)
-        total_elements = tensor._raw_tensor.shape.num_elements()
+    with tf.name_scope("large_tensor_split"):
+        if isinstance(tensor, tf_shell.ShellTensor64):
+            shape = tf_shell.shape(tensor)
+            total_elements = tensor._raw_tensor.shape.num_elements()
 
-        # Calculate split sizes
-        split_sizes = calculate_tf_shell_split_sizes(tensor._context, total_elements)
+            # Calculate split sizes
+            split_sizes = calculate_tf_shell_split_sizes(
+                tensor._context, total_elements
+            )
 
-        # Reshape tensor to 1D for splitting, ignoring the batch dimension
-        flat_tensor = tf_shell.reshape(tensor, [tensor._context.num_slots, -1])
+            # Reshape tensor to 1D for splitting, ignoring the batch dimension
+            flat_tensor = tf_shell.reshape(tensor, [tensor._context.num_slots, -1])
 
-        # Split into chunks of calculated sizes
-        chunks = tf_shell.split(flat_tensor, split_sizes, axis=1, num=MAX_NUM_SPLITS)
+            # Split into chunks of calculated sizes
+            chunks = tf_shell.split(
+                flat_tensor, split_sizes, axis=1, num=MAX_NUM_SPLITS
+            )
 
-    else:
-        shape = tf.shape(tensor)
-        total_elements = tf.reduce_prod(tf.cast(shape, tf.int64))
+        else:
+            shape = tf.shape(tensor)
+            total_elements = tf.reduce_prod(tf.cast(shape, tf.int64))
 
-        # Calculate split sizes
-        split_sizes = calculate_split_sizes(total_elements, tensor.dtype)
+            # Calculate split sizes
+            split_sizes = calculate_split_sizes(total_elements, tensor.dtype)
 
-        # Reshape tensor to 1D for splitting.
-        flat_tensor = tf.reshape(tensor, [-1])
+            # Reshape tensor to 1D for splitting.
+            flat_tensor = tf.reshape(tensor, [-1])
 
-        # Split into chunks of calculated sizes
-        chunks = tf_shell.split(flat_tensor, split_sizes, axis=0, num=MAX_NUM_SPLITS)
+            # Split into chunks of calculated sizes
+            chunks = tf_shell.split(
+                flat_tensor, split_sizes, axis=0, num=MAX_NUM_SPLITS
+            )
 
-    metadata = {
-        "original_shape": shape,
-        "split_sizes": split_sizes,
-    }
+        metadata = {
+            "original_shape": shape,
+            "split_sizes": split_sizes,
+        }
 
-    return chunks, metadata
+        return chunks, metadata
 
 
 def split_tensor_list(tensors):
@@ -192,17 +197,17 @@ def reassemble_tensor(chunks, metadata):
     Returns:
         Reassembled tensor with original shape
     """
-    # Concatenate chunks
-    if isinstance(chunks[0], tf_shell.ShellTensor64):
-        flat_tensor = tf_shell.concat(chunks, axis=1)
-    else:
-        flat_tensor = tf.concat(chunks, axis=0)
+    with tf.name_scope("large_tensor_reassemble"):
+        # Concatenate chunks
+        if isinstance(chunks[0], tf_shell.ShellTensor64):
+            flat_tensor = tf_shell.concat(chunks, axis=1)
+        else:
+            flat_tensor = tf.concat(chunks, axis=0)
 
-    # Reshape to original shape
-    original_shape = metadata["original_shape"]
-    reassembled_tensor = tf_shell.reshape(flat_tensor, original_shape)
+        # Reshape to original shape
+        reassembled_tensor = tf_shell.reshape(flat_tensor, metadata["original_shape"])
 
-    return reassembled_tensor
+        return reassembled_tensor
 
 
 def reassemble_tensor_list(all_chunks, all_metadata):

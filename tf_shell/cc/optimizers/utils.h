@@ -69,13 +69,16 @@ constexpr char kConv2dTransposeWithChanCtCt64[] =
 
 constexpr char kMaxUnpool2dCt64[] = "MaxUnpool2dCt64";
 
-// TensorFlow names
-constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
+// tf-shell shape ops
 constexpr char kConcatCt[] = "ConcatCt64";
 constexpr char kConcatPt[] = "ConcatPt64";
+
+// TensorFlow names
+constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
 constexpr char kBroadcastToShape[] = "BroadcastToShape";  // TODO check name
 constexpr char kReshape[] = "Reshape";                    // TODO check name
 constexpr char kConstOpName[] = "Const";
+constexpr char kSplitVOpName[] = "SplitV";
 
 bool IsShellContext(NodeDef const& node);
 bool IsShellAutoContext(NodeDef const& node);
@@ -131,7 +134,9 @@ bool IsConv2d(NodeDef const& node);
 
 bool IsMaxUnpool2d(NodeDef const& node);
 
-bool IsExpandDimsVariant(NodeDef const& node);
 bool IsConcatCt(NodeDef const& node);
+
+bool IsExpandDimsVariant(NodeDef const& node);
 bool IsBroadcastToShape(NodeDef const& node);
 bool IsReshape(NodeDef const& node);
+bool IsSplitV(NodeDef const& node);

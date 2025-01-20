@@ -111,12 +111,15 @@ bool IsMaxUnpool2d(NodeDef const& node) {
   return node.op() == kMaxUnpool2dCt64;
 }
 
+// tf-shell shape ops
+bool IsConcatCt(NodeDef const& node) { return node.op() == kConcatCt; }
+
 // TensorFlow ops.
 bool IsExpandDimsVariant(NodeDef const& node) {
   return node.op() == kExpandDimsVariant;
 }
-bool IsConcatCt(NodeDef const& node) { return node.op() == kConcatCt; }
 bool IsBroadcastToShape(NodeDef const& node) {
   return node.op() == kBroadcastToShape;
 }
 bool IsReshape(NodeDef const& node) { return node.op() == kReshape; }
+bool IsSplitV(NodeDef const& node) { return node.op() == kSplitVOpName; }
