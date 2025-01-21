@@ -85,20 +85,37 @@ class TestEmbedding(tf.test.TestCase):
 
             enc_dw, _ = embedding_layer.backward(enc_dy, rotation_key)
             dw = tf_shell.to_tensorflow(enc_dw[0], key)
+
+            # Plaintext backward pass.
+            pt_dws, _ = embedding_layer.backward(dy)
+            pt_dw = pt_dws[0]
+
             if reduction == "none":
                 dw = tf.reduce_sum(dw, axis=0)
+                pt_dw = tf.reduce_sum(pt_dw, axis=0)
             else:
                 dw = embedding_layer.unpack(dw)
-            return dw, enc_dw[0].shape
+                pt_dw = embedding_layer.unpack(pt_dw)
 
-        dw, shape_inf = forward_backward(x)
+            return dw, enc_dw[0].shape, pt_dw, pt_dws[0].shape
+
+        # dw, shape_inf = forward_backward(x)
+        dw, dw_shape_inf, pt_dw, pt_dw_shape_inf = forward_backward(x)
 
         # Check the inferred shape of the gradient is correct.
         if reduction == "none":
-            self.assertAllEqual(shape_inf, [context.num_slots, input_dim, output_dim])
+            self.assertAllEqual(
+                dw_shape_inf, [context.num_slots, input_dim, output_dim]
+            )
+            self.assertAllEqual(
+                pt_dw_shape_inf, [context.num_slots, input_dim, output_dim]
+            )
         else:
             self.assertAllEqual(
-                shape_inf, [context.num_slots, 2, input_dim, output_dim]
+                dw_shape_inf, [context.num_slots, 2, input_dim, output_dim]
+            )
+            self.assertAllEqual(
+                pt_dw_shape_inf, [context.num_slots, 2, input_dim, output_dim]
             )
 
         for i in range(0, input_dim):
@@ -110,9 +127,16 @@ class TestEmbedding(tf.test.TestCase):
                         context.num_slots * sentence_length, shape=(output_dim,)
                     ),
                 )
+                self.assertAllEqual(
+                    pt_dw[special_index, :],
+                    tf.constant(
+                        context.num_slots * sentence_length, shape=(output_dim,)
+                    ),
+                )
             # Make sure the rest of the gradient elements are 0.
             else:
                 self.assertAllEqual(dw[i, :], tf.constant(0, shape=(output_dim,)))
+                self.assertAllEqual(pt_dw[i, :], tf.constant(0, shape=(output_dim,)))
 
     def test_embedding_eager(self):
         tf.config.run_functions_eagerly(True)

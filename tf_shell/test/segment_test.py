@@ -124,24 +124,19 @@ class TestShellTensor(tf.test.TestCase):
         ess, counts = test_functor(
             ea, segments, num_segments, test_context.rotation_key
         )
-
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
-        pt_ss_top, pt_ss_bottom = tf_shell.segment_sum(a, segments, num_segments)
+        pt_ss, pt_counts = tf_shell.segment_sum(a, segments, num_segments)
 
         # Ensure the reduced data is correct.
-        self.assertAllClose(pt_ss_top, ss[0][0])
+        self.assertAllClose(ss[0][0], pt_ss[0][0])
         self.assertAllClose(
-            pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1]
+            ss[test_context.shell_context.num_slots // 2][1],
+            pt_ss[test_context.shell_context.num_slots // 2][1],
         )
 
         # Ensure the counts are correct.
-        def bincount(x):
-            return tf.math.bincount(x, minlength=num_segments, maxlength=num_segments)
-
-        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
-        pt_counts = tf.map_fn(bincount, segments_nonnegative)
-        self.assertAllEqual(pt_counts, counts)
+        self.assertAllEqual(counts, pt_counts)
 
         # Ensure initial arguments are not modified.
         self.assertAllClose(a, tf_shell.to_tensorflow(sa))
@@ -197,20 +192,16 @@ class TestShellTensor(tf.test.TestCase):
             return ess, counts
 
         ess, counts = test_functor(ea, segments, num_segments)
-
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
-        pt_result = tf.math.unsorted_segment_sum(a, segments, num_segments)
+        pt_ss, pt_counts = tf_shell.segment_sum(
+            a, segments, num_segments, reduction="none"
+        )
 
         # Ensure the data is correct.
-        self.assertAllClose(pt_result, tf.reduce_sum(ss, axis=0))
+        self.assertAllClose(ss, pt_ss)
 
         # Ensure the counts are correct.
-        def bincount(x):
-            return tf.math.bincount(x, minlength=num_segments, maxlength=num_segments)
-
-        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
-        pt_counts = tf.map_fn(bincount, segments_nonnegative)
         self.assertAllEqual(pt_counts, counts)
 
         # Ensure initial arguments are not modified.
@@ -276,23 +267,18 @@ class TestShellTensor(tf.test.TestCase):
         ess, counts = test_functor(
             ea, segments, num_segments, test_context.rotation_key
         )
-
         ss = tf_shell.to_tensorflow(ess, test_context.key)
 
-        pt_ss_top, pt_ss_bottom = tf_shell.segment_sum(a, segments, num_segments)
+        pt_ss, pt_counts = tf_shell.segment_sum(a, segments, num_segments)
 
         # Ensure the data is correctly reduced.
-        self.assertAllClose(pt_ss_top, ss[0][0])
+        self.assertAllClose(ss[0][0], pt_ss[0][0])
         self.assertAllClose(
-            pt_ss_bottom, ss[test_context.shell_context.num_slots // 2][1]
+            ss[test_context.shell_context.num_slots // 2][1],
+            pt_ss[test_context.shell_context.num_slots // 2][1],
         )
 
         # Ensure the counts are correct.
-        def bincount(x):
-            return tf.math.bincount(x, minlength=num_segments, maxlength=num_segments)
-
-        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
-        pt_counts = tf.map_fn(bincount, segments_nonnegative)
         self.assertAllEqual(pt_counts, counts)
 
         # Ensure initial arguments are not modified.

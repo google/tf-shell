@@ -1327,26 +1327,73 @@ def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"
             reduction_count,
         )
     elif isinstance(x, tf.Tensor):
-        # tf-shell segment functions differs from tensorflow in the following
-        # ways: First, the ciphertext dimension is included in the output, but
-        # only one dimension is valid. For the top half of the ciphertext, the
-        # first dimension is valid, and for the bottom half, the `num_slots //
-        # 2`th dimension is valid.
-        # Second, the reduction only happens across half of the batching
+        # tf-shell segment functions differs from tensorflow in the
+        # following ways:
+        # 1) The ciphertext dimension is included in the output, but only one
+        # dimension is valid. For the top half of the ciphertext, the first
+        # dimension is valid, and for the bottom half, the `num_slots // 2`th
+        # dimension is valid.
+        # 2) The reduction (if enabled) only happens across half of the batching
         # dimension, due to how rotations in tf-shell work. Segment reduction
         # happens on the top and bottom halves of the ciphertext independently.
+
+        def bincount(x):
+            return tf.math.bincount(
+                x, minlength=num_segments, maxlength=num_segments, dtype=segments.dtype
+            )
+
+        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
+        pt_counts = tf.map_fn(
+            bincount, segments_nonnegative, fn_output_signature=segments.dtype
+        )
+
         if reduction == "none":
-            raise ValueError("Plaintext segment_sum does not support `none` reduction.")
-        half_slots = x.shape[0] // 2
-        padding = tf.zeros_like(x[:half_slots])
 
-        x_top = tf.concat([x[:half_slots], padding], 0)
-        x_bottom = tf.concat([padding, x[half_slots:]], 0)
+            # TensorFlow's segment_sum does not work "per example" or over the
+            # first dimentsion where tf-shell does. Emulate this with map_fn.
+            def per_example_segment_sum(tupl):
+                x, segments = tupl
 
-        top_answer = tf.math.unsorted_segment_sum(x_top, segments, num_segments)
-        bottom_answer = tf.math.unsorted_segment_sum(x_bottom, segments, num_segments)
+                # Fake batch size.
+                x = tf.expand_dims(x, 0)
+                segments = tf.expand_dims(segments, 0)
 
-        return top_answer, bottom_answer
+                return tf.math.unsorted_segment_sum(x, segments, num_segments)
+
+            output_signature = tf.TensorSpec.from_tensor(
+                per_example_segment_sum((x[0], segments[0]))
+            )
+            res = tf.map_fn(
+                per_example_segment_sum,
+                (x, segments),
+                fn_output_signature=output_signature,
+                name="shell_segment_sum_tf",
+            )
+            return res, pt_counts
+
+        else:
+            x_top, x_bottom = tf.split(x, num_or_size_splits=2, axis=0)
+
+            padding = tf.zeros_like(x_top)
+
+            x_top = tf.concat([x_top, padding], 0)
+            x_bottom = tf.concat([padding, x_bottom], 0)
+
+            res_top = tf.math.unsorted_segment_sum(x_top, segments, num_segments)
+            res_bottom = tf.math.unsorted_segment_sum(x_bottom, segments, num_segments)
+
+            res_top = tf.expand_dims(res_top, 0)
+            res_top = tf.repeat(res_top, repeats=x.shape[0] // 2, axis=0)
+            res_top = tf.concat([res_top, tf.zeros_like(res_top)], 0)
+
+            res_bottom = tf.expand_dims(res_bottom, 0)
+            res_bottom = tf.repeat(res_bottom, repeats=x.shape[0] // 2, axis=0)
+            res_bottom = tf.concat([tf.zeros_like(res_bottom), res_bottom], 0)
+
+            res_top = tf.expand_dims(res_top, 1)
+            res_bottom = tf.expand_dims(res_bottom, 1)
+            res = tf.concat([res_top, res_bottom], 1)
+            return res, pt_counts
 
     else:
         raise ValueError("Unsupported type for segment_sum")
