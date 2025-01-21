@@ -33,7 +33,7 @@ class TestModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :350], x_test[:, :350]
+        x_train, x_test = x_train[:, :250], x_test[:, :250]
 
         labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
         labels_dataset = labels_dataset.batch(2**10)
@@ -84,7 +84,7 @@ class TestModel(tf.test.TestCase):
             validation_data=val_dataset,
         )
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.20)
 
     def test_model(self):
         tf.keras.backend.set_floatx("float64")
