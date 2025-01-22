@@ -9,9 +9,12 @@ import tf_shell
 # As written, the maximum number of splits is limited by MAX_NUM_SPLITS due to
 # not knowing how large ciphertexts are until graph execution time (due to
 # autocontext).
+#
+# Warning: When the safety factor is exceeded, TensorFlow will sometimes
+# segfault with no stack trace or other debugging info.
 
 UINT32_MAX = 4294967295  # Maximum size for GRPC
-SAFETY_FACTOR = 0.9  # Leave some headroom below the limit
+SAFETY_FACTOR = 0.8  # Leave some headroom below the limit
 MAX_NUM_SPLITS = 100  # Maximum number of splits
 
 
