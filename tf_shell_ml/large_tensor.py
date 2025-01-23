@@ -8,13 +8,20 @@ import tf_shell
 #
 # As written, the maximum number of splits is limited by MAX_NUM_SPLITS due to
 # not knowing how large ciphertexts are until graph execution time (due to
-# autocontext).
-#
-# Warning: When the safety factor is exceeded, TensorFlow will sometimes
-# segfault with no stack trace or other debugging info.
+# autocontext). TensorFlow must know the number of splits at graph construction
+# time. While this has the downside of imposing an upper bound on the largest
+# tensors that can be sent between nodes, the alternative (dynamically
+# determining the number of splits at runtime) requires padding the last tensor
+# with zeros, which wastes bandwidth (up to 4GB, per tensor).
 
 UINT32_MAX = 4294967295  # Maximum size for GRPC
-SAFETY_FACTOR = 0.8  # Leave some headroom below the limit
+SAFETY_FACTOR = 0.9 / 4  # Leave some headroom below the limit
+# Warning: When the message size is exceeded, TensorFlow will segfault with no
+# stack trace or other debugging info. While the code below correctly computes
+# an upper bound of the size of a ciphertext, TensorFlow adds overhead that
+# cannot be accounted for (or at least, I don't know how to account for it). As
+# such the SAFETY_FACTOR is set very low, which unfortunately limits the size of
+# ciphertexts that can be sent between nodes.
 MAX_NUM_SPLITS = 100  # Maximum number of splits
 
 
@@ -36,24 +43,37 @@ def calculate_tf_shell_split_sizes(context, total_elements):
     # each component of the ciphertext, which have `ring degree` elements.
     # In tf_shell, these are represented with uint64_t values. Serialziation
     # also includes the power_of_s (int) and the error (double).
-    bytes_per_element = num_slots * 2 * (num_main_moduli * 8 + 4 + 8)
-    max_elements = tf.cast(
-        tf.constant(int(UINT32_MAX * SAFETY_FACTOR), dtype=tf.int64)
-        / bytes_per_element,
+    # The real serialization code in SHELL takes into account the size of the
+    # moduli, where the code below is an upper bound (assuming the moduli are
+    # all 64-bits).
+    sizeof_uint64 = 8
+    num_components = 2  # TODO: increases by 1 for every ct*ct multiplication.
+    bytes_per_component = (
+        4  # log_n (int)
+        + 1  # is_ntt (bool)
+        + num_main_moduli * num_slots * sizeof_uint64  # coeff vectors
+    )
+    extra_bytes = 4 + 8  # power_of_s (int) and error (double)
+    bytes_per_ct = num_components * bytes_per_component + extra_bytes
+    tf.print("PYTHON bytes_per_ct: ", bytes_per_ct)
+
+    max_elements_per_tensor = tf.cast(
+        tf.constant(int(UINT32_MAX * SAFETY_FACTOR), dtype=tf.int64) / bytes_per_ct,
         dtype=tf.int64,
     )
 
-    num_full_splits = total_elements // max_elements
-    remainder = total_elements % max_elements
+    num_full_splits = total_elements // max_elements_per_tensor
+    remainder = total_elements % max_elements_per_tensor
 
-    split_sizes = tf.fill([num_full_splits], max_elements)
-
+    # Create list of splits which have valid elements.
+    split_sizes = tf.fill([num_full_splits], max_elements_per_tensor)
     split_sizes = tf.cond(
         remainder > 0,
         lambda: tf.concat([split_sizes, [remainder]], axis=0),
         lambda: tf.identity(split_sizes),
     )
 
+    # Pad the empty splits with zeros.
     zeros = tf.cond(
         remainder > 0,
         lambda: tf.fill(
@@ -63,8 +83,8 @@ def calculate_tf_shell_split_sizes(context, total_elements):
             [MAX_NUM_SPLITS - num_full_splits], tf.constant(0, dtype=tf.int64)
         ),
     )
-
     split_sizes = tf.concat([split_sizes, zeros], axis=0)
+
     return split_sizes
 
 
