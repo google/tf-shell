@@ -1285,7 +1285,14 @@ def concat(x, axis=0):
         raise ValueError("Unsupported type for concat")
 
 
-def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"):
+def segment_sum(
+    x,
+    segments,
+    num_segments,
+    rotation_key=None,
+    reduction="galois",
+    skip_pt_counts=False,
+):
     if not isinstance(segments, tf.Tensor):
         raise ValueError("`segments` must be a TensorFlow tensor.")
 
@@ -1337,15 +1344,25 @@ def segment_sum(x, segments, num_segments, rotation_key=None, reduction="galois"
         # dimension, due to how rotations in tf-shell work. Segment reduction
         # happens on the top and bottom halves of the ciphertext independently.
 
-        def bincount(x):
-            return tf.math.bincount(
-                x, minlength=num_segments, maxlength=num_segments, dtype=segments.dtype
-            )
+        # TensorFlow does not have a GPU implementation of bincount. The caller
+        # can skip the bincount computation if the output is not necessary and
+        # using a GPU.
+        if skip_pt_counts:
+            pt_counts = None
+        else:
 
-        segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
-        pt_counts = tf.map_fn(
-            bincount, segments_nonnegative, fn_output_signature=segments.dtype
-        )
+            def bincount(x):
+                return tf.math.bincount(
+                    x,
+                    minlength=num_segments,
+                    maxlength=num_segments,
+                    dtype=segments.dtype,
+                )
+
+            segments_nonnegative = tf.where(segments >= 0, segments, num_segments + 1)
+            pt_counts = tf.map_fn(
+                bincount, segments_nonnegative, fn_output_signature=segments.dtype
+            )
 
         if reduction == "none":
 

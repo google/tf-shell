@@ -133,12 +133,13 @@ class ShellEmbedding(keras.layers.Layer):
             indices,
         )
 
-        summedvalues, self._last_slot_count = tf_shell.segment_sum(
+        summedvalues, _ = tf_shell.segment_sum(
             values,
             indices,
             self.input_dim,
             rotation_key,
             reduction=self.grad_reduction,
+            skip_pt_counts=True,
         )
 
         return [summedvalues], None
