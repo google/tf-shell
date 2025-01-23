@@ -140,41 +140,46 @@ class PostScaleSequential(SequentialBase):
                 # Perform PostScale (dJ/dz * dz/dw) in plaintext for every
                 # possible label using the worst casse quantization of the
                 # jacobian.
-                sensitivity = tf.constant(0.0, dtype=tf.keras.backend.floatx())
-                worst_case_jacobians = [
-                    tf_shell.worst_case_rounding(j, scaling_factor) for j in jacobians
-                ]
-                worst_case_prediction = tf_shell.worst_case_rounding(
-                    prediction, scaling_factor
-                )
-
-                def cond(possible_label_i, sensitivity):
-                    return possible_label_i < self.out_classes
-
-                def body(possible_label_i, sensitivity):
-                    possible_label = tf.one_hot(
-                        possible_label_i,
-                        self.out_classes,
-                        dtype=tf.keras.backend.floatx(),
+                with tf.name_scope("sensitivity_analysis"):
+                    sensitivity = tf.constant(0.0, dtype=tf.keras.backend.floatx())
+                    worst_case_jacobians = [
+                        tf_shell.worst_case_rounding(j, scaling_factor)
+                        for j in jacobians
+                    ]
+                    worst_case_prediction = tf_shell.worst_case_rounding(
+                        prediction, scaling_factor
                     )
-                    dJ_dz = worst_case_prediction - possible_label
-                    possible_grads = self._backward(dJ_dz, worst_case_jacobians)
 
-                    max_norm = self.max_per_example_global_norm(possible_grads)
-                    sensitivity = tf.maximum(sensitivity, max_norm)
-                    return possible_label_i + 1, sensitivity
+                    def cond(possible_label_i, sensitivity):
+                        return possible_label_i < self.out_classes
 
-                # Using a tf.while_loop (vs. a python for loop) is preferred
-                # as it does not encode the unrolled loop into the graph and
-                # also allows explicit control over the loop's parallelism.
-                # Increasing parallel_iterations may be faster at the expense
-                # of memory usage.
-                possible_label_i = tf.constant(0)
-                sensitivity = tf.while_loop(
-                    cond, body, [possible_label_i, sensitivity], parallel_iterations=1
-                )[1]
+                    def body(possible_label_i, sensitivity):
+                        possible_label = tf.one_hot(
+                            possible_label_i,
+                            self.out_classes,
+                            dtype=tf.keras.backend.floatx(),
+                        )
+                        dJ_dz = worst_case_prediction - possible_label
+                        possible_grads = self._backward(dJ_dz, worst_case_jacobians)
 
-                max_two_norms_list.append(sensitivity)
+                        max_norm = self.max_per_example_global_norm(possible_grads)
+                        sensitivity = tf.maximum(sensitivity, max_norm)
+                        return possible_label_i + 1, sensitivity
+
+                    # Using a tf.while_loop (vs. a python for loop) is preferred
+                    # as it does not encode the unrolled loop into the graph and
+                    # also allows explicit control over the loop's parallelism.
+                    # Increasing parallel_iterations may be faster at the expense
+                    # of memory usage.
+                    possible_label_i = tf.constant(0)
+                    sensitivity = tf.while_loop(
+                        cond,
+                        body,
+                        [possible_label_i, sensitivity],
+                        parallel_iterations=1,
+                    )[1]
+
+                    max_two_norms_list.append(sensitivity)
 
         with tf.device(self.features_party_dev):
             predictions = tf.concat(predictions_list, axis=0)
