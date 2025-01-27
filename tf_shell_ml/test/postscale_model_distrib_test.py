@@ -70,7 +70,7 @@ class TestDistribModel(tf.test.TestCase):
 
         # Clip dataset images to limit memory usage. The model accuracy will be
         # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :350], x_test[:, :350]
+        x_train, x_test = x_train[:, :250], x_test[:, :250]
 
         # Set a seed for shuffling both features and labels the same way.
         seed = 42
@@ -122,7 +122,7 @@ class TestDistribModel(tf.test.TestCase):
         history = m.fit(
             features_dataset,
             labels_dataset,
-            steps_per_epoch=2,
+            steps_per_epoch=4,
             epochs=1,
             verbose=2,
             validation_data=val_dataset,
