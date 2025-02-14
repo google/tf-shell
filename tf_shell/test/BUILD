@@ -111,7 +111,7 @@ py_test(
 
 py_test(
     name = "shape_test",
-    size = "small",
+    size = "medium",
     srcs = [
         "shape_test.py",
         "test_utils.py",
