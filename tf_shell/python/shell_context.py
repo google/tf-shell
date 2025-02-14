@@ -164,9 +164,9 @@ def create_context64(
 
 def create_autocontext64(
     log2_cleartext_sz,
-    scaling_factor,
     noise_offset_log2,
     noise_variance=8,
+    scaling_factor=1,
     seed="",
     read_from_cache=False,
     cache_path=None,
