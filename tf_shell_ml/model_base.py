@@ -135,73 +135,10 @@ class SequentialBase(keras.Sequential):
     def compute_grads(self, features, enc_labels):
         raise NotImplementedError()  # Should be overloaded by the subclass.
 
-    def prep_dataset_for_model(self, train_features, train_labels):
+    def batch_size_from_trace(self, train_features, train_labels):
         """
-        Prepare the dataset for training with encryption.
-
-        Sets the batch size to the same value as the encryption ring degree. Run
-        the training loop once on dummy inputs to figure out the batch size.
-        Note the batch size is not always known during graph construction when
-        using autocontext, only after graph optimization.
-
-        Args:
-            train_features (tf.data.Dataset): The training features dataset.
-            train_labels (tf.data.Dataset): The training labels dataset.
-
-        Returns:
-            tuple: A tuple containing the re-batched training features and labels.
-
+        Determine the batch size from the graph.
         """
-        # If neither encryption nor noise are enabled, no encryption is used
-        # and the batch size is the same as the input batch size.
-        if self.disable_encryption and self.disable_noise:
-            self.batch_size = next(iter(train_features)).shape[0]
-            self.dataset_prepped = True
-            return train_features, train_labels
-
-        # Run the training loop once on dummy data. This writes encryption
-        # contexts and keys to caches.
-        metrics, batch_size_should_be = self.train_step_tf_func(
-            next(iter(train_features)),
-            next(iter(train_labels)),
-            read_key_from_cache=False,
-            apply_gradients=False,
-        )
-
-        self.batch_size = batch_size_should_be.numpy()
-
-        with tf.device(self.features_party_dev):
-            train_features = train_features.rebatch(
-                self.batch_size, drop_remainder=True
-            )
-        with tf.device(self.labels_party_dev):
-            train_labels = train_labels.rebatch(self.batch_size, drop_remainder=True)
-
-        self.dataset_prepped = True
-        return train_features, train_labels
-
-    def fast_prep_dataset_for_model(self, train_features, train_labels):
-        """
-        Prepare the dataset for training with encryption.
-
-        Sets the batch size of the training datasets to the same value as the
-        encryption ring degree. This method is faster than
-        `prep_dataset_for_model` because it does not execute the graph. Instead,
-        it traces and optimizes the graph, extracting the required parameters
-        without actually executing it.
-
-        Args:
-            train_features (tf.data.Dataset): The training features dataset.
-            train_labels (tf.data.Dataset): The training labels dataset.
-
-        Returns:
-            tuple: A tuple containing the re-batched training features and labels.
-        """
-        if self.disable_encryption and self.disable_noise:
-            self.batch_size = next(iter(train_features)).shape[0]
-            self.dataset_prepped = True
-            return train_features, train_labels
-
         # Call the training step with keygen to trace the graph. Note, since the
         # graph is not executed, the caches for encryption keys and contexts are
         # not written to disk.
@@ -237,12 +174,55 @@ class SequentialBase(keras.Sequential):
             raise ValueError(f"Node {name} not found in graph.")
 
         log_n = get_tensor_by_name(optimized_graph, context_node.input[0]).tolist()
-        self.batch_size = 2**log_n
+        batch_size = 2**log_n
+        return batch_size
+
+    def prep_dataset_for_model(self, train_features, train_labels, fast=True):
+        """
+        Prepare dataset for training with HE, setting the batch size to
+        the encryption ring degree.
+
+        When `fast` is False, run the training loop once on dummy inputs to
+        determine the batch size. Note the batch size is not always known
+        during graph construction when using autocontext, only after graph
+        optimization.
+
+        When `fast` is True, trace the graph (without executing it) to determine
+        the batch size.
+
+        Args:
+            train_features (tf.data.Dataset): The training features dataset.
+            train_labels (tf.data.Dataset): The training labels dataset.
+            fast (bool, optional): Whether to use the fast method to determine
+                the batch size. Defaults to True.
+
+        Returns:
+            tuple: A tuple containing the re-batched training features and labels.
+
+        """
+        if self.disable_encryption and self.disable_noise:
+            # If neither encryption nor noise are enabled, no encryption is used
+            # and the batch size is the same as the input batch size.
+            self.batch_size = next(iter(train_features)).shape[0]
+        elif not fast:
+            # Run the training loop once on dummy data. This writes encryption
+            # contexts and keys to caches.
+            metrics, batch_size_should_be = self.train_step_tf_func(
+                next(iter(train_features)),
+                next(iter(train_labels)),
+                read_key_from_cache=False,
+                apply_gradients=False,
+            )
+            self.batch_size = batch_size_should_be.numpy()
+        else:
+            self.batch_size = self.batch_size_from_trace(train_features, train_labels)
 
         with tf.device(self.features_party_dev):
-            train_features = train_features.rebatch(2**log_n, drop_remainder=True)
+            train_features = train_features.rebatch(
+                self.batch_size, drop_remainder=True
+            )
         with tf.device(self.labels_party_dev):
-            train_labels = train_labels.rebatch(2**log_n, drop_remainder=True)
+            train_labels = train_labels.rebatch(self.batch_size, drop_remainder=True)
 
         self.dataset_prepped = True
         return train_features, train_labels
@@ -302,7 +282,7 @@ class SequentialBase(keras.Sequential):
         tf_shell.enable_randomized_rounding()
 
         if not self.dataset_prepped:
-            features_dataset, labels_dataset = self.fast_prep_dataset_for_model(
+            features_dataset, labels_dataset = self.prep_dataset_for_model(
                 features_dataset, labels_dataset
             )
             tf.keras.backend.clear_session()
