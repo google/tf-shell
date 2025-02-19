@@ -935,9 +935,6 @@ class SequentialBase(keras.Sequential):
             # the gradients are ints. Convert them to floats.
             grads = [tf.cast(g, dtype=tf.keras.backend.floatx()) for g in grads]
 
-            # Normalize the gradient by the batch size.
-            grads = [g / tf.cast(tf.shape(g)[0], g.dtype) for g in grads]
-
             # Apply the gradients to the model.
             if apply_gradients:
                 self.optimizer.apply_gradients(zip(grads, self.weights))
