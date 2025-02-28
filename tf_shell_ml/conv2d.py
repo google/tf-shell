@@ -29,22 +29,23 @@ class Conv2D(keras.layers.Layer):
         filters,
         kernel_size,
         strides=1,
-        padding="VALID",
+        padding_str="VALID",
         activation=None,
         activation_deriv=None,
         kernel_initializer="glorot_uniform",
         is_first_layer=False,
         grad_reduction="none",
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         self.filters = int(filters)
         self.kernel_size = int(kernel_size)
         self.strides = [1, int(strides), int(strides), 1]
-        if padding.upper() not in ["SAME", "VALID"]:
+        if padding_str.upper() not in ["SAME", "VALID"]:
             raise ValueError(
-                f"Invalid padding type: {padding} (must be 'SAME' or 'VALID')"
+                f"Invalid padding_str: {padding_str} (must be 'SAME' or 'VALID')"
             )
-        self.padding_str = padding.upper()
+        self.padding_str = padding_str.upper()
         self.activation = deserialize_activation(activation)
         self.activation_deriv = deserialize_activation(activation_deriv)
 

@@ -24,8 +24,9 @@ class ShellDropout(keras.layers.Layer):
         noise_shape=None,
         seed=None,
         per_batch=False,
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         self.rate = float(rate)
         if (self.rate < 0.0) or (self.rate >= 1.0):
             raise ValueError(

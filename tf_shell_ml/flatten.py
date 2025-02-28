@@ -19,8 +19,8 @@ from math import prod
 
 
 class Flatten(keras.layers.Layer):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def build(self, input_shape):
         self.input_shape = input_shape

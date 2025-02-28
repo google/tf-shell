@@ -25,8 +25,9 @@ class ShellEmbedding(keras.layers.Layer):
         embeddings_initializer="uniform",
         skip_embeddings_below_index=0,
         grad_reduction="none",
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         self.input_dim = int(input_dim)
         self.output_dim = int(output_dim)
         self.embeddings_initializer = initializers.get(embeddings_initializer)

@@ -26,8 +26,9 @@ class MaxPool2D(keras.layers.Layer):
         strides=None,
         padding="same",  # valid is not supported for encrypted backprop
         is_first_layer=False,
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         self.pool_size = pool_size
         if strides is None:
             self.strides = [1, 1]

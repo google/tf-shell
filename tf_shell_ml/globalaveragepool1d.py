@@ -18,8 +18,8 @@ import tf_shell
 
 
 class GlobalAveragePooling1D(keras.layers.Layer):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def reset_split_forward_mode(self):
         self._layer_intermediate = 0

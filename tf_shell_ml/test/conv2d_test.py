@@ -49,7 +49,7 @@ class TestConv2D(tf.test.TestCase):
         conv_layer = tf_shell_ml.Conv2D(
             filters=filters,
             kernel_size=kern_sz,
-            padding=padding,
+            padding_str=padding,
             strides=stride,
         )
         tf_conv_layer = keras.layers.Conv2D(
@@ -104,7 +104,7 @@ class TestConv2D(tf.test.TestCase):
             filters=filters,
             kernel_size=kern_sz,
             strides=stride,
-            padding=padding,
+            padding_str=padding,
         )
 
         im_shape = [context.num_slots] + [im_sz, im_sz, channels]

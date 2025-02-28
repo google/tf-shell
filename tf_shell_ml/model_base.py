@@ -237,6 +237,7 @@ class SequentialBase(keras.Sequential):
         validation_data=None,
         steps_per_epoch=None,
         verbose=1,
+        initial_epoch=0,
     ):
         """
         Train the model.
@@ -314,7 +315,7 @@ class SequentialBase(keras.Sequential):
         logs = {}
         subsequent_run = False
 
-        for epoch in range(epochs):
+        for epoch in range(initial_epoch, epochs):
             callback_list.on_epoch_begin(epoch, logs)
             start_time = time.time()
             self.reset_metrics()
@@ -738,17 +739,10 @@ class SequentialBase(keras.Sequential):
         max_over_by = tf.reduce_max(over_by)
         overflowed = tf.reduce_any(max_over_by > 0)
 
-        tf.cond(
+        tf.assert_equal(
             overflowed,
-            lambda: tf.print(
-                message,
-                "Overflowed by",
-                over_by,
-                "(positive number indicates overflow amount).",
-                "Values should be less than",
-                [tf.cast(t_half / 2 / s, grads[0].dtype) for s in scaling_factors],
-            ),
-            lambda: tf.identity(overflowed),
+            False,
+            message=f"{message} Overflowed by {over_by} (positive number indicates overflow amount). Values should be less than {[tf.cast(t_half / 2 / s, grads[0].dtype) for s in scaling_factors]}",
         )
 
     def shell_train_step(self, features, labels, read_key_from_cache, apply_gradients):

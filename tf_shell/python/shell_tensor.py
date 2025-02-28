@@ -1157,7 +1157,10 @@ def shape(x):
 
 def broadcast_to(x, shape):
     if isinstance(x, ShellTensor64):
-        if tf.executing_eagerly() and shape[0] != x._context.num_slots:
+        if (
+            tf.executing_eagerly()
+            and tf.cast(shape[0], tf.int64) != x._context.num_slots
+        ):
             raise ValueError(
                 "Cannot broadcast_to over axis 0 for ShellTensor64, this is the batching dimension."
             )

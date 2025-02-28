@@ -32,8 +32,9 @@ class ShellDense(keras.layers.Layer):
         bias_initializer="zeros",
         is_first_layer=False,
         grad_reduction="none",
+        **kwargs,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         self.units = int(units)
         self.activation = deserialize_activation(activation)
         self.activation_deriv = deserialize_activation(activation_deriv)
