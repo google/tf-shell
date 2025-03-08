@@ -27,9 +27,9 @@ class SequentialBase(keras.Sequential):
         layers,
         backprop_context_fn,
         noise_context_fn,
+        noise_multiplier_fn=lambda batch_size: 1.0,
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
-        noise_multiplier=1.0,
         noise_max_scale=5.0e9,
         noise_base_scale=7.6,
         cache_path=None,
@@ -46,9 +46,9 @@ class SequentialBase(keras.Sequential):
         super().__init__(layers, *args, **kwargs)
         self.backprop_context_fn = backprop_context_fn
         self.noise_context_fn = noise_context_fn
+        self.noise_multiplier_fn = noise_multiplier_fn
         self.labels_party_dev = labels_party_dev
         self.features_party_dev = features_party_dev
-        self.noise_multiplier = float(noise_multiplier)
         self.cache_path = cache_path
         self.jacobian_pfor = jacobian_pfor
         self.jacobian_pfor_iterations = jacobian_pfor_iterations
@@ -57,7 +57,7 @@ class SequentialBase(keras.Sequential):
         )
         self.disable_encryption = disable_encryption
         self.disable_masking = disable_masking
-        self.disable_noise = False if noise_multiplier == 0.0 else disable_noise
+        self.disable_noise = disable_noise
         self.check_overflow_INSECURE = check_overflow_INSECURE
         self.dataset_prepped = False
 
@@ -288,6 +288,8 @@ class SequentialBase(keras.Sequential):
             )
             tf.keras.backend.clear_session()
             gc.collect()
+
+        self.noise_multiplier = self.noise_multiplier_fn(self.batch_size)
 
         # Calculate samples if possible.
         if steps_per_epoch is None:
@@ -624,7 +626,13 @@ class SequentialBase(keras.Sequential):
               the maximum noise scale defined in `self.dg_params`.
         """
         sensitivity = tf.cast(max_two_norm, dtype=tf.float32)
-        sensitivity *= self.noise_multiplier
+
+        # This code may run before the batch size is known, thus the noise
+        # multiplier is not yet set. For instance, the graph is traced
+        # (including this function) to determine the batch size, which is then
+        # used to compute the noise multiplier.
+        if hasattr(self, "noise_multiplier"):
+            sensitivity *= self.noise_multiplier
 
         # Ensure the sensitivity is at least as large as the base scale, since
         # the base_scale is the smallest scale distribution which the protocol
