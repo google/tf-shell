@@ -290,6 +290,8 @@ class SequentialBase(keras.Sequential):
             gc.collect()
 
         self.noise_multiplier = self.noise_multiplier_fn(self.batch_size)
+        if self.noise_multiplier == 0.0 or self.noise_multiplier == None:
+            self.disable_noise = True
 
         # Calculate samples if possible.
         if steps_per_epoch is None:
