@@ -12,7 +12,7 @@ SUPPORTED_PYTHON_VERSIONS = [
 
 DEFAULT_PYTHON = "3.10"  # Also see ./BUILD
 
-bazel_dep(name = "rules_python", version = "0.37.2")
+bazel_dep(name = "rules_python", version = "0.38.0")
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 

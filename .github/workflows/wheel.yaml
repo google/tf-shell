@@ -31,6 +31,7 @@ jobs:
         run: |
           sed -i 's/DEFAULT_PYTHON = "3.10"/DEFAULT_PYTHON = "${{ matrix.python-version }}"/' ./MODULE.bazel
           sed -i 's/DEFAULT_PYTHON = "3.10"/DEFAULT_PYTHON = "${{ matrix.python-version }}"/' ./BUILD
+          bazelisk clean --expunge
           bazelisk build //:wheel
           bazelisk run //:wheel_rename
 
