@@ -290,7 +290,13 @@ class SequentialBase(keras.Sequential):
             gc.collect()
 
         self.noise_multiplier = self.noise_multiplier_fn(self.batch_size)
-        if self.noise_multiplier == 0.0 or self.noise_multiplier == None:
+        if self.noise_multiplier is None:
+            raise ValueError(
+                "The noise multiplier function must return a value. Saw",
+                self.noise_multiplier,
+            )
+
+        if self.noise_multiplier == 0.0:
             self.disable_noise = True
 
         # Calculate samples if possible.
@@ -894,7 +900,24 @@ class SequentialBase(keras.Sequential):
                     for g in grads
                 ]
 
-            if not self.disable_noise:
+            if self.disable_noise:
+                # If the noise protocol is disabled but the noise multiplier is
+                # still greater than 0, add plaintext noise to the gradients.
+                if self.noise_multiplier > 0:
+                    # Note, generating the noise in plaintext is not secure, so
+                    # we ignore issues with sampling from a floating point
+                    # distribution.
+                    noise = [
+                        tf.random.normal(
+                            shape=tf.shape(g),
+                            mean=0.0,
+                            stddev=self.noise_multiplier * max_two_norm * sf,
+                            dtype=g.dtype,
+                        )
+                        for g, sf in zip(grads, backprop_scaling_factors)
+                    ]
+                    grads = [g + n for g, n in zip(grads, noise)]
+            else:
                 # Efficiently pack the masked gradients to prepare for adding
                 # the encrypted noise. This is special because the masked
                 # gradients are no longer batched, so the packing must be done
