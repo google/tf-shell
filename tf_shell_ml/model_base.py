@@ -326,6 +326,8 @@ class SequentialBase(keras.Sequential):
         subsequent_run = False
 
         for epoch in range(initial_epoch, epochs):
+            if self.stop_training:
+                break
             callback_list.on_epoch_begin(epoch, logs)
             start_time = time.time()
             self.reset_metrics()
