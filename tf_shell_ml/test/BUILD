@@ -73,6 +73,17 @@ py_test(
 )
 
 py_test(
+    name = "dpsgd_model_local_test_maeloss",
+    size = "enormous",
+    srcs = ["dpsgd_model_local_test_maeloss.py"],
+    tags = ["exclusive"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
     name = "dpsgd_model_local_test",
     size = "enormous",
     srcs = ["dpsgd_model_local_test.py"],

@@ -70,7 +70,16 @@ class SequentialBase(keras.Sequential):
                 "WARNING: `jacobian_pfor` may be incompatible with `disable_encryption`."
             )
 
-        if len(self.layers) > 0:
+        if len(self.layers) == 0:
+            raise ValueError("The model must have at least one layer.")
+
+        self.out_classes = self.layers[-1].units
+
+        if len(self.jacobian_devices) == 0:
+            raise ValueError("No devices specified for Jacobian computation.")
+
+    def compile(self, loss, **kwargs):
+        if isinstance(loss, tf.keras.losses.CategoricalCrossentropy):
             if not (
                 self.layers[-1].activation is tf.keras.activations.softmax
                 or self.layers[-1].activation is tf.nn.softmax
@@ -78,23 +87,20 @@ class SequentialBase(keras.Sequential):
                 raise ValueError(
                     "The model must have a softmax activation function on the final layer. Saw",
                     self.layers[-1].activation,
+                    self.layers,
                 )
 
-            self.out_classes = self.layers[-1].units
+            # Unset the last layer's activation function. Derived classes handle
+            # the softmax activation + cce manually.
+            self.layers[-1].activation = None
+            self.layers[-1].activation_deriv = None
 
-        # Unset the last layer's activation function. Derived classes handle
-        # the softmax activation manually.
-        layers[-1].activation = tf.keras.activations.linear
-
-        if len(self.jacobian_devices) == 0:
-            raise ValueError("No devices specified for Jacobian computation.")
-
-    def compile(self, loss, **kwargs):
-        if not isinstance(loss, tf.keras.losses.CategoricalCrossentropy):
-            raise ValueError(
-                "The loss function must be tf.keras.losses.CategoricalCrossentropy. Saw",
-                loss,
+        else:
+            print(
+                "WARNING: Not using CCE loss function. The DP noise sensitivity will not automatically include the gradient of the loss function and must be taken into account manually in the noise_multiplier_fn callback."
             )
+
+        self.layers[0].is_first_layer = True
 
         super().compile(
             jit_compile=False,  # Disable XLA, no CPU op for tf_shell_ml's TensorArrayV2.
@@ -282,6 +288,10 @@ class SequentialBase(keras.Sequential):
         # Enable randomized rounding.
         tf_shell.enable_randomized_rounding()
 
+        # Make sure the noise multiplier is set if noise is not disabled.
+        if self.disable_noise:
+            self.noise_multiplier = 0.0
+
         if not self.dataset_prepped:
             features_dataset, labels_dataset = self.prep_dataset_for_model(
                 features_dataset, labels_dataset
@@ -289,7 +299,11 @@ class SequentialBase(keras.Sequential):
             tf.keras.backend.clear_session()
             gc.collect()
 
-        self.noise_multiplier = self.noise_multiplier_fn(self.batch_size)
+        # Now that the batch size is known, set the noise multiplier and make
+        # sure it is valid.
+        if not self.disable_noise:
+            self.noise_multiplier = self.noise_multiplier_fn(self.batch_size)
+
         if self.noise_multiplier is None:
             raise ValueError(
                 "The noise multiplier function must return a value. Saw",

@@ -18,26 +18,6 @@ from tf_shell_ml import large_tensor
 
 
 class DpSgdSequential(SequentialBase):
-    def __init__(
-        self,
-        layers,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(layers, *args, **kwargs)
-
-        if len(self.layers) > 0:
-            self.layers[0].is_first_layer = True
-            # Do not set the the activation function for the last layer in the
-            # model. The derivative of the categorical crossentropy loss
-            # function times the derivative of a softmax is just predictions - labels
-            # (which is much easier to compute than each of them individually).
-            # So instead just let the loss function derivative incorporate
-            # predictions - labels and let the derivative of this last layer's
-            # activation be a no-op.
-            self.layers[-1].activation = None
-            self.layers[-1].activation_deriv = None
-
     def call(self, features, training=False, with_softmax=True):
         predictions = features
         for l in self.layers:
@@ -149,9 +129,26 @@ class DpSgdSequential(SequentialBase):
             predictions = tf.concat(predictions_list, axis=0)
             max_two_norm = tf.reduce_max(max_two_norms_list)
 
-            dJ_dz = enc_labels.__rsub__(
-                predictions
-            )  # Derivative of CCE loss and softmax.
+            if isinstance(self.loss, tf.keras.losses.CategoricalCrossentropy):
+                # The base class ensures that when the loss is CCE, the last
+                # layer's activation is softmax. The derivative of these two
+                # functions is simple subtraction.
+                dJ_dz = enc_labels.__rsub__(predictions)
+                # ^  batch_size x num output classes.
+
+                # In classification, the maximum difference between the
+                # prediction and the label is 1.0, thus the max_two_norm
+                # does not need to be scaled.
+            elif isinstance(self.loss, tf.keras.losses.MeanSquaredError):
+                dJ_dz = predictions - enc_labels
+
+                # Note: dJ_dz is unbounded. It must either be clipped (which
+                # is not implemented) or the noise scale must be accounted for
+                # by the caller. A warning is printed in the base class.
+            else:
+                raise ValueError(
+                    "Unsupported loss function. Only CCE and MSE are supported."
+                )
 
             # Backward pass.
             grads = self._backward(dJ_dz)

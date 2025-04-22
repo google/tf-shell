@@ -184,10 +184,27 @@ class PostScaleSequential(SequentialBase):
             max_two_norm = tf.reduce_max(max_two_norms_list)
             jacobians = [tf.concat(j, axis=0) for j in zip(*jacobians_list)]
 
-            # Compute prediction - labels (where labels may be encrypted).
-            enc_dJ_dz = enc_labels.__rsub__(predictions)  # dJ/dprediction
-            # ^  batch_size x num output classes.
+            if isinstance(self.loss, tf.keras.losses.CategoricalCrossentropy):
+                # The base class ensures that when the loss is CCE, the last
+                # layer's activation is softmax. The derivative of these two
+                # functions is simple subtraction.
+                dJ_dz = enc_labels.__rsub__(predictions)
+                # ^  batch_size x num output classes.
 
-            grads = self._backward(enc_dJ_dz, jacobians)
+                # In classification, the maximum difference between the
+                # prediction and the label is 1.0, thus the max_two_norm
+                # does not need to be scaled.
+            elif isinstance(self.loss, tf.keras.losses.MeanSquaredError):
+                dJ_dz = predictions - enc_labels
+
+                # Note: dJ_dz is unbounded. It must either be clipped (which
+                # is not implemented) or the noise scale must be accounted for
+                # by the caller. A warning is printed in the base class.
+            else:
+                raise ValueError(
+                    "Unsupported loss function. Only CCE and MSE are supported."
+                )
+
+            grads = self._backward(dJ_dz, jacobians)
 
         return grads, max_two_norm, predictions
