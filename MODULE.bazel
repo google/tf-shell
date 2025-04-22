@@ -71,5 +71,48 @@ bazel_dep(name = "boringssl", version = "0.20240930.0")
 bazel_dep(name = "googletest", version = "1.16.0")
 bazel_dep(name = "tink_cc", version = "2.3.0", repo_name = "com_github_tink_crypto_tink_cc")
 bazel_dep(name = "rules_foreign_cc", version = "0.12.0")
-
+bazel_dep(name = "rules_proto", version = "6.0.2")
+bazel_dep(name = "rules_license", version = "1.0.0")
+bazel_dep(name = "highway", version = "1.2.0", repo_name = "com_github_google_highway")
 bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True)
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "shell_encryption",
+    integrity = "sha256-Hxswh3VNBz08KWFK1czyvANhdsEs+IyIi/AQbujtIaY=",
+    strip_prefix = "shell-encryption-f5230c1922b1c647ba7f80ec12b689a61877f059",
+    urls = ["https://github.com/google/shell-encryption/archive/f5230c1922b1c647ba7f80ec12b689a61877f059.zip"],
+)
+
+_ALL_CONTENT = """\
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+"""
+
+http_archive(
+    name = "emp-tool",
+    build_file_content = _ALL_CONTENT,
+    integrity = "sha256-jEpsiBYbcu1pqP9NYmIBresj6I83XeGb1IuMs0psI7c=",
+    strip_prefix = "emp-tool-0.2.5",
+    urls = ["https://github.com/emp-toolkit/emp-tool/archive/refs/tags/0.2.5.zip"],
+)
+
+http_archive(
+    name = "emp-ot",
+    build_file_content = _ALL_CONTENT,
+    integrity = "sha256-wXi5/rDgw9EysMutJ4Tm1wirf/SGkDSJwsHQdeuA21E=",
+    strip_prefix = "emp-ot-0.2.4",
+    urls = ["https://github.com/emp-toolkit/emp-ot/archive/refs/tags/0.2.4.zip"],
+)
+
+http_archive(
+    name = "emp-sh2pc",
+    build_file_content = _ALL_CONTENT,
+    integrity = "sha256-yQPfQV4sILqQcz/K5hWGL/eDePanilLChGIp3wVx8TI=",
+    strip_prefix = "emp-sh2pc-0.2.2",
+    urls = ["https://github.com/emp-toolkit/emp-sh2pc/archive/refs/tags/0.2.2.zip"],
+)
