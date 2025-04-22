@@ -19,6 +19,7 @@ py_test(
         "basic_test.py",
         "test_utils.py",
     ],
+    imports = ["./"],
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow"),
@@ -156,6 +157,7 @@ py_test(
     size = "medium",
     srcs = [
         "conv2d_test.py",
+        "test_utils.py",
     ],
     imports = ["./"],
     deps = [
@@ -169,6 +171,7 @@ py_test(
     size = "medium",
     srcs = [
         "ct_pt_optimizer_test.py",
+        "test_utils.py",
     ],
     imports = ["./"],
     deps = [
@@ -182,6 +185,7 @@ py_test(
     size = "medium",
     srcs = [
         "pt_pt_optimizer_test.py",
+        "test_utils.py",
     ],
     imports = ["./"],
     deps = [
@@ -208,6 +212,7 @@ py_test(
     size = "medium",
     srcs = [
         "clip_and_noise_test.py",
+        "test_utils.py",
     ],
     imports = ["./"],
     deps = [
@@ -221,6 +226,7 @@ py_test(
     size = "medium",
     srcs = [
         "distribution_test.py",
+        "test_utils.py",
     ],
     imports = ["./"],
     deps = [
@@ -234,6 +240,7 @@ py_test(
     size = "small",
     srcs = [
         "discrete_gaussian_test.py",
+        "test_utils.py",
     ],
     imports = ["./"],
     deps = [

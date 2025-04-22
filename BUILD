@@ -127,7 +127,7 @@ py_wheel(
     }),
     python_requires = ">=3.9",
     python_tag = "INTERPRETER",
-    requires = ["tensorflow[and-cuda]==2.18.0"],  # See also: requirements.in.
+    requires = ["tensorflow[and-cuda]==2.19.0"],  # See also: requirements.in.
     # The summary is tailored for each python version because PyPI prevents
     # wheel uploads for different versions which have the same contents.
     # Changing the summary is sufficient to allow re-uploads.

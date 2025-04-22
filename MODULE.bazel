@@ -55,6 +55,8 @@ single_version_override(
 # Additionally, tensorflow headers use a protobuf version which which is a
 # python dependency. Other dependencies (like rules_cc >= 0.0.13 and tink_cc)
 # also use protobuf, so the versions must match.
+# See what version tensorflow is using here:
+# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/tools/cmake/modules/protobuf.cmake
 bazel_dep(name = "protobuf", version = "21.7")
 single_version_override(
     module_name = "protobuf",
@@ -62,12 +64,12 @@ single_version_override(
 )
 
 # Note, rule_cc>=0.0.13 is not compatible with protobuf 3.21.7, as required by
-# TensorFlow.
+# TensorFlow. That makes updating remaining deps below difficult.
 bazel_dep(name = "rules_cc", version = "0.0.12")
 bazel_dep(name = "glog", version = "0.7.1", repo_name = "com_github_google_glog")
 bazel_dep(name = "boringssl", version = "0.20240930.0")
-bazel_dep(name = "googletest", version = "1.15.2")
-bazel_dep(name = "tink_cc", version = "2.2.0", repo_name = "com_github_tink_crypto_tink_cc")
+bazel_dep(name = "googletest", version = "1.16.0")
+bazel_dep(name = "tink_cc", version = "2.3.0", repo_name = "com_github_tink_crypto_tink_cc")
 bazel_dep(name = "rules_foreign_cc", version = "0.12.0")
 
 bazel_dep(name = "buildifier_prebuilt", version = "7.3.1", dev_dependency = True)
