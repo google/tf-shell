@@ -395,16 +395,16 @@ class SequentialBase(keras.Sequential):
 
                 logs.update({f"val_{name}": result for name, result in result.items()})
 
-                # End of epoch.
-                logs["time"] = time.time() - start_time
+            # End of epoch.
+            logs["time"] = time.time() - start_time
 
-                # Update the steps in callback parameters with actual steps completed
-                if steps_per_epoch is None:
-                    steps_per_epoch = step + 1
-                    samples = steps_per_epoch * self.batch_size
-                    callback_list.params["steps"] = steps_per_epoch
-                    callback_list.params["samples"] = samples
-                callback_list.on_epoch_end(epoch, logs)
+            # Update the steps in callback parameters with actual steps completed
+            if steps_per_epoch is None:
+                steps_per_epoch = step + 1
+                samples = steps_per_epoch * self.batch_size
+                callback_list.params["steps"] = steps_per_epoch
+                callback_list.params["samples"] = samples
+            callback_list.on_epoch_end(epoch, logs)
 
         # End of training.
         callback_list.on_train_end(logs)
