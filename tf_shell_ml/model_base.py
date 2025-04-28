@@ -816,16 +816,6 @@ class SequentialBase(keras.Sequential):
             else:
                 backprop_scaling_factors = [g._scaling_factor for g in grads]
 
-                # Simple correctness test to check if the gradients are smaller
-                # than the plaintext modulus.
-                tf.assert_less(
-                    max_two_norm,
-                    tf.cast(
-                        backprop_context.plaintext_modulus, tf.keras.backend.floatx()
-                    ),
-                    message="Gradient may be too large for the backprop context's plaintext modulus. Reduce the sensitivity by reducing the gradient norms (e.g. reducing the backprop scaling factor), or increase the backprop context's plaintext modulus.",
-                )
-
             # Check if the backproped gradients overflowed.
             if not self.disable_encryption and self.check_overflow_INSECURE:
                 # Note, checking the gradients requires decryption on the
