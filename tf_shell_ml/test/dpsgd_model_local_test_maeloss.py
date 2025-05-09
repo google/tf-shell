@@ -86,7 +86,7 @@ class TestModel(tf.test.TestCase):
         history = m.fit(
             features_dataset,
             labels_dataset,
-            steps_per_epoch=4,
+            steps_per_epoch=8,
             epochs=1,
             verbose=2,
             validation_data=val_dataset,
