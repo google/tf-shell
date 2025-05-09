@@ -130,6 +130,12 @@ class DpSgdSequential(SequentialBase):
             max_two_norm = tf.reduce_max(max_two_norms_list)
 
             if isinstance(self.loss, tf.keras.losses.CategoricalCrossentropy):
+                if type(enc_labels) is tf.Tensor:
+                    tf.debugging.assert_equal(
+                        tf.shape(predictions),
+                        tf.shape(enc_labels),
+                        message="Predictions and labels must have the same shape.",
+                    )
                 # The base class ensures that when the loss is CCE, the last
                 # layer's activation is softmax. The derivative of these two
                 # functions is simple subtraction.
@@ -140,7 +146,13 @@ class DpSgdSequential(SequentialBase):
                 # prediction and the label is 1.0, thus the max_two_norm
                 # does not need to be scaled.
             elif isinstance(self.loss, tf.keras.losses.MeanSquaredError):
-                dJ_dz = predictions - enc_labels
+                if type(enc_labels) is tf.Tensor:
+                    tf.debugging.assert_equal(
+                        tf.shape(predictions),
+                        tf.shape(enc_labels),
+                        message="Predictions and labels must have the same shape.",
+                    )
+                dJ_dz = enc_labels.__rsub__(predictions)
 
                 # Note: dJ_dz is unbounded. It must either be clipped (which
                 # is not implemented) or the noise scale must be accounted for
