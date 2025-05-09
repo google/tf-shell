@@ -67,8 +67,11 @@ class DpSgdSequential(SequentialBase):
             with tf.device(d):
                 f = tf.identity(split_features[i])  # copy to GPU if needed
 
-                # First compute the real prediction.
-                prediction = self.call(f, training=True, with_softmax=True)
+                # First compute the real prediction. Manually perform the
+                # softmax activation if necessary.
+                prediction = self.call(
+                    f, training=True, with_softmax=self.uses_cce_and_softmax
+                )
 
                 # Next perform the sensitivity analysis. Straightforward
                 # backpropagation has mul/add depth proportional to the number

@@ -60,6 +60,7 @@ class SequentialBase(keras.Sequential):
         self.disable_noise = disable_noise
         self.check_overflow_INSECURE = check_overflow_INSECURE
         self.dataset_prepped = False
+        self.uses_cce_and_softmax = False
 
         self.dg_params = tf_shell.DiscreteGaussianParams(
             max_scale=noise_max_scale, base_scale=noise_base_scale
@@ -85,7 +86,7 @@ class SequentialBase(keras.Sequential):
                 or self.layers[-1].activation is tf.nn.softmax
             ):
                 raise ValueError(
-                    "The model must have a softmax activation function on the final layer. Saw",
+                    "When using CCE loss, the model must use a softmax activation function on the final layer. Instead saw",
                     self.layers[-1].activation,
                     self.layers,
                 )
@@ -94,6 +95,7 @@ class SequentialBase(keras.Sequential):
             # the softmax activation + cce manually.
             self.layers[-1].activation = None
             self.layers[-1].activation_deriv = None
+            self.uses_cce_and_softmax = True
 
         else:
             print(
@@ -372,7 +374,11 @@ class SequentialBase(keras.Sequential):
                 self.reset_metrics()
 
                 for val_x_batch, val_y_batch in validation_data:
-                    val_y_pred = self(val_x_batch, training=False)
+                    val_y_pred = self(
+                        val_x_batch,
+                        training=False,
+                        with_softmax=self.uses_cce_and_softmax,
+                    )
                     # Update validation metrics
                     for m in self.metrics:
                         if m.name == "loss":
