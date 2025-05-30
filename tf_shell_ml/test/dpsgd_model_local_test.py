@@ -22,7 +22,14 @@ import tempfile
 
 
 class TestModel(tf.test.TestCase):
-    def _test_model(self, disable_encryption, disable_masking, disable_noise, cache):
+    def _test_model(
+        self,
+        disable_encryption,
+        disable_masking,
+        disable_noise,
+        clipping_threshold,
+        cache,
+    ):
         # Prepare the dataset.
         (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
         x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
@@ -73,6 +80,7 @@ class TestModel(tf.test.TestCase):
             disable_noise=disable_noise,
             cache_path=cache,
             check_overflow_INSECURE=True,
+            clipping_threshold=clipping_threshold,
         )
 
         m.compile(
@@ -98,11 +106,12 @@ class TestModel(tf.test.TestCase):
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
             # Perform full encrypted test to populate cache.
-            self._test_model(False, False, False, cache_dir)
-            self._test_model(True, False, False, cache_dir)
-            self._test_model(False, True, False, cache_dir)
-            self._test_model(False, False, True, cache_dir)
-            self._test_model(True, True, True, cache_dir)
+            self._test_model(False, False, False, None, cache_dir)
+            self._test_model(True, False, False, None, cache_dir)
+            self._test_model(False, True, False, None, cache_dir)
+            self._test_model(False, False, True, None, cache_dir)
+            self._test_model(True, True, True, None, cache_dir)
+            self._test_model(True, True, True, 1.0, cache_dir)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ class SequentialBase(keras.Sequential):
         disable_masking=False,
         disable_noise=False,
         check_overflow_INSECURE=False,
+        clipping_threshold=None,
         *args,
         **kwargs,
     ):
@@ -59,6 +60,8 @@ class SequentialBase(keras.Sequential):
         self.disable_masking = disable_masking
         self.disable_noise = disable_noise
         self.check_overflow_INSECURE = check_overflow_INSECURE
+        self.clipping_threshold = clipping_threshold
+
         self.dataset_prepped = False
         self.uses_cce_and_softmax = False
 
@@ -290,9 +293,10 @@ class SequentialBase(keras.Sequential):
         # Enable randomized rounding.
         tf_shell.enable_randomized_rounding()
 
-        # Make sure the noise multiplier is set if noise is not disabled.
-        if self.disable_noise:
-            self.noise_multiplier = 0.0
+        # Make sure the noise multiplier is set to something before calling
+        # prep_dataset_for_model(). It can be any positive value, since it will
+        # be overwritten later once the batch size is known.
+        self.noise_multiplier = 1.0
 
         if not self.dataset_prepped:
             features_dataset, labels_dataset = self.prep_dataset_for_model(
@@ -488,16 +492,7 @@ class SequentialBase(keras.Sequential):
 
         return grads
 
-    def max_per_example_global_norm(self, grads):
-        """
-        Computes the maximum per-example global norm of the gradients.
-
-        Args:
-            grads (list of tf.Tensor): The list of gradient tensors.
-
-        Returns:
-            tf.Tensor: Scalar of the maximum global norm of the gradients.
-        """
+    def _per_example_global_norm_squared(self, grads):
         if len(grads) == 0:
             return tf.constant(0.0, dtype=tf.keras.backend.floatx())
 
@@ -512,6 +507,32 @@ class SequentialBase(keras.Sequential):
             weight_dims = range(1, 1 + num_weight_dims)
             sum_of_squares += tf.reduce_sum(tf.square(g), axis=weight_dims)
 
+        return sum_of_squares
+
+    def _per_example_global_norm(self, grads):
+        """
+        Computes the per-example global norm of the gradients.
+
+        Args:
+            grads (list of tf.Tensor): The list of gradient tensors.
+
+        Returns:
+            tf.Tensor: Scalar of the global norm of the gradients.
+        """
+        sum_of_squares = self._per_example_global_norm_squared(grads)
+        return tf.sqrt(sum_of_squares)
+
+    def max_per_example_global_norm(self, grads):
+        """
+        Computes the maximum per-example global norm of the gradients.
+
+        Args:
+            grads (list of tf.Tensor): The list of gradient tensors.
+
+        Returns:
+            tf.Tensor: Scalar of the maximum global norm of the gradients.
+        """
+        sum_of_squares = self._per_example_global_norm_squared(grads)
         max_norm = tf.sqrt(tf.reduce_max(sum_of_squares))
         return max_norm
 
@@ -815,6 +836,46 @@ class SequentialBase(keras.Sequential):
         # Call the derived class to compute the gradients.
         grads, max_two_norm, predictions = self.compute_grads(features, enc_labels)
 
+        # If clipping is enabled, clip the per-example gradients to the maximum
+        # L2 norm to mimic the DP-SGD algorithm.
+        if self.clipping_threshold is not None:
+            # Note than encryption must be disabled, as this requires knowing
+            # the gradients in plaintext.
+            if not (
+                self.disable_encryption
+                and self.disable_masking
+                and self.disable_noise
+                and self.noise_multiplier > 0.0
+            ):
+                raise ValueError(
+                    "Gradient clipping (to mimic DP-SGD) requires "
+                    "encryption and noise protocols are disabled. "
+                    "The noise multiplier should be > 0 to mimic DP-SGD. "
+                    "Saw disable_encryption: {}, disable_noise: {}, noise_multiplier: {}.".format(
+                        self.disable_encryption,
+                        self.disable_noise,
+                        self.noise_multiplier,
+                    )
+                )
+            # Clip the gradients to the maximum L2 norm.
+            norm = self._per_example_global_norm(grads)
+            clip_ratio = self.clipping_threshold / tf.maximum(norm, 1e-8)
+
+            def _expand_dims(e, v):
+                new_shape = tf.concat(
+                    [tf.shape(v)[0:1], tf.ones_like(tf.shape(v), dtype=tf.int32)[:-1]],
+                    axis=0,
+                )
+                return tf.reshape(e, new_shape)
+
+            grads = [g * _expand_dims(tf.cast(clip_ratio, g.dtype), g) for g in grads]
+
+            # Override the max_to_norm, which is used to apply DP noise to the
+            # gradients, as the clipping threshold. This is how DP-SGD works,
+            # it samples DP noise assuming the gradients are always clipped to
+            # the threshold.
+            max_two_norm = self.clipping_threshold
+
         with tf.device(self.features_party_dev):
             # Store the scaling factors of the gradients.
             if self.disable_encryption:
@@ -915,19 +976,22 @@ class SequentialBase(keras.Sequential):
             if self.disable_noise:
                 # If the noise protocol is disabled but the noise multiplier is
                 # still greater than 0, add plaintext noise to the gradients.
-                if self.noise_multiplier > 0:
+                if self.noise_multiplier > 0.0:
                     # Note, generating the noise in plaintext is not secure, so
-                    # we ignore issues with sampling from a floating point
-                    # distribution.
+                    # we ignore quantization error wrt privacy when sampling
+                    # from a floating point distribution.
                     noise = [
                         tf.random.normal(
                             shape=tf.shape(g),
                             mean=0.0,
                             stddev=self.noise_multiplier * max_two_norm * sf,
-                            dtype=g.dtype,
+                            dtype=tf.keras.backend.floatx(),
                         )
                         for g, sf in zip(grads, backprop_scaling_factors)
                     ]
+                    # When encryption and masking are enabled, the grads are
+                    # integer types
+                    noise = [tf.cast(n, dtype=g.dtype) for n, g in zip(noise, grads)]
                     grads = [g + n for g, n in zip(grads, noise)]
             else:
                 # Efficiently pack the masked gradients to prepare for adding
