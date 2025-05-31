@@ -492,19 +492,18 @@ class SequentialBase(keras.Sequential):
         return grads
 
     def _per_example_global_norm_squared(self, grads):
-        if len(grads) == 0:
-            return tf.constant(0.0, dtype=tf.keras.backend.floatx())
+        # Calculate squared norms for each gradient tensor in a list comprehension
+        squared_norms = [
+            tf.reduce_sum(tf.square(g), axis=list(range(1, len(g.shape))))
+            for g in grads
+        ]
 
-        # Sum of squares accumulates the l2 norm squared of the per-example
-        # gradients.
-        sum_of_squares = tf.zeros([grads[0].shape[0]], dtype=tf.keras.backend.floatx())
-        for g in grads:
-            # Ignore the batch size and num output classes
-            # dimensions and recover just the number of dimensions
-            # in the weights.
-            num_weight_dims = len(g.shape) - 1
-            weight_dims = range(1, 1 + num_weight_dims)
-            sum_of_squares += tf.reduce_sum(tf.square(g), axis=weight_dims)
+        # Sum across all gradients efficiently using tf.add_n
+        sum_of_squares = (
+            tf.add_n(squared_norms)
+            if squared_norms
+            else tf.zeros([grads[0].shape[0]], dtype=tf.keras.backend.floatx())
+        )
 
         return sum_of_squares
 
