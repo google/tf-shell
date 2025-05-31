@@ -834,47 +834,52 @@ class SequentialBase(keras.Sequential):
         # Call the derived class to compute the gradients.
         grads, max_two_norm, predictions = self.compute_grads(features, enc_labels)
 
-        # If clipping is enabled, clip the per-example gradients to the maximum
-        # L2 norm to mimic the DP-SGD algorithm.
-        if self.simple_noise_clip_threshold is not None:
-            # Note than encryption must be disabled, as this requires knowing
-            # the gradients in plaintext.
-            if not (
-                self.disable_he_backprop_INSECURE
-                and self.disable_masking_INSECURE
-                and self.simple_noise_INSECURE
-                and self.noise_multiplier > 0.0
-            ):
-                raise ValueError(
-                    "Gradient clipping (to mimic DP-SGD) requires "
-                    "encryption and noise protocols are disabled. "
-                    "The noise multiplier should be > 0 to mimic DP-SGD. "
-                    "Saw disable_he_backprop_INSECURE: {}, simple_noise_INSECURE: {}, noise_multiplier: {}.".format(
-                        self.disable_he_backprop_INSECURE,
-                        self.simple_noise_INSECURE,
-                        self.noise_multiplier,
-                    )
-                )
-            # Clip the gradients to the maximum L2 norm.
-            norm = self._per_example_global_norm(grads)
-            clip_ratio = self.simple_noise_clip_threshold / tf.maximum(norm, 1e-8)
-
-            def _expand_dims(e, v):
-                new_shape = tf.concat(
-                    [tf.shape(v)[0:1], tf.ones_like(tf.shape(v), dtype=tf.int32)[:-1]],
-                    axis=0,
-                )
-                return tf.reshape(e, new_shape)
-
-            grads = [g * _expand_dims(tf.cast(clip_ratio, g.dtype), g) for g in grads]
-
-            # Override the max_to_norm, which is used to apply DP noise to the
-            # gradients, as the clipping threshold. This is how DP-SGD works,
-            # it samples DP noise assuming the gradients are always clipped to
-            # the threshold.
-            max_two_norm = self.simple_noise_clip_threshold
-
         with tf.device(self.features_party_dev):
+            # If clipping is enabled, clip the per-example gradients to the maximum
+            # L2 norm to mimic the DP-SGD algorithm.
+            if self.simple_noise_clip_threshold is not None:
+                # Note than encryption must be disabled, as this requires knowing
+                # the gradients in plaintext.
+                if not (
+                    self.disable_he_backprop_INSECURE
+                    and self.disable_masking_INSECURE
+                    and self.simple_noise_INSECURE
+                    and self.noise_multiplier > 0.0
+                ):
+                    raise ValueError(
+                        "Gradient clipping (to mimic DP-SGD) requires "
+                        "encryption and noise protocols are disabled. "
+                        "The noise multiplier should be > 0 to mimic DP-SGD. "
+                        "Saw disable_he_backprop_INSECURE: {}, simple_noise_INSECURE: {}, noise_multiplier: {}.".format(
+                            self.disable_he_backprop_INSECURE,
+                            self.simple_noise_INSECURE,
+                            self.noise_multiplier,
+                        )
+                    )
+                # Clip the gradients to the maximum L2 norm.
+                norm = self._per_example_global_norm(grads)
+                clip_ratio = self.simple_noise_clip_threshold / tf.maximum(norm, 1e-8)
+
+                def _expand_dims(e, v):
+                    new_shape = tf.concat(
+                        [
+                            tf.shape(v)[0:1],
+                            tf.ones_like(tf.shape(v), dtype=tf.int32)[:-1],
+                        ],
+                        axis=0,
+                    )
+                    return tf.reshape(e, new_shape)
+
+                grads = [
+                    g * _expand_dims(tf.cast(clip_ratio, g.dtype), g) for g in grads
+                ]
+
+                # Override the max_to_norm, which is used to apply DP noise to the
+                # gradients, as the clipping threshold. This is how DP-SGD works,
+                # it samples DP noise assuming the gradients are always clipped to
+                # the threshold.
+                max_two_norm = self.simple_noise_clip_threshold
+
             # Store the scaling factors of the gradients.
             if self.disable_he_backprop_INSECURE:
                 backprop_scaling_factors = [1] * len(grads)
@@ -902,7 +907,10 @@ class SequentialBase(keras.Sequential):
                 grads = self.spoof_int_gradients(grads)
 
             # Mask the encrypted gradients.
-            if not self.disable_masking_INSECURE and not self.disable_he_backprop_INSECURE:
+            if (
+                not self.disable_masking_INSECURE
+                and not self.disable_he_backprop_INSECURE
+            ):
                 grads, masks = self.mask_gradients(backprop_context, grads)
 
             if self.features_party_dev != self.labels_party_dev:
@@ -1015,7 +1023,10 @@ class SequentialBase(keras.Sequential):
                 grads = self.unflatten_grad_list(flat_grads, flat_metadata)
 
             # Unmask the gradients.
-            if not self.disable_masking_INSECURE and not self.disable_he_backprop_INSECURE:
+            if (
+                not self.disable_masking_INSECURE
+                and not self.disable_he_backprop_INSECURE
+            ):
                 grads = self.unmask_gradients(backprop_context, grads, masks)
 
             # Recover the original scaling factor of the gradients if they were
