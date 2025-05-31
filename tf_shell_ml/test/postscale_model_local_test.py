@@ -68,12 +68,12 @@ class TestModel(tf.test.TestCase):
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
-            disable_encryption=disable_encryption,
-            disable_masking=disable_masking,
-            disable_noise=disable_noise,
             cache_path=cache,
+            disable_he_backprop_INSECURE=disable_encryption,
+            disable_masking_INSECURE=disable_masking,
+            simple_noise_INSECURE=disable_noise,
+            simple_noise_clip_threshold=clipping_threshold,
             check_overflow_INSECURE=True,
-            clipping_threshold=clipping_threshold,
         )
 
         m.compile(

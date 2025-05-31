@@ -36,11 +36,11 @@ class SequentialBase(keras.Sequential):
         jacobian_pfor=False,
         jacobian_pfor_iterations=None,
         jacobian_devices=None,
-        disable_encryption=False,
-        disable_masking=False,
-        disable_noise=False,
+        disable_he_backprop_INSECURE=False,
+        disable_masking_INSECURE=False,
+        simple_noise_INSECURE=False,
+        simple_noise_clip_threshold=None,
         check_overflow_INSECURE=False,
-        clipping_threshold=None,
         *args,
         **kwargs,
     ):
@@ -56,11 +56,11 @@ class SequentialBase(keras.Sequential):
         self.jacobian_devices = (
             [features_party_dev] if jacobian_devices is None else jacobian_devices
         )
-        self.disable_encryption = disable_encryption
-        self.disable_masking = disable_masking
-        self.disable_noise = disable_noise
+        self.disable_he_backprop_INSECURE = disable_he_backprop_INSECURE
+        self.disable_masking_INSECURE = disable_masking_INSECURE
+        self.simple_noise_INSECURE = simple_noise_INSECURE
         self.check_overflow_INSECURE = check_overflow_INSECURE
-        self.clipping_threshold = clipping_threshold
+        self.simple_noise_clip_threshold = simple_noise_clip_threshold
 
         self.dataset_prepped = False
         self.uses_cce_and_softmax = False
@@ -69,9 +69,9 @@ class SequentialBase(keras.Sequential):
             max_scale=noise_max_scale, base_scale=noise_base_scale
         )
 
-        if self.disable_encryption and self.jacobian_pfor:
+        if self.disable_he_backprop_INSECURE and self.jacobian_pfor:
             print(
-                "WARNING: `jacobian_pfor` may be incompatible with `disable_encryption`."
+                "WARNING: `jacobian_pfor` may be incompatible with `disable_he_backprop_INSECURE`."
             )
 
         if len(self.layers) == 0:
@@ -211,7 +211,7 @@ class SequentialBase(keras.Sequential):
             tuple: A tuple containing the re-batched training features and labels.
 
         """
-        if self.disable_encryption and self.disable_noise:
+        if self.disable_he_backprop_INSECURE and self.simple_noise_INSECURE:
             # If neither encryption nor noise are enabled, no encryption is used
             # and the batch size is the same as the input batch size.
             self.batch_size = next(iter(train_features)).shape[0]
@@ -307,8 +307,7 @@ class SequentialBase(keras.Sequential):
 
         # Now that the batch size is known, set the noise multiplier and make
         # sure it is valid.
-        if not self.disable_noise:
-            self.noise_multiplier = self.noise_multiplier_fn(self.batch_size)
+        self.noise_multiplier = self.noise_multiplier_fn(self.batch_size)
 
         if self.noise_multiplier is None:
             raise ValueError(
@@ -317,7 +316,7 @@ class SequentialBase(keras.Sequential):
             )
 
         if self.noise_multiplier == 0.0:
-            self.disable_noise = True
+            self.simple_noise_INSECURE = True
 
         # Calculate samples if possible.
         if steps_per_epoch is None:
@@ -821,7 +820,7 @@ class SequentialBase(keras.Sequential):
         """
         with tf.device(self.labels_party_dev):
             labels = tf.cast(labels, tf.keras.backend.floatx())
-            if self.disable_encryption:
+            if self.disable_he_backprop_INSECURE:
                 enc_labels = labels
             else:
                 backprop_context = self.backprop_context_fn(read_key_from_cache)
@@ -838,28 +837,28 @@ class SequentialBase(keras.Sequential):
 
         # If clipping is enabled, clip the per-example gradients to the maximum
         # L2 norm to mimic the DP-SGD algorithm.
-        if self.clipping_threshold is not None:
+        if self.simple_noise_clip_threshold is not None:
             # Note than encryption must be disabled, as this requires knowing
             # the gradients in plaintext.
             if not (
-                self.disable_encryption
-                and self.disable_masking
-                and self.disable_noise
+                self.disable_he_backprop_INSECURE
+                and self.disable_masking_INSECURE
+                and self.simple_noise_INSECURE
                 and self.noise_multiplier > 0.0
             ):
                 raise ValueError(
                     "Gradient clipping (to mimic DP-SGD) requires "
                     "encryption and noise protocols are disabled. "
                     "The noise multiplier should be > 0 to mimic DP-SGD. "
-                    "Saw disable_encryption: {}, disable_noise: {}, noise_multiplier: {}.".format(
-                        self.disable_encryption,
-                        self.disable_noise,
+                    "Saw disable_he_backprop_INSECURE: {}, simple_noise_INSECURE: {}, noise_multiplier: {}.".format(
+                        self.disable_he_backprop_INSECURE,
+                        self.simple_noise_INSECURE,
                         self.noise_multiplier,
                     )
                 )
             # Clip the gradients to the maximum L2 norm.
             norm = self._per_example_global_norm(grads)
-            clip_ratio = self.clipping_threshold / tf.maximum(norm, 1e-8)
+            clip_ratio = self.simple_noise_clip_threshold / tf.maximum(norm, 1e-8)
 
             def _expand_dims(e, v):
                 new_shape = tf.concat(
@@ -874,17 +873,17 @@ class SequentialBase(keras.Sequential):
             # gradients, as the clipping threshold. This is how DP-SGD works,
             # it samples DP noise assuming the gradients are always clipped to
             # the threshold.
-            max_two_norm = self.clipping_threshold
+            max_two_norm = self.simple_noise_clip_threshold
 
         with tf.device(self.features_party_dev):
             # Store the scaling factors of the gradients.
-            if self.disable_encryption:
+            if self.disable_he_backprop_INSECURE:
                 backprop_scaling_factors = [1] * len(grads)
             else:
                 backprop_scaling_factors = [g._scaling_factor for g in grads]
 
             # Check if the backproped gradients overflowed.
-            if not self.disable_encryption and self.check_overflow_INSECURE:
+            if not self.disable_he_backprop_INSECURE and self.check_overflow_INSECURE:
                 # Note, checking the gradients requires decryption on the
                 # features party which breaks security of the protocol.
                 dec_grads = [
@@ -900,11 +899,11 @@ class SequentialBase(keras.Sequential):
             # Spoof encrypted gradients as int64 with scaling factor 1 for
             # subsequent masking and noising, so the intermediate decryption
             # is not affected by the scaling factors.
-            if not self.disable_encryption:
+            if not self.disable_he_backprop_INSECURE:
                 grads = self.spoof_int_gradients(grads)
 
             # Mask the encrypted gradients.
-            if not self.disable_masking and not self.disable_encryption:
+            if not self.disable_masking_INSECURE and not self.disable_he_backprop_INSECURE:
                 grads, masks = self.mask_gradients(backprop_context, grads)
 
             if self.features_party_dev != self.labels_party_dev:
@@ -917,7 +916,7 @@ class SequentialBase(keras.Sequential):
                     tf_shell_ml.large_tensor.split_tensor_list(grads)
                 )
 
-            if not self.disable_noise:
+            if not self.simple_noise_INSECURE:
                 # Set up the features party side of the distributed noise
                 # sampling sub-protocol.
                 noise_context = self.noise_context_fn(read_key_from_cache)
@@ -927,7 +926,7 @@ class SequentialBase(keras.Sequential):
 
                 # The noise context must have the same number of slots
                 # (encryption ring degree) as used in backpropagation.
-                if not self.disable_encryption:
+                if not self.disable_he_backprop_INSECURE:
                     tf.assert_equal(
                         tf.identity(backprop_context.num_slots),
                         noise_context.num_slots,
@@ -959,12 +958,12 @@ class SequentialBase(keras.Sequential):
                     chunked_grads, chunked_grads_metadata
                 )
 
-            if not self.disable_encryption:
+            if not self.disable_he_backprop_INSECURE:
                 # Decrypt the weight gradients with the backprop key.
                 grads = [tf_shell.to_tensorflow(g, backprop_secret_key) for g in grads]
 
             # Sum the masked gradients over the batch.
-            if self.disable_masking or self.disable_encryption:
+            if self.disable_masking_INSECURE or self.disable_he_backprop_INSECURE:
                 # No mask has been added so a only a normal sum is required.
                 grads = [tf.reduce_sum(g, axis=0) for g in grads]
             else:
@@ -973,7 +972,7 @@ class SequentialBase(keras.Sequential):
                     for g in grads
                 ]
 
-            if self.disable_noise:
+            if self.simple_noise_INSECURE:
                 # If the noise protocol is disabled but the noise multiplier is
                 # still greater than 0, add plaintext noise to the gradients.
                 if self.noise_multiplier > 0.0:
@@ -1006,7 +1005,7 @@ class SequentialBase(keras.Sequential):
                 grads = self.noise_gradients(noise_context, flat_grads, noise_factors)
 
         with tf.device(self.features_party_dev):
-            if not self.disable_noise:
+            if not self.simple_noise_INSECURE:
                 # The gradients must be first be decrypted using the noise
                 # secret key.
                 flat_grads = [
@@ -1017,15 +1016,15 @@ class SequentialBase(keras.Sequential):
                 grads = self.unflatten_grad_list(flat_grads, flat_metadata)
 
             # Unmask the gradients.
-            if not self.disable_masking and not self.disable_encryption:
+            if not self.disable_masking_INSECURE and not self.disable_he_backprop_INSECURE:
                 grads = self.unmask_gradients(backprop_context, grads, masks)
 
             # Recover the original scaling factor of the gradients if they were
             # originally encrypted.
-            if not self.disable_encryption:
+            if not self.disable_he_backprop_INSECURE:
                 grads = self.unspoof_int_gradients(grads, backprop_scaling_factors)
 
-            if not self.disable_noise:
+            if not self.simple_noise_INSECURE:
                 if self.check_overflow_INSECURE:
                     self.warn_on_overflow(
                         grads,
@@ -1055,14 +1054,14 @@ class SequentialBase(keras.Sequential):
 
             for metric in self.metrics:
                 if metric.name == "loss":
-                    if self.disable_encryption:
+                    if self.disable_he_backprop_INSECURE:
                         loss = self.compiled_loss(labels, predictions)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.
                         metric.update_state(0.0)
                 else:
-                    if self.disable_encryption:
+                    if self.disable_he_backprop_INSECURE:
                         metric.update_state(labels, predictions)
                     else:
                         # Other metrics are uknown when encrypted.
@@ -1081,9 +1080,9 @@ class SequentialBase(keras.Sequential):
                 else:
                     result[key] = value  # non-subdict elements are just copied
 
-            if not self.disable_encryption:
+            if not self.disable_he_backprop_INSECURE:
                 ret_batch_size = tf.identity(backprop_context.num_slots)
-            elif not self.disable_noise:
+            elif not self.simple_noise_INSECURE:
                 ret_batch_size = tf.identity(noise_context.num_slots)
             else:
                 ret_batch_size = None
