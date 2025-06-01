@@ -856,23 +856,23 @@ class SequentialBase(keras.Sequential):
                             self.noise_multiplier,
                         )
                     )
-                # Clip the gradients to the maximum L2 norm.
-                norm = self._per_example_global_norm(grads)
-                clip_ratio = self.simple_noise_clip_threshold / tf.maximum(norm, 1e-8)
 
-                def _expand_dims(e, v):
-                    new_shape = tf.concat(
-                        [
-                            tf.shape(v)[0:1],
-                            tf.ones_like(tf.shape(v), dtype=tf.int32)[:-1],
-                        ],
-                        axis=0,
-                    )
-                    return tf.reshape(e, new_shape)
+                def clip_example(grads_list):
+                    # Clip gradients to have L2 norm of l2_norm_clip.
+                    # Here, we use TF primitives rather than the built-in
+                    # tf.clip_by_global_norm() so that operations can be vectorized
+                    # across microbatches.
+                    grads_flat = tf.nest.flatten(grads_list)
+                    squared_l2_norms = [
+                        tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
+                    ]
+                    global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
+                    div = tf.maximum(global_norm / self.simple_noise_clip_threshold, 1.)
+                    clipped_flat = [g / div for g in grads_flat]
+                    clipped_grads = tf.nest.pack_sequence_as(grads_list, clipped_flat)
+                    return clipped_grads
 
-                grads = [
-                    g * _expand_dims(tf.cast(clip_ratio, g.dtype), g) for g in grads
-                ]
+                grads = tf.vectorized_map(clip_example, grads)
 
                 # Override the max_to_norm, which is used to apply DP noise to the
                 # gradients, as the clipping threshold. This is how DP-SGD works,
