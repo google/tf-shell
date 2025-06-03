@@ -63,7 +63,7 @@ class TestModel(tf.test.TestCase):
             noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=25,
                 scaling_factor=1,
-                noise_offset_log2=0,
+                noise_offset_log2=48,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
@@ -98,9 +98,8 @@ class TestModel(tf.test.TestCase):
         with tempfile.TemporaryDirectory() as cache_dir:
             # Perform full encrypted test to populate cache.
             self._test_model(False, False, False, cache_dir)
-            self._test_model(True, False, False, cache_dir)
             self._test_model(False, True, False, cache_dir)
-            self._test_model(False, False, True, cache_dir)
+            self._test_model(True, True, False, cache_dir)
             self._test_model(True, True, True, cache_dir)
 
 

@@ -27,7 +27,6 @@ class TestModel(tf.test.TestCase):
         disable_encryption,
         disable_masking,
         disable_noise,
-        clipping_threshold,
         cache,
     ):
         # Prepare the dataset.
@@ -72,7 +71,6 @@ class TestModel(tf.test.TestCase):
             disable_he_backprop_INSECURE=disable_encryption,
             disable_masking_INSECURE=disable_masking,
             simple_noise_INSECURE=disable_noise,
-            simple_noise_clip_threshold=clipping_threshold,
             check_overflow_INSECURE=True,
         )
 
@@ -96,11 +94,10 @@ class TestModel(tf.test.TestCase):
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
             # Perform full encrypted test to populate cache.
-            self._test_model(False, False, False, None, cache_dir)
-            self._test_model(True, False, False, None, cache_dir)
-            self._test_model(False, True, False, None, cache_dir)
-            self._test_model(True, True, True, None, cache_dir)
-            self._test_model(True, True, True, 1.0, cache_dir)
+            self._test_model(False, False, False, cache_dir)
+            self._test_model(False, True, False, cache_dir)
+            self._test_model(True, True, False, cache_dir)
+            self._test_model(True, True, True, cache_dir)
 
 
 if __name__ == "__main__":

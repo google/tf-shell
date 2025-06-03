@@ -39,7 +39,7 @@ class SequentialBase(keras.Sequential):
         disable_he_backprop_INSECURE=False,
         disable_masking_INSECURE=False,
         simple_noise_INSECURE=False,
-        simple_noise_clip_threshold=None,
+        clip_threshold=1.0,
         check_overflow_INSECURE=False,
         *args,
         **kwargs,
@@ -60,7 +60,7 @@ class SequentialBase(keras.Sequential):
         self.disable_masking_INSECURE = disable_masking_INSECURE
         self.simple_noise_INSECURE = simple_noise_INSECURE
         self.check_overflow_INSECURE = check_overflow_INSECURE
-        self.simple_noise_clip_threshold = simple_noise_clip_threshold
+        self.clip_threshold = clip_threshold
 
         self.dataset_prepped = False
         self.uses_cce_and_softmax = False
@@ -81,6 +81,30 @@ class SequentialBase(keras.Sequential):
 
         if len(self.jacobian_devices) == 0:
             raise ValueError("No devices specified for Jacobian computation.")
+
+        if not self.disable_masking_INSECURE:
+            if self.disable_he_backprop_INSECURE:
+                raise ValueError(
+                    "The masking subprotocol requires HE backpropagation to be enabled."
+                )
+
+        if self.simple_noise_INSECURE:
+            # Simple noise clipping (like in traditional DP-SGD) requires
+            # knowing the gradients in plaintext, so encryption and masking must
+            # be disabled.
+            if not (
+                self.disable_he_backprop_INSECURE
+                and self.disable_masking_INSECURE
+                and self.clip_threshold > 0.0
+            ):
+                raise ValueError(
+                    "Simple gradient clipping (like traditional DP-SGD) requires "
+                    "encryption, masking, and noise protocols are disabled. "
+                    "The clipping threshold must be > 0. Saw: "
+                    f"disable_he_backprop_INSECURE={self.disable_he_backprop_INSECURE}, "
+                    f"disable_masking_INSECURE={self.disable_masking_INSECURE}, "
+                    f"clip_threshold={self.clip_threshold}"
+                )
 
     def compile(self, loss, **kwargs):
         if isinstance(loss, tf.keras.losses.CategoricalCrossentropy):
@@ -491,48 +515,15 @@ class SequentialBase(keras.Sequential):
 
         return grads
 
-    def _per_example_global_norm_squared(self, grads):
-        # Calculate squared norms for each gradient tensor in a list comprehension
-        squared_norms = [
-            tf.reduce_sum(tf.square(g), axis=list(range(1, len(g.shape))))
-            for g in grads
-        ]
-
-        # Sum across all gradients efficiently using tf.add_n
-        sum_of_squares = (
-            tf.add_n(squared_norms)
-            if squared_norms
-            else tf.zeros([grads[0].shape[0]], dtype=tf.keras.backend.floatx())
+    def _expand_dims_like(self, e, v):
+        new_shape = tf.concat(
+            [
+                tf.shape(v)[0:1],
+                tf.ones_like(tf.shape(v), dtype=tf.int32)[:-1],
+            ],
+            axis=0,
         )
-
-        return sum_of_squares
-
-    def _per_example_global_norm(self, grads):
-        """
-        Computes the per-example global norm of the gradients.
-
-        Args:
-            grads (list of tf.Tensor): The list of gradient tensors.
-
-        Returns:
-            tf.Tensor: Scalar of the global norm of the gradients.
-        """
-        sum_of_squares = self._per_example_global_norm_squared(grads)
-        return tf.sqrt(sum_of_squares)
-
-    def max_per_example_global_norm(self, grads):
-        """
-        Computes the maximum per-example global norm of the gradients.
-
-        Args:
-            grads (list of tf.Tensor): The list of gradient tensors.
-
-        Returns:
-            tf.Tensor: Scalar of the maximum global norm of the gradients.
-        """
-        sum_of_squares = self._per_example_global_norm_squared(grads)
-        max_norm = tf.sqrt(tf.reduce_max(sum_of_squares))
-        return max_norm
+        return tf.reshape(e, new_shape)
 
     def spoof_int_gradients(self, grads):
         """
@@ -771,6 +762,41 @@ class SequentialBase(keras.Sequential):
 
         return noised_grads
 
+    def clip_gradient(self, grads_list):
+        """
+        Clips a single example gradient to have L2 norm of `self.clip_threshold`.
+
+        Args:
+            grads_list (list of tf.Tensor): List of gradient tensors for a
+              single example to be clipped.
+        Returns:
+            list of tf.Tensor: List of clipped gradient tensors.
+        """
+
+        # Clip gradients to have L2 norm of l2_norm_clip.
+        # Here, we use TF primitives rather than the built-in
+        # tf.clip_by_global_norm() so that operations can be vectorized
+        # across microbatches.
+        grads_flat = tf.nest.flatten(grads_list)
+        squared_l2_norms = [
+            tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
+        ]
+        global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
+        div = tf.maximum(global_norm / self.clip_threshold, 1.0)
+        clipped_flat = [g / div for g in grads_flat]
+        clipped_grads = tf.nest.pack_sequence_as(grads_list, clipped_flat)
+        return clipped_grads
+
+    def gradient_norms(self, grads_list):
+        grads_flat = tf.nest.flatten(grads_list)
+        squared_l2_norms = [
+            tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
+        ]
+        global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
+        return global_norm
+        div = tf.maximum(global_norm / self.clip_threshold, 1.0)
+        return div
+
     def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
         """
         Print a warning if any of the gradients indicate overflow.
@@ -832,53 +858,41 @@ class SequentialBase(keras.Sequential):
                 )
 
         # Call the derived class to compute the gradients.
-        grads, max_two_norm, predictions = self.compute_grads(features, enc_labels)
+        grads, per_example_norms, predictions = self.compute_grads(features, enc_labels)
 
         with tf.device(self.features_party_dev):
-            # If clipping is enabled, clip the per-example gradients to the maximum
-            # L2 norm to mimic the DP-SGD algorithm.
-            if self.simple_noise_clip_threshold is not None:
-                # Note than encryption must be disabled, as this requires knowing
-                # the gradients in plaintext.
-                if not (
-                    self.disable_he_backprop_INSECURE
-                    and self.disable_masking_INSECURE
-                    and self.simple_noise_INSECURE
-                    and self.noise_multiplier > 0.0
-                ):
-                    raise ValueError(
-                        "Gradient clipping (to mimic DP-SGD) requires "
-                        "encryption and noise protocols are disabled. "
-                        "The noise multiplier should be > 0 to mimic DP-SGD. "
-                        "Saw disable_he_backprop_INSECURE: {}, simple_noise_INSECURE: {}, noise_multiplier: {}.".format(
-                            self.disable_he_backprop_INSECURE,
-                            self.simple_noise_INSECURE,
-                            self.noise_multiplier,
-                        )
-                    )
+            # Compute the maximum L2 norm of all per-example, per-class
+            # gradients for noise sampling purposes.
+            max_two_norm = tf.minimum(
+                tf.cast(self.clip_threshold, tf.keras.backend.floatx()),
+                tf.reduce_max(per_example_norms),
+            )
 
-                def clip_example(grads_list):
-                    # Clip gradients to have L2 norm of l2_norm_clip.
-                    # Here, we use TF primitives rather than the built-in
-                    # tf.clip_by_global_norm() so that operations can be vectorized
-                    # across microbatches.
-                    grads_flat = tf.nest.flatten(grads_list)
-                    squared_l2_norms = [
-                        tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
-                    ]
-                    global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
-                    div = tf.maximum(global_norm / self.simple_noise_clip_threshold, 1.)
-                    clipped_flat = [g / div for g in grads_flat]
-                    clipped_grads = tf.nest.pack_sequence_as(grads_list, clipped_flat)
-                    return clipped_grads
+            # If simple clipping is enabled, clip the per-example gradients to
+            # the maximum L2 norm to mimic the DP-SGD algorithm.
+            if self.simple_noise_INSECURE:
+                grads = tf.vectorized_map(self.clip_gradient, grads)
 
-                grads = tf.vectorized_map(clip_example, grads)
+                # Override the max_two_norm, which is used to apply DP noise to
+                # the gradients, as the clipping threshold. This is how DP-SGD
+                # works, it samples DP noise assuming the gradients are always
+                # clipped to the threshold.
+                max_two_norm = self.clip_threshold
+            else:
+                # Clip the gradients by the maximum per-class norm for each example.
+                clipper = tf.minimum(self.clip_threshold / per_example_norms, 1.0)
 
-                # Override the max_to_norm, which is used to apply DP noise to the
-                # gradients, as the clipping threshold. This is how DP-SGD works,
-                # it samples DP noise assuming the gradients are always clipped to
-                # the threshold.
-                max_two_norm = self.simple_noise_clip_threshold
+                if self.disable_he_backprop_INSECURE:
+
+                    def _plaintext_clip(grads_and_clipper):
+                        c = grads_and_clipper[0]
+                        gs = grads_and_clipper[1:]
+                        return [g * c for g in gs]
+
+                    grads.insert(0, clipper)
+                    grads = tf.vectorized_map(_plaintext_clip, grads)
+                else:
+                    grads = [g * clipper for g in grads]
 
             # Store the scaling factors of the gradients.
             if self.disable_he_backprop_INSECURE:
@@ -907,10 +921,7 @@ class SequentialBase(keras.Sequential):
                 grads = self.spoof_int_gradients(grads)
 
             # Mask the encrypted gradients.
-            if (
-                not self.disable_masking_INSECURE
-                and not self.disable_he_backprop_INSECURE
-            ):
+            if not self.disable_masking_INSECURE:
                 grads, masks = self.mask_gradients(backprop_context, grads)
 
             if self.features_party_dev != self.labels_party_dev:
@@ -970,7 +981,7 @@ class SequentialBase(keras.Sequential):
                 grads = [tf_shell.to_tensorflow(g, backprop_secret_key) for g in grads]
 
             # Sum the masked gradients over the batch.
-            if self.disable_masking_INSECURE or self.disable_he_backprop_INSECURE:
+            if self.disable_masking_INSECURE:
                 # No mask has been added so a only a normal sum is required.
                 grads = [tf.reduce_sum(g, axis=0) for g in grads]
             else:
@@ -1023,10 +1034,7 @@ class SequentialBase(keras.Sequential):
                 grads = self.unflatten_grad_list(flat_grads, flat_metadata)
 
             # Unmask the gradients.
-            if (
-                not self.disable_masking_INSECURE
-                and not self.disable_he_backprop_INSECURE
-            ):
+            if not self.disable_masking_INSECURE:
                 grads = self.unmask_gradients(backprop_context, grads, masks)
 
             # Recover the original scaling factor of the gradients if they were

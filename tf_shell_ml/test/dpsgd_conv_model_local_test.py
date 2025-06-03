@@ -86,7 +86,7 @@ class TestModel(tf.test.TestCase):
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=17,
                 scaling_factor=2,
-                noise_offset_log2=-4,
+                noise_offset_log2=0,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
@@ -102,6 +102,7 @@ class TestModel(tf.test.TestCase):
             disable_masking_INSECURE=disable_masking,
             simple_noise_INSECURE=disable_noise,
             check_overflow_INSECURE=True,
+            clip_threshold=10.0,
         )
 
         m.compile(

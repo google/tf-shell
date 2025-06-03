@@ -90,9 +90,8 @@ class TestModel(tf.test.TestCase):
         with tempfile.TemporaryDirectory() as cache_dir:
             # Perform full encrypted test to populate cache.
             self._test_model(False, False, False, cache_dir)
-            self._test_model(True, False, False, cache_dir)
             self._test_model(False, True, False, cache_dir)
-            self._test_model(False, False, True, cache_dir)
+            self._test_model(True, True, False, cache_dir)
             self._test_model(True, True, True, cache_dir)
 
 

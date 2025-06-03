@@ -67,8 +67,7 @@ class PostScaleSequential(SequentialBase):
             parallel_iterations=self.jacobian_pfor_iterations,
             experimental_use_pfor=self.jacobian_pfor,
         )
-        # ^  layers list x (batch size x num output classes x weights) matrix
-        # dy_pred_j/dW_sample_class
+        # ^  layers list x shape: [batch size, num output classes, weights]
 
         # Compute the last layer's activation manually since we skipped it above.
         predictions = tf.nn.softmax(predictions)
@@ -95,12 +94,12 @@ class PostScaleSequential(SequentialBase):
 
             # Scale the jacobian.
             scaled_grad = dJ_dz_exp * j
-            # ^ batch_size x num output classes x weights
+            # ^ shape: [batch_size, num output classes, weights]
 
             # Sum over the output classes. At this point, this is a gradient
             # and no longer a jacobian.
             scaled_grad = tf_shell.reduce_sum(scaled_grad, axis=1)
-            # ^  batch_size x weights
+            # ^ shape: [batch_size, weights]
 
             grads.append(scaled_grad)
 
@@ -116,7 +115,7 @@ class PostScaleSequential(SequentialBase):
 
         predictions_list = []
         jacobians_list = []
-        max_two_norms_list = []
+        jacobians_norms_list = []
 
         with tf.device(self.features_party_dev):
             split_features, end_pad = self.split_with_padding(
@@ -139,7 +138,9 @@ class PostScaleSequential(SequentialBase):
                 # possible label using the worst casse quantization of the
                 # jacobian.
                 with tf.name_scope("sensitivity_analysis"):
-                    sensitivity = tf.constant(0.0, dtype=tf.keras.backend.floatx())
+                    per_class_norms = tf.TensorArray(
+                        dtype=tf.keras.backend.floatx(), size=0, dynamic_size=True
+                    )
                     worst_case_jacobians = [
                         tf_shell.worst_case_rounding(j, scaling_factor)
                         for j in jacobians
@@ -148,10 +149,10 @@ class PostScaleSequential(SequentialBase):
                         prediction, scaling_factor
                     )
 
-                    def cond(possible_label_i, sensitivity):
+                    def cond(possible_label_i, _):
                         return possible_label_i < self.out_classes
 
-                    def body(possible_label_i, sensitivity):
+                    def body(possible_label_i, per_class_norms):
                         possible_label = tf.one_hot(
                             possible_label_i,
                             self.out_classes,
@@ -159,10 +160,14 @@ class PostScaleSequential(SequentialBase):
                         )
                         dJ_dz = worst_case_prediction - possible_label
                         possible_grads = self._backward(dJ_dz, worst_case_jacobians)
+                        possible_norms = tf.vectorized_map(
+                            self.gradient_norms, possible_grads
+                        )
 
-                        max_norm = self.max_per_example_global_norm(possible_grads)
-                        sensitivity = tf.maximum(sensitivity, max_norm)
-                        return possible_label_i + 1, sensitivity
+                        per_class_norms = per_class_norms.write(
+                            possible_label_i, possible_norms
+                        )
+                        return possible_label_i + 1, per_class_norms
 
                     # Using a tf.while_loop (vs. a python for loop) is preferred
                     # as it does not encode the unrolled loop into the graph and
@@ -170,53 +175,39 @@ class PostScaleSequential(SequentialBase):
                     # Increasing parallel_iterations may be faster at the expense
                     # of memory usage.
                     possible_label_i = tf.constant(0)
-                    sensitivity = tf.while_loop(
+                    _, per_class_norms = tf.while_loop(
                         cond,
                         body,
-                        [possible_label_i, sensitivity],
+                        [possible_label_i, per_class_norms],
                         parallel_iterations=1,
-                    )[1]
+                    )
 
-                    max_two_norms_list.append(sensitivity)
+                    per_class_per_example_norms = per_class_norms.stack()
+                    # ^ shape: [num output classes, batch_size]
+                    per_example_per_class_norms = tf.transpose(
+                        per_class_per_example_norms
+                    )
+                    # ^ shape: [batch_size, num output classes]
+                    jacobians_norms_list.append(per_example_per_class_norms)
 
         with tf.device(self.features_party_dev):
             predictions = tf.concat(predictions_list, axis=0)
-            max_two_norm = tf.reduce_max(max_two_norms_list)
             jacobians = [tf.concat(j, axis=0) for j in zip(*jacobians_list)]
+            per_example_per_class_norms = tf.concat(jacobians_norms_list, axis=0)
+            per_example_norms = tf.reduce_max(per_example_per_class_norms, axis=1)
 
-            if isinstance(self.loss, tf.keras.losses.CategoricalCrossentropy):
-                if type(enc_labels) is tf.Tensor:
-                    tf.debugging.assert_equal(
-                        tf.shape(predictions),
-                        tf.shape(enc_labels),
-                        message="Predictions and labels must have the same shape.",
-                    )
-                # The base class ensures that when the loss is CCE, the last
-                # layer's activation is softmax. The derivative of these two
-                # functions is simple subtraction.
-                dJ_dz = enc_labels.__rsub__(predictions)
-                # ^  batch_size x num output classes.
-
-                # In classification, the maximum difference between the
-                # prediction and the label is 1.0, thus the max_two_norm
-                # does not need to be scaled.
-            elif isinstance(self.loss, tf.keras.losses.MeanSquaredError):
-                if type(enc_labels) is tf.Tensor:
-                    tf.debugging.assert_equal(
-                        tf.shape(predictions),
-                        tf.shape(enc_labels),
-                        message="Predictions and labels must have the same shape.",
-                    )
-                dJ_dz = enc_labels.__rsub__(predictions)
-
-                # Note: dJ_dz is unbounded. It must either be clipped (which
-                # is not implemented) or the noise scale must be accounted for
-                # by the caller. A warning is printed in the base class.
-            else:
-                raise ValueError(
-                    "Unsupported loss function. Only CCE and MSE are supported."
+            if type(enc_labels) is tf.Tensor:
+                tf.debugging.assert_equal(
+                    tf.shape(predictions),
+                    tf.shape(enc_labels),
+                    message="Predictions and labels must have the same shape.",
                 )
+            # The base class ensures that when the loss is CCE, the last
+            # layer's activation is softmax. The derivative of these two
+            # functions is simple subtraction.
+            dJ_dz = enc_labels.__rsub__(predictions)
+            # ^ shape: [batch_size, num output classes]
 
             grads = self._backward(dJ_dz, jacobians)
 
-        return grads, max_two_norm, predictions
+        return grads, per_example_norms, predictions
