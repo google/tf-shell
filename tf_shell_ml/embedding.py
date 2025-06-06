@@ -122,7 +122,7 @@ class ShellEmbedding(keras.layers.Layer):
             raise ValueError(
                 f"Embedding layer dy ndims exptected {indices + 1}. Got {dy}."
             )
-        sentence_len = dy.shape[1]
+        # Note: sentence_len = dy.shape[1]
 
         values = dy
 
