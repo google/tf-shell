@@ -868,31 +868,33 @@ class SequentialBase(keras.Sequential):
                 tf.reduce_max(per_example_norms),
             )
 
-            # If simple clipping is enabled, clip the per-example gradients to
-            # the maximum L2 norm to mimic the DP-SGD algorithm.
-            if self.simple_noise_INSECURE:
-                grads = tf.vectorized_map(self.clip_gradient, grads)
+            # Clip the gradients to the maximum L2 norm (only if adding noise)
+            if self.noise_multiplier > 0.0:
+                if self.simple_noise_INSECURE:
+                    # If simple noise is enabled, clip the per-example gradients to
+                    # the maximum L2 norm to mimic the DP-SGD algorithm.
+                    grads = tf.vectorized_map(self.clip_gradient, grads)
 
-                # Override the max_two_norm, which is used to apply DP noise to
-                # the gradients, as the clipping threshold. This is how DP-SGD
-                # works, it samples DP noise assuming the gradients are always
-                # clipped to the threshold.
-                max_two_norm = self.clip_threshold
-            else:
-                # Clip the gradients by the maximum per-class norm for each example.
-                clipper = tf.minimum(self.clip_threshold / per_example_norms, 1.0)
-
-                if self.disable_he_backprop_INSECURE:
-
-                    def _plaintext_clip(grads_and_clipper):
-                        c = grads_and_clipper[0]
-                        gs = grads_and_clipper[1:]
-                        return [g * c for g in gs]
-
-                    grads.insert(0, clipper)
-                    grads = tf.vectorized_map(_plaintext_clip, grads)
+                    # Override the max_two_norm, which is used to apply DP noise to
+                    # the gradients, as the clipping threshold. This is how DP-SGD
+                    # works, it samples DP noise assuming the gradients are always
+                    # clipped to the threshold.
+                    max_two_norm = self.clip_threshold
                 else:
-                    grads = [g * clipper for g in grads]
+                    # Clip the gradients by the maximum per-class norm for each example.
+                    clipper = tf.minimum(self.clip_threshold / per_example_norms, 1.0)
+
+                    if self.disable_he_backprop_INSECURE:
+
+                        def _plaintext_clip(grads_and_clipper):
+                            c = grads_and_clipper[0]
+                            gs = grads_and_clipper[1:]
+                            return [g * c for g in gs]
+
+                        grads.insert(0, clipper)
+                        grads = tf.vectorized_map(_plaintext_clip, grads)
+                    else:
+                        grads = [g * clipper for g in grads]
 
             # Store the scaling factors of the gradients.
             if self.disable_he_backprop_INSECURE:
