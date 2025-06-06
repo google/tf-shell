@@ -55,7 +55,6 @@ def calculate_tf_shell_split_sizes(context, total_elements):
     )
     extra_bytes = 4 + 8  # power_of_s (int) and error (double)
     bytes_per_ct = num_components * bytes_per_component + extra_bytes
-    tf.print("PYTHON bytes_per_ct: ", bytes_per_ct)
 
     max_elements_per_tensor = tf.cast(
         tf.constant(int(UINT32_MAX * SAFETY_FACTOR), dtype=tf.int64) / bytes_per_ct,
