@@ -22,6 +22,7 @@ class PostScaleSequential(SequentialBase):
         self,
         layers,
         *args,
+        ubatch_split=8,
         **kwargs,
     ):
         for l in layers:
@@ -29,6 +30,12 @@ class PostScaleSequential(SequentialBase):
                 raise ValueError(
                     "tf_shell_ml.PostScaleSequential does not support tf_shell layers"
                 )
+
+        if not isinstance(ubatch_split, int) or ubatch_split <= 0:
+            raise ValueError(
+                "ubatch_split must be a positive integer, got: " f"{ubatch_split}"
+            )
+        self.ubatch_split = ubatch_split
 
         super().__init__(layers, *args, **kwargs)
 
@@ -40,6 +47,7 @@ class PostScaleSequential(SequentialBase):
         # purposes.
         return tf.nn.softmax(prediction)
 
+    @tf.function
     def _predict_and_jacobian(self, features):
         """
         Predicts the output for the given features and optionally computes the
@@ -105,6 +113,75 @@ class PostScaleSequential(SequentialBase):
 
         return grads
 
+    @tf.function
+    def compute_postscale_precursors(
+        self, u_batch_features, scaling_factor, end_pad, u_batch_i, device
+    ):
+        with tf.device(device):
+            f = tf.identity(u_batch_features)  # copy to GPU if needed
+            prediction, jacobians = self._predict_and_jacobian(f)
+            if (
+                u_batch_i == (len(self.jacobian_devices) * self.ubatch_split) - 1
+                and end_pad > 0
+            ):
+                # The last device's features may have been padded for even
+                # split jacobian computation across multiple devices.
+                prediction = prediction[:-end_pad]
+                jacobians = jacobians[:-end_pad]
+
+            # Perform PostScale (dJ/dz * dz/dw) in plaintext for every
+            # possible label using the worst casse quantization of the
+            # jacobian.
+            with tf.name_scope("sensitivity_analysis"):
+                per_class_norms = tf.TensorArray(
+                    dtype=tf.keras.backend.floatx(), size=0, dynamic_size=True
+                )
+                worst_case_jacobians = [
+                    tf_shell.worst_case_rounding(j, scaling_factor) for j in jacobians
+                ]
+                worst_case_prediction = tf_shell.worst_case_rounding(
+                    prediction, scaling_factor
+                )
+
+                def cond(possible_label_i, _):
+                    return possible_label_i < self.out_classes
+
+                def body(possible_label_i, per_class_norms):
+                    possible_label = tf.one_hot(
+                        possible_label_i,
+                        self.out_classes,
+                        dtype=tf.keras.backend.floatx(),
+                    )
+                    dJ_dz = worst_case_prediction - possible_label
+                    possible_grads = self._backward(dJ_dz, worst_case_jacobians)
+                    possible_norms = tf.vectorized_map(
+                        self.gradient_norms, possible_grads
+                    )
+
+                    per_class_norms = per_class_norms.write(
+                        possible_label_i, possible_norms
+                    )
+                    return possible_label_i + 1, per_class_norms
+
+                # Using a tf.while_loop (vs. a python for loop) is preferred
+                # as it does not encode the unrolled loop into the graph and
+                # also allows explicit control over the loop's parallelism.
+                # Increasing parallel_iterations may be faster at the expense
+                # of memory usage.
+                possible_label_i = tf.constant(0)
+                _, per_class_norms = tf.while_loop(
+                    cond,
+                    body,
+                    [possible_label_i, per_class_norms],
+                    parallel_iterations=1,
+                )
+
+                per_class_per_example_norms = per_class_norms.stack()
+                # ^ shape: [num output classes, batch_size]
+                per_example_per_class_norms = tf.transpose(per_class_per_example_norms)
+                # ^ shape: [batch_size, num output classes]
+                return prediction, jacobians, per_example_per_class_norms
+
     def compute_grads(self, features, enc_labels):
         scaling_factor = (
             enc_labels.scaling_factor
@@ -119,78 +196,19 @@ class PostScaleSequential(SequentialBase):
 
         with tf.device(self.features_party_dev):
             split_features, end_pad = self.split_with_padding(
-                features, len(self.jacobian_devices)
+                features, len(self.jacobian_devices) * self.ubatch_split
             )
 
-        for i, d in enumerate(self.jacobian_devices):
-            with tf.device(d):
-                f = tf.identity(split_features[i])  # copy to GPU if needed
-                prediction, jacobians = self._predict_and_jacobian(f)
-                if i == len(self.jacobian_devices) - 1 and end_pad > 0:
-                    # The last device's features may have been padded for even
-                    # split jacobian computation across multiple devices.
-                    prediction = prediction[:-end_pad]
-                    jacobians = jacobians[:-end_pad]
+            for i, d in enumerate(self.jacobian_devices * self.ubatch_split):
+                prediction, jacobians, jacobians_norms = (
+                    self.compute_postscale_precursors(
+                        split_features[i], scaling_factor, end_pad, i, d
+                    )
+                )
                 predictions_list.append(prediction)
                 jacobians_list.append(jacobians)
+                jacobians_norms_list.append(jacobians_norms)
 
-                # Perform PostScale (dJ/dz * dz/dw) in plaintext for every
-                # possible label using the worst casse quantization of the
-                # jacobian.
-                with tf.name_scope("sensitivity_analysis"):
-                    per_class_norms = tf.TensorArray(
-                        dtype=tf.keras.backend.floatx(), size=0, dynamic_size=True
-                    )
-                    worst_case_jacobians = [
-                        tf_shell.worst_case_rounding(j, scaling_factor)
-                        for j in jacobians
-                    ]
-                    worst_case_prediction = tf_shell.worst_case_rounding(
-                        prediction, scaling_factor
-                    )
-
-                    def cond(possible_label_i, _):
-                        return possible_label_i < self.out_classes
-
-                    def body(possible_label_i, per_class_norms):
-                        possible_label = tf.one_hot(
-                            possible_label_i,
-                            self.out_classes,
-                            dtype=tf.keras.backend.floatx(),
-                        )
-                        dJ_dz = worst_case_prediction - possible_label
-                        possible_grads = self._backward(dJ_dz, worst_case_jacobians)
-                        possible_norms = tf.vectorized_map(
-                            self.gradient_norms, possible_grads
-                        )
-
-                        per_class_norms = per_class_norms.write(
-                            possible_label_i, possible_norms
-                        )
-                        return possible_label_i + 1, per_class_norms
-
-                    # Using a tf.while_loop (vs. a python for loop) is preferred
-                    # as it does not encode the unrolled loop into the graph and
-                    # also allows explicit control over the loop's parallelism.
-                    # Increasing parallel_iterations may be faster at the expense
-                    # of memory usage.
-                    possible_label_i = tf.constant(0)
-                    _, per_class_norms = tf.while_loop(
-                        cond,
-                        body,
-                        [possible_label_i, per_class_norms],
-                        parallel_iterations=1,
-                    )
-
-                    per_class_per_example_norms = per_class_norms.stack()
-                    # ^ shape: [num output classes, batch_size]
-                    per_example_per_class_norms = tf.transpose(
-                        per_class_per_example_norms
-                    )
-                    # ^ shape: [batch_size, num output classes]
-                    jacobians_norms_list.append(per_example_per_class_norms)
-
-        with tf.device(self.features_party_dev):
             predictions = tf.concat(predictions_list, axis=0)
             jacobians = [tf.concat(j, axis=0) for j in zip(*jacobians_list)]
             per_example_per_class_norms = tf.concat(jacobians_norms_list, axis=0)
