@@ -20,13 +20,14 @@ import gc
 import tf_shell_ml
 
 
-class SequentialBase(keras.Sequential):
+class PrivateBase(keras.Model):
 
     def __init__(
         self,
-        layers,
-        backprop_context_fn,
-        noise_context_fn,
+        inputs=None,
+        outputs=None,
+        backprop_context_fn=None,
+        noise_context_fn=None,
         noise_multiplier_fn=lambda batch_size: 1.0,
         labels_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
         features_party_dev="/job:localhost/replica:0/task:0/device:CPU:0",
@@ -44,8 +45,18 @@ class SequentialBase(keras.Sequential):
         *args,
         **kwargs,
     ):
-        super().__init__(layers, *args, **kwargs)
+        super().__init__(inputs=inputs, outputs=outputs, *args, **kwargs)
+        if backprop_context_fn is None:
+            raise ValueError(
+                "backprop_context_fn must be provided. It is used to set "
+                "encryption parameters for backpropagation."
+            )
         self.backprop_context_fn = backprop_context_fn
+        if noise_context_fn is None:
+            raise ValueError(
+                "noise_context_fn must be provided. It is used to set "
+                "encryption parameters for DP noise protocol."
+            )
         self.noise_context_fn = noise_context_fn
         self.noise_multiplier_fn = noise_multiplier_fn
         self.labels_party_dev = labels_party_dev
@@ -77,7 +88,7 @@ class SequentialBase(keras.Sequential):
         if len(self.layers) == 0:
             raise ValueError("The model must have at least one layer.")
 
-        self.out_classes = self.layers[-1].units
+        self.out_classes = self.outputs[0].shape[-1]
 
         if len(self.jacobian_devices) == 0:
             raise ValueError("No devices specified for Jacobian computation.")
@@ -120,7 +131,7 @@ class SequentialBase(keras.Sequential):
 
             # Unset the last layer's activation function. Derived classes handle
             # the softmax activation + cce manually.
-            self.layers[-1].activation = None
+            self.layers[-1].activation = keras.activations.linear
             self.layers[-1].activation_deriv = None
             self.uses_cce_and_softmax = True
 
@@ -442,38 +453,6 @@ class SequentialBase(keras.Sequential):
         # End of training.
         callback_list.on_train_end(logs)
         return self.history
-
-    def split_with_padding(self, tensor, num_splits, axis=0, padding_value=0):
-        """
-        Splits a tensor along the given axis, padding if necessary.
-
-        Args:
-            tensor (tf.Tensor): The input tensor to be split. Requires the shape
-                of the tensor is known.
-            num_splits (int): The number of splits to divide the tensor into.
-            axis (int, optional): The axis along which to split the tensor.
-                Defaults to 0.
-            padding_value (int, optional): The value to use for padding if the
-                tensor's size along the specified axis is not divisible by
-                num_splits. Defaults to 0.
-
-        Returns:
-            tuple: A tuple containing:
-                - List[tf.Tensor]: A list of tensors resulting from the split.
-                - int: The remainder of the division of the tensor's size along
-                  the specified axis by num_splits.
-        """
-        # Pad the tensor if necessary
-        remainder = tensor.shape[axis] % num_splits
-        padded_by = 0
-        if remainder != 0:
-            padded_by = num_splits - remainder
-            padding = [[0, 0] for _ in range(tensor.shape.rank)]
-            padding[axis][1] = padded_by
-            tensor = tf.pad(tensor, padding, constant_values=padding_value)
-
-        # Split the tensor
-        return tf.split(tensor, num_splits, axis=axis), padded_by
 
     def flatten_and_pad_grad(self, grad, dim_0_sz):
         num_el = tf.cast(tf.size(grad), dtype=tf.int64)

@@ -75,7 +75,10 @@ py_test(
 py_test(
     name = "dpsgd_model_local_test_maeloss",
     size = "enormous",
-    srcs = ["dpsgd_model_local_test_maeloss.py"],
+    srcs = [
+        "dpsgd_model_local_test_maeloss.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -86,7 +89,10 @@ py_test(
 py_test(
     name = "dpsgd_model_local_test",
     size = "enormous",
-    srcs = ["dpsgd_model_local_test.py"],
+    srcs = [
+        "dpsgd_model_local_test.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -97,7 +103,10 @@ py_test(
 py_test(
     name = "dpsgd_model_float64_test",
     size = "enormous",
-    srcs = ["dpsgd_model_float64_test.py"],
+    srcs = [
+        "dpsgd_model_float64_test.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -108,7 +117,10 @@ py_test(
 py_test(
     name = "dpsgd_conv_model_local_test",
     size = "enormous",
-    srcs = ["dpsgd_conv_model_local_test.py"],
+    srcs = [
+        "dpsgd_conv_model_local_test.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -119,7 +131,10 @@ py_test(
 py_test(
     name = "dpsgd_model_distrib_test",
     size = "enormous",
-    srcs = ["dpsgd_model_distrib_test.py"],
+    srcs = [
+        "dpsgd_model_distrib_test.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -130,7 +145,24 @@ py_test(
 py_test(
     name = "postscale_model_local_test",
     size = "enormous",
-    srcs = ["postscale_model_local_test.py"],
+    srcs = [
+        "postscale_model_local_test.py",
+        "test_models.py",
+    ],
+    tags = ["exclusive"],
+    deps = [
+        "//tf_shell_ml",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
+    name = "postscale_cnn_local_test",
+    size = "enormous",
+    srcs = [
+        "postscale_cnn_local_test.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -141,7 +173,10 @@ py_test(
 py_test(
     name = "postscale_model_distrib_test",
     size = "enormous",
-    srcs = ["postscale_model_distrib_test.py"],
+    srcs = [
+        "postscale_model_distrib_test.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",
@@ -152,7 +187,10 @@ py_test(
 py_test(
     name = "postscale_model_float64_test",
     size = "enormous",
-    srcs = ["postscale_model_float64_test.py"],
+    srcs = [
+        "postscale_model_float64_test.py",
+        "test_models.py",
+    ],
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",

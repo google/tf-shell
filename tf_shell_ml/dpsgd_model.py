@@ -13,15 +13,64 @@
 # limitations under the License.
 import tensorflow as tf
 import tf_shell
-from tf_shell_ml.model_base import SequentialBase
+from tf_shell_ml.private_base import PrivateBase
 from tf_shell_ml import large_tensor
 
 
-class DpSgdSequential(SequentialBase):
+def is_model_sequential(model: tf.keras.Model) -> bool:
+    """
+    Checks if a Keras model has a sequential structure.
+
+    Args:
+        model: A Keras Model instance.
+
+    Returns:
+        True if the model has a sequential structure, False otherwise.
+    """
+    # A sequential model must have exactly one input and one output.
+    if len(model.inputs) != 1 or len(model.outputs) != 1:
+        return False
+
+    # Iterate through all layers in the model to check their connectivity.
+    for layer in model.layers:
+        if len(layer._inbound_nodes) > 1:
+            return False
+
+        if len(layer._outbound_nodes) > 1:
+            return False
+
+        if layer._inbound_nodes:  # Check if it's not the InputLayer
+            node = layer._inbound_nodes[0]
+            if len(node.input_tensors) > 1:
+                return False
+
+    return True
+
+
+class DpSgdModel(PrivateBase):
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+
+        for l in self.layers:
+            if "tf_shell_ml" not in getattr(l, "__module__", None):
+                # Input layers are not tf_shell layers, but allowed
+                if "InputLayer" not in getattr(l, "__class__", None).__name__:
+                    raise ValueError("DpSgdModel only supports tf_shell layers")
+
+        if not is_model_sequential(self):
+            raise ValueError("DpSgdModel only supports sequential models.")
+
     def call(self, features, training=False, with_softmax=True):
         predictions = features
         for l in self.layers:
-            predictions = l(predictions, training=training, split_forward_mode=True)
+            if "InputLayer" in getattr(l, "__class__", None).__name__:
+                continue  # Skip Keras InputLayer.
+            else:
+                predictions = l(predictions, training=training, split_forward_mode=True)
 
         if not with_softmax:
             return predictions
@@ -35,6 +84,9 @@ class DpSgdSequential(SequentialBase):
         dJ_dw = []  # Derivatives of the loss with respect to the weights.
         dJ_dx = [dJ_dz]  # Derivatives of the loss with respect to the inputs.
         for l in reversed(self.layers):
+            if "InputLayer" in getattr(l, "__class__", None).__name__:
+                continue  # Skip Keras InputLayer.
+
             dw, dx = l.backward(
                 dJ_dx[-1], sensitivity_analysis_factor=sensitivity_analysis_factor
             )
@@ -53,19 +105,24 @@ class DpSgdSequential(SequentialBase):
 
         # Reset layers for forward pass over multiple devices.
         for l in self.layers:
+            if "InputLayer" in getattr(l, "__class__", None).__name__:
+                continue  # Skip Keras InputLayer.
             l.reset_split_forward_mode()
+
+        if features.shape[0] % len(self.jacobian_devices) != 0:
+            raise ValueError("Batch size must be divisible by number of devices.")
+        batch_size_per_device = features.shape[0] // len(self.jacobian_devices)
 
         predictions_list = []
         jacobians_norms_list = []
 
-        with tf.device(self.features_party_dev):
-            split_features, end_pad = self.split_with_padding(
-                features, len(self.jacobian_devices)
-            )
-
-        for i, d in enumerate(self.jacobian_devices):
-            with tf.device(d):
-                f = tf.identity(split_features[i])  # copy to GPU if needed
+        # Split the batch of features across the devices.
+        for i, device in enumerate(self.jacobian_devices):
+            with tf.device(device):
+                f = features[
+                    i * batch_size_per_device : (i + 1) * batch_size_per_device
+                ]
+                f = tf.identity(f)  # copy to GPU if needed
 
                 # First compute the real prediction. Manually perform the
                 # softmax activation if necessary.
@@ -102,10 +159,6 @@ class DpSgdSequential(SequentialBase):
                         possible_grads = self._backward(
                             dJ_dz, sensitivity_analysis_factor=scaling_factor
                         )
-                        if i == len(self.jacobian_devices) - 1 and end_pad > 0:
-                            # The last device's features may have been padded.
-                            # Remove the extra gradients before computing the norm.
-                            possible_grads = [g[:-end_pad] for g in possible_grads]
 
                         possible_norms = tf.vectorized_map(
                             self.gradient_norms, possible_grads
@@ -130,9 +183,6 @@ class DpSgdSequential(SequentialBase):
                         parallel_iterations=1,
                     )
 
-                    if i == len(self.jacobian_devices) - 1 and end_pad > 0:
-                        # The last device's features may have been padded.
-                        prediction = prediction[:-end_pad]
                     predictions_list.append(prediction)
 
                     per_class_per_example_norms = per_class_norms.stack()

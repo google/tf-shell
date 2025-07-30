@@ -18,71 +18,23 @@ import numpy as np
 import tf_shell
 import tf_shell_ml
 import tempfile
+import test_models
 
 
 class TestModel(tf.test.TestCase):
     def _test_model(self, disable_encryption, disable_masking, disable_noise, cache):
-        # Prepare the dataset.
-        (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
-        x_train, x_test = np.reshape(x_train, (-1, 28, 28, 1)), np.reshape(
-            x_test, (-1, 28, 28, 1)
+        crop_by = 16
+        features_dataset, labels_dataset, val_dataset = test_models.MNIST_datasets(
+            crop_by=crop_by
         )
-        x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
-        y_train, y_test = tf.one_hot(y_train, 10), tf.one_hot(y_test, 10)
 
-        # Clip the input images to make testing faster.
-        clip_by = 8
-        x_train = x_train[:, clip_by : (28 - clip_by), clip_by : (28 - clip_by), :]
-        x_test = x_test[:, clip_by : (28 - clip_by), clip_by : (28 - clip_by), :]
+        inputs, outputs = test_models.MNIST_Simple_Shell_CNN(
+            10, inputs=(28 - crop_by, 28 - crop_by, 1)
+        )
 
-        labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-        labels_dataset = labels_dataset.batch(2**10)
-
-        features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-        features_dataset = features_dataset.batch(2**12)
-
-        val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
-        val_dataset = val_dataset.batch(32)
-
-        m = tf_shell_ml.DpSgdSequential(
-            [
-                # Model from tensorflow-privacy tutorial. The first conv and
-                # maxpool layer may be skipped and the model still has ~95%
-                # accuracy (plaintext, no input image clipping).
-                # tf_shell_ml.Conv2D(
-                #     filters=16,
-                #     kernel_size=8,
-                #     strides=2,
-                #     padding="same",
-                #     activation=tf_shell_ml.relu,
-                #     activation_deriv=tf_shell_ml.relu_deriv,
-                # ),
-                # tf_shell_ml.MaxPool2D(
-                #     pool_size=(2, 2),
-                #     strides=1,
-                # ),
-                tf_shell_ml.Conv2D(
-                    filters=32,
-                    kernel_size=4,
-                    strides=2,
-                    activation=tf_shell_ml.relu,
-                    activation_deriv=tf_shell_ml.relu_deriv,
-                ),
-                tf_shell_ml.MaxPool2D(
-                    pool_size=(2, 2),
-                    strides=1,
-                ),
-                tf_shell_ml.Flatten(),
-                tf_shell_ml.ShellDense(
-                    32,
-                    activation=tf_shell_ml.relu,
-                    activation_deriv=tf_shell_ml.relu_deriv,
-                ),
-                tf_shell_ml.ShellDense(
-                    10,
-                    activation=tf.nn.softmax,
-                ),
-            ],
+        m = tf_shell_ml.DpSgdModel(
+            inputs=inputs,
+            outputs=outputs,
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=17,
                 scaling_factor=2,
@@ -110,6 +62,9 @@ class TestModel(tf.test.TestCase):
             optimizer=tf.keras.optimizers.Adam(0.01, beta_1=0.8),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
+
+        m.build(input_shape=(None, 28 - crop_by, 28 - crop_by, 1))
+        m.summary()
 
         history = m.fit(
             features_dataset,

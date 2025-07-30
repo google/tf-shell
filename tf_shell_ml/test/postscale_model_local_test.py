@@ -19,6 +19,7 @@ import tf_shell
 import tf_shell_ml
 import os
 import tempfile
+import test_models
 
 
 class TestModel(tf.test.TestCase):
@@ -29,38 +30,27 @@ class TestModel(tf.test.TestCase):
         disable_noise,
         cache,
     ):
-        # Prepare the dataset.
-        (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
-        x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
-        x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
-        y_train, y_test = tf.one_hot(y_train, 10), tf.one_hot(y_test, 10)
+        crop_by = 12
+        features_dataset, labels_dataset, val_dataset = test_models.MNIST_datasets(
+            crop_by=crop_by
+        )
 
-        # Clip dataset images to limit memory usage. The model accuracy will be
-        # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :250], x_test[:, :250]
+        inputs, outputs = test_models.MNIST_FF(
+            10, inputs=(28 - crop_by, 28 - crop_by, 1)
+        )
 
-        labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-        labels_dataset = labels_dataset.batch(2**10)
-
-        features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-        features_dataset = features_dataset.batch(2**10)
-
-        val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
-        val_dataset = val_dataset.batch(32)
-
-        m = tf_shell_ml.PostScaleSequential(
-            [
-                tf.keras.layers.Dense(64, activation="relu"),
-                tf.keras.layers.Dense(10, activation="softmax"),
-            ],
-            lambda read_from_cache: tf_shell.create_autocontext64(
+        m = tf_shell_ml.PostScaleModel(
+            inputs=inputs,
+            outputs=outputs,
+            ubatch_per_batch=2,
+            backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=23,
                 scaling_factor=32,
                 noise_offset_log2=14,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
-            lambda read_from_cache: tf_shell.create_autocontext64(
+            noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=24,
                 scaling_factor=1,
                 noise_offset_log2=0,

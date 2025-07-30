@@ -1428,6 +1428,11 @@ def _conv2d(x, filt, strides, padding, dilations, output_shape, func):
 
     matched_x, matched_filt = _match_moduli(x, filt)
 
+    if output_shape is not None:
+        for i, dim in enumerate(output_shape):
+            if dim is None:
+                output_shape[i] = -1
+
     return ShellTensor64(
         _raw_tensor=func(
             matched_x._context._get_context_at_level(matched_x._level),

@@ -15,6 +15,7 @@
 import os
 import tensorflow as tf
 import tempfile
+import test_models
 
 job_prefix = "tfshell"
 features_party_job = f"{job_prefix}features"
@@ -50,60 +51,39 @@ class TestDistribModel(tf.test.TestCase):
 
         # Register the tf-shell ops.
         import tf_shell
+        import tf_shell_ml
 
         if self.job_name == labels_party_job:
             print(f"{self.job_name} server started.", flush=True)
             server.join()
             return
 
-        import keras
-        import tf_shell_ml
-        import numpy as np
+        crop_by = 12
+        features_dataset, labels_dataset, val_dataset = test_models.MNIST_datasets(
+            crop_by=crop_by,
+            labels_party_dev=labels_party_dev,
+            features_party_dev=features_party_dev,
+        )
 
-        # Prepare the dataset. (Note this must be after forking)
-        (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
-        x_train, x_test = np.reshape(x_train, (-1, 784)), np.reshape(x_test, (-1, 784))
-        x_train, x_test = x_train / np.float32(255.0), x_test / np.float32(255.0)
-        y_train, y_test = tf.one_hot(y_train, 10), tf.one_hot(y_test, 10)
-
-        # Clip dataset images to limit memory usage. The model accuracy will be
-        # bad but this test only measures functionality.
-        x_train, x_test = x_train[:, :250], x_test[:, :250]
-
-        with tf.device(labels_party_dev):
-            labels_dataset = tf.data.Dataset.from_tensor_slices(y_train)
-            labels_dataset = labels_dataset.batch(2**10)
+        inputs, outputs = test_models.MNIST_Shell_FF(
+            10, inputs=(28 - crop_by, 28 - crop_by, 1)
+        )
 
         with tf.device(features_party_dev):
-            features_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-            features_dataset = features_dataset.batch(2**10)
-
-            val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
-            val_dataset = val_dataset.batch(32)
-
             cache_dir = tempfile.TemporaryDirectory()
             cache = cache_dir.name
 
-            m = tf_shell_ml.DpSgdSequential(
-                [
-                    tf_shell_ml.ShellDense(
-                        64,
-                        activation=tf_shell_ml.relu,
-                        activation_deriv=tf_shell_ml.relu_deriv,
-                    ),
-                    tf_shell_ml.ShellDense(
-                        10,
-                        activation=tf.nn.softmax,
-                    ),
-                ],
-                lambda read_from_cache: tf_shell.create_autocontext64(
+            m = tf_shell_ml.DpSgdModel(
+                inputs=inputs,
+                outputs=outputs,
+                backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                     log2_cleartext_sz=23,
                     scaling_factor=4,
                     noise_offset_log2=14,
                     read_from_cache=read_from_cache,
                     cache_path=cache,
                 ),
-                lambda read_from_cache: tf_shell.create_autocontext64(
+                noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                     log2_cleartext_sz=25,
                     scaling_factor=1,
                     noise_offset_log2=48,
@@ -120,6 +100,8 @@ class TestDistribModel(tf.test.TestCase):
                 optimizer=tf.keras.optimizers.Adam(0.01, beta_1=0.8),
                 metrics=[tf.keras.metrics.CategoricalAccuracy()],
             )
+
+            m.summary()
 
         history = m.fit(
             features_dataset,
