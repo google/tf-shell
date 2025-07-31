@@ -47,7 +47,6 @@ class PostScaleModel(PrivateBase):
         # purposes.
         return tf.nn.softmax(prediction)
 
-    @tf.function
     def _predict_and_jacobian(self, features):
         """
         Predicts the output for the given features and optionally computes the
@@ -111,17 +110,19 @@ class PostScaleModel(PrivateBase):
 
         return grads
 
-    @tf.function
-    def compute_postscale_precursors(self, u_batch_features, scaling_factor):
-        f = tf.identity(u_batch_features)  # copy to GPU if needed
-        prediction, jacobians = self._predict_and_jacobian(f)
+    def compute_postscale_precursors(self, ubatch_features, scaling_factor):
+        prediction, jacobians = self._predict_and_jacobian(ubatch_features)
 
         # Perform PostScale (dJ/dz * dz/dw) in plaintext for every
         # possible label using the worst casse quantization of the
         # jacobian.
         with tf.name_scope("sensitivity_analysis"):
             per_class_norms = tf.TensorArray(
-                dtype=tf.keras.backend.floatx(), size=0, dynamic_size=True
+                dtype=tf.keras.backend.floatx(),
+                size=self.out_classes,
+                dynamic_size=False,
+                clear_after_read=False,
+                element_shape=tf.TensorShape([ubatch_features.shape[0]]),
             )
             worst_case_jacobians = [
                 tf_shell.worst_case_rounding(j, scaling_factor) for j in jacobians
@@ -159,6 +160,10 @@ class PostScaleModel(PrivateBase):
                 body,
                 [possible_label_i, per_class_norms],
                 parallel_iterations=1,
+                shape_invariants=[
+                    tf.TensorShape([]),
+                    tf.TensorSpec(None, dtype=tf.variant),
+                ],
             )
 
             per_class_per_example_norms = per_class_norms.stack()
@@ -180,15 +185,16 @@ class PostScaleModel(PrivateBase):
         jacobians_norms_list = []
 
         with tf.device(self.features_party_dev):
-            if features.shape[0] % len(self.jacobian_devices) != 0:
+            num_devices = len(self.jacobian_devices)
+            if features.shape[0] % num_devices != 0:
                 raise ValueError("Batch size must be divisible by number of devices.")
-            batch_size_per_device = features.shape[0] // len(self.jacobian_devices)
+            batch_size_per_device = features.shape[0] // num_devices
             if batch_size_per_device % self.ubatch_per_batch != 0:
                 raise ValueError(
                     "Batch size (per device) must be divisible by ubatch_per_batch."
                 )
             ubatch_size = batch_size_per_device // self.ubatch_per_batch
-            num_ubatches = len(self.jacobian_devices) * self.ubatch_per_batch
+            num_ubatches = num_devices * self.ubatch_per_batch
 
             # Create TensorArrays for collecting results.
             predictions_ta = tf.TensorArray(
@@ -196,6 +202,7 @@ class PostScaleModel(PrivateBase):
                 size=num_ubatches,
                 dynamic_size=False,
                 clear_after_read=False,
+                element_shape=[ubatch_size, self.out_classes],
             )
             jacobians_tas = [
                 tf.TensorArray(
@@ -203,6 +210,7 @@ class PostScaleModel(PrivateBase):
                     size=num_ubatches,
                     dynamic_size=False,
                     clear_after_read=False,
+                    element_shape=[ubatch_size, self.out_classes] + v.shape,
                 )
                 for v in self.trainable_variables
             ]
@@ -211,27 +219,33 @@ class PostScaleModel(PrivateBase):
                 size=num_ubatches,
                 dynamic_size=False,
                 clear_after_read=False,
+                element_shape=[ubatch_size, self.out_classes],
+            )
+
+            split_features = tf.reshape(
+                features,
+                [num_devices, self.ubatch_per_batch, ubatch_size] + features.shape[1:],
             )
 
         # Split the batch of features across the available devices and compute
         # the PostScale precursors.
         for d, device in enumerate(self.jacobian_devices):
             with tf.device(device):
-                device_features = features[
-                    d * batch_size_per_device : (d + 1) * batch_size_per_device
-                ]
-                device_features = tf.identity(device_features)  # copy to GPU if needed
-
                 # Split the features into ubatches and loop over them using a
                 # tf.while_loop to avoid unrolling the loop into the graph,
                 # preserving device memory.
                 def cond(i, *args):
-                    return i < num_ubatches
+                    return i < self.ubatch_per_batch
 
                 def body(i, predictions_ta, jacobians_tas, jacobians_norms_ta):
+                    ubatch_features = split_features[d, i]
+
+                    # Manually copy ubatch_features to the GPU if needed.
+                    ubatch_features = tf.identity(ubatch_features)
+
                     prediction, jacobians, jacobians_norms = (
                         self.compute_postscale_precursors(
-                            device_features[i * ubatch_size : (i + 1) * ubatch_size],
+                            ubatch_features,
                             scaling_factor,
                         )
                     )
