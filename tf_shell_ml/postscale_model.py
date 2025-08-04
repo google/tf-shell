@@ -197,30 +197,39 @@ class PostScaleModel(PrivateBase):
             num_ubatches = num_devices * self.ubatch_per_batch
 
             # Create TensorArrays for collecting results.
-            predictions_ta = tf.TensorArray(
-                dtype=tf.keras.backend.floatx(),
-                size=num_ubatches,
-                dynamic_size=False,
-                clear_after_read=False,
-                element_shape=[ubatch_size, self.out_classes],
-            )
-            jacobians_tas = [
+            predictions_ta_dev = [
                 tf.TensorArray(
-                    dtype=v.dtype,
-                    size=num_ubatches,
+                    dtype=tf.keras.backend.floatx(),
+                    size=self.ubatch_per_batch,
                     dynamic_size=False,
                     clear_after_read=False,
-                    element_shape=[ubatch_size, self.out_classes] + v.shape,
+                    element_shape=[ubatch_size, self.out_classes],
                 )
-                for v in self.trainable_variables
+                for _ in range(num_devices)
             ]
-            jacobians_norms_ta = tf.TensorArray(
-                dtype=tf.keras.backend.floatx(),
-                size=num_ubatches,
-                dynamic_size=False,
-                clear_after_read=False,
-                element_shape=[ubatch_size, self.out_classes],
-            )
+            jacobians_tas_dev = [
+                [
+                    tf.TensorArray(
+                        dtype=v.dtype,
+                        size=self.ubatch_per_batch,
+                        dynamic_size=False,
+                        clear_after_read=False,
+                        element_shape=[ubatch_size, self.out_classes] + v.shape,
+                    )
+                    for v in self.trainable_variables
+                ]
+                for _ in range(num_devices)
+            ]
+            jacobians_norms_ta_dev = [
+                tf.TensorArray(
+                    dtype=tf.keras.backend.floatx(),
+                    size=self.ubatch_per_batch,
+                    dynamic_size=False,
+                    clear_after_read=False,
+                    element_shape=[ubatch_size, self.out_classes],
+                )
+                for _ in range(num_devices)
+            ]
 
             split_features = tf.reshape(
                 features,
@@ -234,33 +243,32 @@ class PostScaleModel(PrivateBase):
                 # Split the features into ubatches and loop over them using a
                 # tf.while_loop to avoid unrolling the loop into the graph,
                 # preserving device memory.
+                device_features = split_features[d]
+
+                # Manually copy to the GPU.
+                device_features = tf.identity(device_features)
+                device_ubatch_per_batch = tf.constant(
+                    self.ubatch_per_batch, dtype=tf.int32
+                )
+                device_scaling_factor = tf.identity(scaling_factor)
+
                 def cond(i, *args):
-                    return i < self.ubatch_per_batch
+                    return i < device_ubatch_per_batch
 
                 def body(i, predictions_ta, jacobians_tas, jacobians_norms_ta):
-                    ubatch_features = split_features[d, i]
-
-                    # Manually copy ubatch_features to the GPU if needed.
-                    ubatch_features = tf.identity(ubatch_features)
-
+                    ubatch_features = device_features[i]
                     prediction, jacobians, jacobians_norms = (
                         self.compute_postscale_precursors(
                             ubatch_features,
-                            scaling_factor,
+                            device_scaling_factor,
                         )
                     )
 
                     # Store the results in the TensorArrays.
-                    predictions_ta = predictions_ta.write(
-                        d * self.ubatch_per_batch + i, prediction
-                    )
+                    predictions_ta = predictions_ta.write(i, prediction)
                     for j, jac in enumerate(jacobians):
-                        jacobians_tas[j] = jacobians_tas[j].write(
-                            d * self.ubatch_per_batch + i, jac
-                        )
-                    jacobians_norms_ta = jacobians_norms_ta.write(
-                        d * self.ubatch_per_batch + i, jacobians_norms
-                    )
+                        jacobians_tas[j] = jacobians_tas[j].write(i, jac)
+                    jacobians_norms_ta = jacobians_norms_ta.write(i, jacobians_norms)
                     return (
                         i + 1,
                         predictions_ta,
@@ -269,17 +277,42 @@ class PostScaleModel(PrivateBase):
                     )
 
                 i = tf.constant(0)
-                _, predictions_ta, jacobians_tas, jacobians_norms_ta = tf.while_loop(
+                (
+                    _,
+                    predictions_ta_dev[d],
+                    jacobians_tas_dev[d],
+                    jacobians_norms_ta_dev[d],
+                ) = tf.while_loop(
                     cond,
                     body,
-                    [i, predictions_ta, jacobians_tas, jacobians_norms_ta],
+                    [
+                        i,
+                        predictions_ta_dev[d],
+                        jacobians_tas_dev[d],
+                        jacobians_norms_ta_dev[d],
+                    ],
                     parallel_iterations=1,
                 )
 
         with tf.device(self.features_party_dev):
-            predictions = predictions_ta.concat()
-            full_jacobians = [ta.concat() for ta in jacobians_tas]
-            per_example_per_class_norms = jacobians_norms_ta.concat()
+            predictions = tf.concat([ta.concat() for ta in predictions_ta_dev], axis=0)
+
+            # jacobians_tas_dev shape is:
+            # [num_devices][layers][TensorArray of ubatches]
+            tensored_jacobians = []
+            for device_jacobians_ta in jacobians_tas_dev:
+                tensored_jacobians.append([ta.concat() for ta in device_jacobians_ta])
+            # tensored_jacobians shape is:
+            # [num_devices][layers][Tensor of ubatches]
+            full_jacobians = []
+            for layer_jacobians in zip(*tensored_jacobians):
+                full_jacobians.append(tf.concat(layer_jacobians, axis=0))
+            # full_jacobians shape is:
+            # [layers][Tensor of batches]
+
+            per_example_per_class_norms = tf.concat(
+                [ta.concat() for ta in jacobians_norms_ta_dev], axis=0
+            )
             per_example_norms = tf.reduce_max(per_example_per_class_norms, axis=1)
 
             if type(enc_labels) is tf.Tensor:
