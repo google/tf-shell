@@ -281,6 +281,7 @@ class PrivateBase(keras.Model):
         batch_size=32,
         callbacks=None,
         validation_data=None,
+        validation_steps=None,
         steps_per_epoch=None,
         verbose=1,
         initial_epoch=0,
@@ -411,7 +412,7 @@ class PrivateBase(keras.Model):
                 # Reset metrics
                 self.reset_metrics()
 
-                for val_x_batch, val_y_batch in validation_data:
+                for steps, (val_x_batch, val_y_batch) in enumerate(validation_data):
                     val_y_pred = self(
                         val_x_batch,
                         training=False,
@@ -424,6 +425,9 @@ class PrivateBase(keras.Model):
                             m.update_state(loss)
                         else:
                             m.update_state(val_y_batch, val_y_pred)
+
+                    if validation_steps is not None and steps + 1 >= validation_steps:
+                        break
                 metric_results = {m.name: m.result() for m in self.metrics}
 
                 # TensorFlow 2.18.0 added a "CompiledMetrics" metric which holds
