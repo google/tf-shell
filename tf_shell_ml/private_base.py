@@ -421,7 +421,7 @@ class PrivateBase(keras.Model):
                     # Update validation metrics
                     for m in self.metrics:
                         if m.name == "loss":
-                            loss = self.compiled_loss(val_y_batch, val_y_pred)
+                            loss = self.compute_loss(y=val_y_batch, y_pred=val_y_pred)
                             m.update_state(loss)
                         else:
                             m.update_state(val_y_batch, val_y_pred)
@@ -1058,7 +1058,7 @@ class PrivateBase(keras.Model):
             for metric in self.metrics:
                 if metric.name == "loss":
                     if self.disable_he_backprop_INSECURE:
-                        loss = self.compiled_loss(labels, predictions)
+                        loss = self.compute_loss(y=labels, y_pred=predictions)
                         metric.update_state(loss)
                     else:
                         # Loss is unknown when encrypted.

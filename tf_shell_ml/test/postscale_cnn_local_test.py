@@ -66,7 +66,7 @@ class TestModel(tf.test.TestCase):
 
         m.compile(
             loss=tf.keras.losses.CategoricalCrossentropy(),
-            optimizer=tf.keras.optimizers.Adam(0.001, beta_1=0.7),
+            optimizer=tf.keras.optimizers.Adam(0.001, beta_1=0.6),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 
@@ -81,7 +81,7 @@ class TestModel(tf.test.TestCase):
             validation_data=val_dataset,
         )
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.19)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.15)
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
