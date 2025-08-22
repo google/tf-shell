@@ -147,6 +147,9 @@ class PrivateBase(keras.Model):
             loss=loss,
             **kwargs,
         )
+        # Build the optimizer to create any internal variables in the strategy
+        # scope
+        self.optimizer.build(self.trainable_variables)
 
     def train_step(self, features, labels):
         """
@@ -1041,19 +1044,11 @@ class PrivateBase(keras.Model):
             grads = [tf.cast(g, dtype=tf.keras.backend.floatx()) for g in grads]
 
             # Apply the gradients to the model.
-            if apply_gradients:
-                self.optimizer.apply_gradients(zip(grads, self.weights))
-            else:
-                # If the gradients should not be applied, add zeros instead so
-                # the optimizer internal variables are created. To ensure the
-                # `grads` are not removed by the grappler optimizer, add them to
-                # the UPDATE_OPS collection.
-                [
-                    tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.UPDATE_OPS, g)
-                    for g in grads
-                ]
-                zeros = [tf.zeros_like(g) for g in grads]
-                self.optimizer.apply_gradients(zip(zeros, self.weights))
+            if not apply_gradients:
+                # make grads very small but still apply them so the grappler
+                # optimizer does not remove them.
+                grads = [g / 1e9 for g in grads]
+            self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
 
             for metric in self.metrics:
                 if metric.name == "loss":

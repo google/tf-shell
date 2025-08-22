@@ -261,9 +261,10 @@ class PostScaleModel(PrivateBase):
 
         with tf.device(self.features_party_dev):
             num_devices = len(self.jacobian_devices)
-            if features.shape[0] % num_devices != 0:
+            batch_size = features.shape[0]
+            if batch_size % num_devices != 0:
                 raise ValueError("Batch size must be divisible by number of devices.")
-            batch_size_per_device = features.shape[0] // num_devices
+            batch_size_per_device = batch_size // num_devices
             if batch_size_per_device % self.ubatch_per_batch != 0:
                 raise ValueError(
                     "Batch size (per device) must be divisible by ubatch_per_batch."
@@ -350,7 +351,7 @@ class PostScaleModel(PrivateBase):
 
         predictions = self.jacobian_strategy.gather(preds_pr, axis=0)  # Tensor
 
-        # jacs_pr_list is a Python list of PerReplica values → gather each
+        # jacs_pr_list is a Python list of PerReplica values
         jacobians = [
             self.jacobian_strategy.gather(j_pr, axis=0) for j_pr in jacs_pr_list
         ]  # List[Tensor]
@@ -373,5 +374,18 @@ class PostScaleModel(PrivateBase):
             # ^ shape: [batch_size, num output classes]
 
             grads = self._backward(dJ_dz, jacobians)
+
+            # Manually set shapes because the distributed.strategy breaks
+            # shape inference.
+            # Recall jacobians shape is:
+            # layers list x tensor of shape (batch size, num output classes, weights)
+            for g, w in zip(grads, self.trainable_variables):
+                if isinstance(g, tf_shell.ShellTensor64):
+                    g._raw_tensor.set_shape(w.shape)  # batch dim is implicit
+                else:
+                    g.set_shape([batch_size] + w.shape)
+
+            per_example_norms.set_shape([batch_size])
+            predictions.set_shape([batch_size, self.out_classes])
 
         return grads, per_example_norms, predictions
