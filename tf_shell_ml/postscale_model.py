@@ -174,83 +174,6 @@ class PostScaleModel(PrivateBase):
             # ^ shape: [batch_size, num output classes]
             return prediction, jacobians, per_example_per_class_norms
 
-    def compute_postscale_precursors(self, features, scaling_factor, ubatch_size):
-        # Split the features into ubatches and loop over them using a
-        # tf.while_loop to avoid unrolling the loop into the graph,
-        # preserving device memory.
-        predictions_ta_dev = tf.TensorArray(
-            dtype=tf.keras.backend.floatx(),
-            size=self.ubatch_per_batch,
-            dynamic_size=False,
-            clear_after_read=False,
-            element_shape=[ubatch_size, self.out_classes],
-        )
-        jacobians_tas_dev = [
-            tf.TensorArray(
-                dtype=v.dtype,
-                size=self.ubatch_per_batch,
-                dynamic_size=False,
-                clear_after_read=False,
-                element_shape=[ubatch_size, self.out_classes] + v.shape,
-            )
-            for v in self.trainable_variables
-        ]
-        jacobians_norms_ta_dev = tf.TensorArray(
-            dtype=tf.keras.backend.floatx(),
-            size=self.ubatch_per_batch,
-            dynamic_size=False,
-            clear_after_read=False,
-            element_shape=[ubatch_size, self.out_classes],
-        )
-
-        def cond(i, *args):
-            return i < self.ubatch_per_batch
-
-        def body(i, predictions_ta, jacobians_tas, jacobians_norms_ta):
-            prediction, jacobians, jacobians_norms = (
-                self.compute_postscale_precursors_ubatch(
-                    features[i],
-                    scaling_factor,
-                )
-            )
-
-            # Store the results in the TensorArrays.
-            predictions_ta = predictions_ta.write(i, prediction)
-            for j, jac in enumerate(jacobians):
-                jacobians_tas[j] = jacobians_tas[j].write(i, jac)
-            jacobians_norms_ta = jacobians_norms_ta.write(i, jacobians_norms)
-            return (
-                i + 1,
-                predictions_ta,
-                jacobians_tas,
-                jacobians_norms_ta,
-            )
-
-        i = tf.constant(0)
-        (
-            _,
-            predictions_ta_dev,
-            jacobians_tas_dev,
-            jacobians_norms_ta_dev,
-        ) = tf.while_loop(
-            cond,
-            body,
-            [
-                i,
-                predictions_ta_dev,
-                jacobians_tas_dev,
-                jacobians_norms_ta_dev,
-            ],
-            parallel_iterations=1,
-        )
-
-        # Concatenate the TensorArrays over the ubatch dimension.
-        return (
-            predictions_ta_dev.concat(),
-            [layer.concat() for layer in jacobians_tas_dev],
-            jacobians_norms_ta_dev.concat(),
-        )
-
     def compute_grads(self, features, enc_labels):
         scaling_factor = (
             enc_labels.scaling_factor
@@ -270,6 +193,7 @@ class PostScaleModel(PrivateBase):
                     "Batch size (per device) must be divisible by ubatch_per_batch."
                 )
             ubatch_size = batch_size_per_device // self.ubatch_per_batch
+            all_devs_ubatch_size = batch_size // self.ubatch_per_batch
             num_ubatches = num_devices * self.ubatch_per_batch
 
             split_features = tf.reshape(
@@ -277,86 +201,118 @@ class PostScaleModel(PrivateBase):
                 [num_devices, self.ubatch_per_batch, ubatch_size] + features.shape[1:],
             )
 
-        ### Computing the jacobians can be done in two ways. First, the simplest
-        ### approach is to iterate over the available devices and concat the
-        ### results. This is what's below, commented out. For some models,
-        ### Tensorflow wants to execute the code serially (first set of features
-        ### on GPU0 then next set on GPU1, etc).
-        ### Instead, the tf.distribute.strategy can be used to distribute the
-        ### computation across the available devices and avoids this problem
-        ### at the cost of the caller needing to create the model with the
-        ### strategy scope (increase complexity for calling code).
-        ###
-        # # Create TensorArrays for collecting results.
-        # predictions_dev = []
-        # jacobians_dev = []
-        # jacobians_norms_dev = []
-
-        # # Split the batch of features across the available devices and compute
-        # # the PostScale precursors.
-        # for d, device in enumerate(self.jacobian_devices):
-        #     with tf.device(device):
-        #         # Compute the PostScale precursors for the device's features.
-        #         (
-        #             predictions_one_dev,
-        #             jacobians_one_dev,
-        #             jacobians_norms_one_dev,
-        #         ) = self.compute_postscale_precursors(
-        #             tf.identity(split_features[d]),
-        #             tf.identity(scaling_factor),
-        #             ubatch_size
-        #         )
-
-        #         predictions_dev.append(predictions_one_dev)
-        #         jacobians_dev.append(jacobians_one_dev)
-        #         jacobians_norms_dev.append(jacobians_norms_one_dev)
-
-        # with tf.device(self.features_party_dev):
-        #     # Copy from GPUs back to features_party
-        #     predictions_dev = [tf.identity(p) for p in predictions_dev]
-        #     jacobians_dev = [
-        #         [tf.identity(layer) for layer in jacobians]
-        #         for jacobians in jacobians_dev
-        #     ]
-        #     jacobians_norms_dev = [tf.identity(n) for n in jacobians_norms_dev]
-
-        #     # Concatenate the Tensors for each device.
-        #     predictions = tf.concat(predictions_dev, axis=0)
-
-        #     # jacobians_dev shape is:
-        #     # [num_devices][layers][Tensor of ubatches]
-        #     full_jacobians = []
-        #     for layer_jacobians in zip(*jacobians_dev):
-        #         full_jacobians.append(tf.concat(layer_jacobians, axis=0))
-        #     # full_jacobians shape is:
-        #     # [layers][Tensor of batches]
-
-        #     jacobians_norms_dev = tf.concat(jacobians_norms_dev, axis=0)
-
-        # Build per-replica input from the pre-split tensor
-        per_replica_features = (
-            self.jacobian_strategy.experimental_distribute_values_from_function(
-                lambda ctx: split_features[ctx.replica_id_in_sync_group]
+        # Computing the jacobians can be done in two ways. First, the simplest
+        # approach is to iterate over the available devices with a python for
+        # loop and concat the results. For some models, Tensorflow wants to
+        # execute the code serially (first set of features on GPU0 then next set
+        # on GPU1, etc).
+        # Instead, the tf.distribute.strategy can be used to distribute the
+        # computation across the available devices and avoids this problem
+        # at the cost of the caller needing to create the model with the
+        # strategy scope (increase complexity for calling code).
+        #
+        # Additionally, iterate over the ubatch dimension first, then
+        # parallelize over the available devices. This ensures when the features
+        # are large, they are only copied to the device in small chunks (of size
+        # ubatch).
+        with tf.device(self.features_party_dev):
+            ubatch = tf.constant(0)
+            predictions_ta_dev = tf.TensorArray(
+                dtype=tf.keras.backend.floatx(),
+                size=self.ubatch_per_batch,
+                dynamic_size=False,
+                clear_after_read=False,
+                element_shape=[all_devs_ubatch_size, self.out_classes],
             )
-        )
+            jacobians_tas_dev = [
+                tf.TensorArray(
+                    dtype=v.dtype,
+                    size=self.ubatch_per_batch,
+                    dynamic_size=False,
+                    clear_after_read=False,
+                    element_shape=[all_devs_ubatch_size, self.out_classes] + v.shape,
+                )
+                for v in self.trainable_variables
+            ]
+            jacobians_norms_ta_dev = tf.TensorArray(
+                dtype=tf.keras.backend.floatx(),
+                size=self.ubatch_per_batch,
+                dynamic_size=False,
+                clear_after_read=False,
+                element_shape=[all_devs_ubatch_size, self.out_classes],
+            )
 
-        # One per-replica call; returns PerReplica structures
-        per_replica_out = self.jacobian_strategy.run(
-            lambda feats, sf, ub: self.compute_postscale_precursors(feats, sf, ub),
-            args=(per_replica_features, scaling_factor, ubatch_size),
-        )
+            def cond(ubatch, *args):
+                return ubatch < self.ubatch_per_batch
 
-        # Unpack and gather (concatenate across replicas on axis 0)
-        preds_pr, jacs_pr_list, norms_pr = per_replica_out
+            def body(ubatch, predictions_ta, jacobians_tas, jacobians_norms_ta):
+                # Build per-replica input from the pre-split tensor
+                per_replica_features = (
+                    self.jacobian_strategy.experimental_distribute_values_from_function(
+                        lambda ctx: split_features[ctx.replica_id_in_sync_group][ubatch]
+                    )
+                )
 
-        predictions = self.jacobian_strategy.gather(preds_pr, axis=0)  # Tensor
+                # One per-replica call for all devices on the current ubatch
+                per_replica_out = self.jacobian_strategy.run(
+                    lambda feats, sf: self.compute_postscale_precursors_ubatch(
+                        feats, sf
+                    ),
+                    args=(per_replica_features, scaling_factor),
+                )
 
-        # jacs_pr_list is a Python list of PerReplica values
-        jacobians = [
-            self.jacobian_strategy.gather(j_pr, axis=0) for j_pr in jacs_pr_list
-        ]  # List[Tensor]
+                # Unpack and gather (concatenate across replicas on axis 0)
+                preds_pr, jacs_pr_list, norms_pr = per_replica_out
 
-        jacobians_norms = self.jacobian_strategy.gather(norms_pr, axis=0)  # Tensor
+                ubatch_predictions = self.jacobian_strategy.gather(
+                    preds_pr, axis=0
+                )  # Tensor
+
+                # jacs_pr_list is a Python list of PerReplica values
+                ubatch_jacobians = [
+                    self.jacobian_strategy.gather(j_pr, axis=0) for j_pr in jacs_pr_list
+                ]  # List[Tensor]
+
+                ubatch_jacobians_norms = self.jacobian_strategy.gather(
+                    norms_pr, axis=0
+                )  # Tensor
+
+                # Store the results in the TensorArrays.
+                with tf.device(self.features_party_dev):
+                    predictions_ta = predictions_ta.write(ubatch, ubatch_predictions)
+                    for j, jac in enumerate(ubatch_jacobians):
+                        jacobians_tas[j] = jacobians_tas[j].write(ubatch, jac)
+                    jacobians_norms_ta = jacobians_norms_ta.write(
+                        ubatch, ubatch_jacobians_norms
+                    )
+
+                    return (
+                        ubatch + 1,
+                        predictions_ta,
+                        jacobians_tas,
+                        jacobians_norms_ta,
+                    )
+
+            (
+                _,
+                predictions_ta_dev,
+                jacobians_tas_dev,
+                jacobians_norms_ta_dev,
+            ) = tf.while_loop(
+                cond,
+                body,
+                [
+                    ubatch,
+                    predictions_ta_dev,
+                    jacobians_tas_dev,
+                    jacobians_norms_ta_dev,
+                ],
+                parallel_iterations=1,  # only 1 ubatch at a time to save memory
+            )
+
+            predictions = predictions_ta_dev.concat()
+            jacobians = [layer.concat() for layer in jacobians_tas_dev]
+            jacobians_norms = jacobians_norms_ta_dev.concat()
 
         with tf.device(self.features_party_dev):
             per_example_norms = tf.reduce_max(jacobians_norms, axis=1)
@@ -375,7 +331,7 @@ class PostScaleModel(PrivateBase):
 
             grads = self._backward(dJ_dz, jacobians)
 
-            # Manually set shapes because the distributed.strategy breaks
+            # Manually set shapes because the distributed.strategy can break
             # shape inference.
             # Recall jacobians shape is:
             # layers list x tensor of shape (batch size, num output classes, weights)
