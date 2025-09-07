@@ -94,7 +94,7 @@ class TestShellTensor(tf.test.TestCase):
     def _test_encrypt_decrypt(self, test_context):
         tf_tensor = test_utils.uniform_for_n_adds(test_context, 0)
 
-        # Encrypt the TensorFlow tensor.
+        # Encode the TensorFlow tensor to a shell plaintext.
         shell_tensor = tf_shell.to_shell_plaintext(
             tf_tensor, test_context.shell_context
         )
@@ -146,6 +146,9 @@ class TestShellTensor(tf.test.TestCase):
 
         one_d = [1, 2]
         two_d = [[1, 2], [3, 4]]
+
+        one_d = tf.cast(one_d, test_context.plaintext_dtype)
+        two_d = tf.cast(two_d, test_context.plaintext_dtype)
 
         # Encode 1d tensor then check shape was padded and value is right.
         pt_1d = tf_shell.to_shell_plaintext(one_d, context)

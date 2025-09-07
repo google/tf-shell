@@ -499,17 +499,6 @@ def _match_moduli_and_scaling(x, y):
     return x, y
 
 
-def _get_shell_dtype_from_underlying(type):
-    if type in [tf.float16, tf.float32, tf.float64]:
-        return tf.int64
-    elif type in [tf.uint8, tf.uint16, tf.uint32, tf.uint64]:
-        return tf.uint64
-    elif type in [tf.int8, tf.int16, tf.int32, tf.int64]:
-        return tf.int64
-    else:
-        raise ValueError(f"Unsupported type {type}")
-
-
 def worst_case_rounding(tensor, scaling_factor):
     """
     Rounds a tensor to the largest absolute fractional value of the scaling
@@ -616,27 +605,12 @@ def to_shell_plaintext(tensor, context, override_scaling_factor=None):
         else:
             scaling_factor = context.scaling_factor
 
-        # Shell tensor represents floats as integers * scaling_factor.
-        scaled_tensor = _encode_scaling(tensor, scaling_factor)
-
-        # Pad the tensor to the correct number of slots.
-        with tf.name_scope("pad_to_slots"):
-            first_dim = tf.cast(tf.shape(scaled_tensor)[0], dtype=tf.int64)
-            tf.Assert(
-                context.num_slots >= first_dim,
-                [f"First dimension must be <= {context.num_slots}. Got {first_dim}"],
-            )
-            padding = [[0, 0] for _ in range(len(scaled_tensor.shape))]
-            padding[0][1] = tf.cond(
-                context.num_slots > first_dim,
-                lambda: context.num_slots - first_dim,
-                lambda: tf.constant(0, dtype=tf.int64),
-            )
-            scaled_tensor = tf.pad(scaled_tensor, padding)
-
         return ShellTensor64(
             _raw_tensor=shell_ops.polynomial_import64(
-                context._get_context_at_level(context.level), scaled_tensor
+                context._get_context_at_level(context.level),
+                tensor,
+                scaling_factor=scaling_factor,
+                random_round=_ENALBE_RANDOMIZED_ROUNDING,
             ),
             _context=context,
             _level=context.level,
@@ -697,7 +671,7 @@ def to_tensorflow(s_tensor, key=None):
     ), f"Should be ShellTensor, instead got {type(s_tensor)}"
 
     # Find out what dtype shell thinks the plaintext is.
-    shell_dtype = _get_shell_dtype_from_underlying(s_tensor._underlying_dtype)
+    shell_dtype = s_tensor._underlying_dtype
 
     try:
         batching_dim = s_tensor._context.num_slots.numpy()
@@ -721,7 +695,7 @@ def to_tensorflow(s_tensor, key=None):
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
             batching_dim=batching_dim,
-            final_scaling_factor=s_tensor._scaling_factor,
+            scaling_factor=s_tensor._scaling_factor,
         )
 
     elif s_tensor.is_encrypted:
@@ -738,7 +712,7 @@ def to_tensorflow(s_tensor, key=None):
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
             batching_dim=batching_dim,
-            final_scaling_factor=s_tensor._scaling_factor,
+            scaling_factor=s_tensor._scaling_factor,
         )
 
     elif not s_tensor.is_encrypted:
@@ -750,18 +724,13 @@ def to_tensorflow(s_tensor, key=None):
             runtime_batching_dim=s_tensor._context.num_slots,
             dtype=shell_dtype,
             batching_dim=batching_dim,
-            final_scaling_factor=s_tensor._scaling_factor,
+            scaling_factor=s_tensor._scaling_factor,
         )
 
     else:
         raise ValueError(f"Invalid ShellTensor state. Got {s_tensor}.")
 
-    # Shell tensor represents floats as integers * scaling_factor.
-    return _decode_scaling(
-        tf_tensor,
-        s_tensor._underlying_dtype,
-        s_tensor._scaling_factor,
-    )
+    return tf_tensor
 
 
 def mask_with_pt(x, mask):

@@ -270,9 +270,22 @@ class DecryptFastRotatedOp : public OpKernel {
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
   using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
 
+  int scaling_factor_ = 1;
+
  public:
   explicit DecryptFastRotatedOp(OpKernelConstruction* op_ctx)
-      : OpKernel(op_ctx) {}
+      : OpKernel(op_ctx) {
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("scaling_factor", &scaling_factor_));
+
+    if constexpr (!std::is_floating_point<To>::value) {
+      OP_REQUIRES(op_ctx, scaling_factor_ == 1,
+                  InvalidArgument("scaling_factor must be 1 when using integer "
+                                  "(non-floating) type. Saw scaling_factor: ",
+                                  scaling_factor_));
+    }
+    OP_REQUIRES(op_ctx, scaling_factor_ > 0,
+                InvalidArgument("scaling_factor must be positive."));
+  }
 
   void Compute(OpKernelContext* op_ctx) override {
     // Get the input tensors.
@@ -363,11 +376,17 @@ class DecryptFastRotatedOp : public OpKernel {
           // Map the plaintext modulus field back into signed integers.
           // Effectively switches the modulus from t to 2^(num bits in `From`)
           // handling the sign bits appropriately.
-          OP_REQUIRES_VALUE(std::vector<std::make_signed_t<To>> nums, op_ctx,
-                            encoder->template UnwrapToSigned<To>(decryptions));
+          OP_REQUIRES_VALUE(
+              std::vector<std::make_signed_t<From>> nums, op_ctx,
+              encoder->template UnwrapToSigned<std::make_signed_t<From>>(
+                  decryptions));
 
           for (size_t slot = 0; slot < num_slots; ++slot) {
-            flat_output(slot, i) = static_cast<To>(nums[slot]);
+            To to_val = static_cast<To>(nums[slot]);
+            if constexpr (std::is_floating_point<To>::value) {
+              to_val /= scaling_factor_;
+            }
+            flat_output(slot, i) = to_val;
           }
         } else {
           // both `From` and `To` are unsigned, just cast and copy.
@@ -427,6 +446,15 @@ REGISTER_KERNEL_BUILDER(Name("DecryptFastRotated64")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<int64>("dtype"),
                         DecryptFastRotatedOp<uint64, int64>);
+
+REGISTER_KERNEL_BUILDER(Name("DecryptFastRotated64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<float>("dtype"),
+                        DecryptFastRotatedOp<uint64, float>);
+REGISTER_KERNEL_BUILDER(Name("DecryptFastRotated64")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<double>("dtype"),
+                        DecryptFastRotatedOp<uint64, double>);
 
 typedef FastRotationKeyVariant<uint64> FastRotationKeyVariantUint64;
 REGISTER_UNARY_VARIANT_DECODE_FUNCTION(FastRotationKeyVariantUint64,

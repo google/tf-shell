@@ -235,7 +235,7 @@ StatusOr<int64_t> MaxScalingFactor(utils::MutableGraphView& graph_view,
                           DecryptUsesSameContext(this_node_view, autocontext));
 
       int64 sf = 0;
-      if (!TryGetNodeAttr(*this_node_def, "final_scaling_factor", &sf)) {
+      if (!TryGetNodeAttr(*this_node_def, "scaling_factor", &sf)) {
         std::cout
             << "WARNING: Could not determine scaling factor in Decrypt op."
             << " Plaintext modulus may be underprovisioned." << std::endl;

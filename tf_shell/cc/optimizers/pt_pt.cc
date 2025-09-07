@@ -178,6 +178,8 @@ Status ApplyReorderArith(utils::MutableGraphView& graph_view,
       graph_view.GetNode(reorder.encode_a_node_index);
   auto const* encode_a_node_def = encode_a_node_view->node();
   auto dtype = encode_a_node_def->attr().at("Dtype");
+  auto scaling_factor = encode_a_node_def->attr().at("scaling_factor");
+  auto random_round = encode_a_node_def->attr().at("random_round");
   new_tf_op_def.mutable_attr()->insert({"T", dtype});
 
   // Add the inputs to the new tf node.
@@ -202,6 +204,8 @@ Status ApplyReorderArith(utils::MutableGraphView& graph_view,
   new_encode_op_def.add_input(shell_context_node.name());
   new_encode_op_def.add_input(new_tf_op_def.name());
   new_encode_op_def.mutable_attr()->insert({"Dtype", dtype});
+  new_encode_op_def.mutable_attr()->insert({"scaling_factor", scaling_factor});
+  new_encode_op_def.mutable_attr()->insert({"random_round", random_round});
 
   if constexpr (debug) {
     std::cout << "New tf_op node: \n"
@@ -285,19 +289,51 @@ bool FindAndRemapEncDec(utils::MutableGraphView& graph_view, int node_index,
   auto const& encode_fanin = encode_node_view->GetRegularFanin(1);
   auto const* tf_input_node_view = encode_fanin.node_view();
 
-  // Rename the tf input node with the decoder node name. This is necessary if
-  // the decoder node is an output of the graph. Downstream nodes automatically
-  // pick up on their new fanin inputs after the rename.
-  utils::MutableNodeView* mutable_tf_input =
-      graph_view.GetNode(tf_input_node_view->node_index());
-  mutation->UpdateNodeName(mutable_tf_input, decode_node_def->name());
+  if constexpr (debug) {
+    std::cout << "Found encode-decode pair: " << decode_node_def->name() << "("
+              << encode_node_def->name() << "("
+              << tf_input_node_view->node()->name() << "))" << std::endl;
+  }
+
+  // Update all the fanout nodes of the decode node to point to the tf input
+  // node instead.
+  auto const& all_fanouts = decode_node_view->GetRegularFanouts();
+  for (int i = 0; i < static_cast<int>(all_fanouts.size()); ++i) {
+    auto const& fanouts_by_port = all_fanouts[i];
+    for (auto const& fanout : fanouts_by_port) {
+      mutation->AddOrUpdateRegularFanin(
+          fanout.node_view(), fanout.index(),
+          {tf_input_node_view->node()->name(), i});
+      if constexpr (debug) {
+        std::cout << "Updating fanout: " << fanout.node_view()->node()->name()
+                  << " index: " << fanout.index()
+                  << " to input node: " << tf_input_node_view->node()->name()
+                  << " port: " << i << std::endl;
+      }
+    }
+  }
 
   // Delete the decode node.
   mutation->RemoveNode(graph_view.GetNode(node_index));
+  if constexpr (debug) {
+    std::cout << "Removed decode node: " << decode_node_def->name()
+              << std::endl;
+  }
 
   // Only delete the encode node if it is not used elsewhere.
   if (encode_node_view->NumRegularFanouts() == 1) {
     mutation->RemoveNode(graph_view.GetNode(encode_node_view->node_index()));
+
+    if constexpr (debug) {
+      std::cout << "Removed encode node: " << encode_node_def->name()
+                << std::endl;
+    }
+  } else {
+    if constexpr (debug) {
+      std::cout << "Keeping encode node: " << encode_node_def->name()
+                << " with fanout " << encode_node_view->NumRegularFanouts()
+                << std::endl;
+    }
   }
 
   return true;
@@ -361,9 +397,18 @@ Status PtPtOptimizer::Optimize(Cluster* cluster, GrapplerItem const& item,
     utils::Mutation* mutation = graph_view.GetMutationBuilder();
     int const num_nodes = mutable_item.graph.node_size();
     for (int i = num_nodes - 1; i >= 0; --i) {
-      FindAndRemapEncDec(graph_view, i, mutation);
+      if (FindAndRemapEncDec(graph_view, i, mutation)) {
+        // Apply the mutations immediately so subsequent remap operations can
+        // see the updated graph. This is required to correctly update fanouts
+        // of removed decode nodes.
+        TF_RETURN_IF_ERROR(mutation->Apply());
+
+        // Some nodes may have been removed, make sure i is still valid.
+        if (i >= mutable_item.graph.node_size()) {
+          i = mutable_item.graph.node_size() - 1;
+        }
+      }
     }
-    TF_RETURN_IF_ERROR(mutation->Apply());
   }
 
   *optimized_graph = std::move(mutable_item.graph);

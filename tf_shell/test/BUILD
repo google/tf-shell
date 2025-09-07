@@ -181,6 +181,20 @@ py_test(
 )
 
 py_test(
+    name = "random_round_test",
+    size = "small",
+    srcs = [
+        "random_round_test.py",
+        "test_utils.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
     name = "pt_pt_optimizer_test",
     size = "medium",
     srcs = [

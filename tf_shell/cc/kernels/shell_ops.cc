@@ -62,18 +62,22 @@ REGISTER_OP("PolynomialImport64")
     .Attr(
         "Dtype: {uint8, int8, int16, uint16, int32, uint32, int64, uint64, "
         "float, double}")
+    .Attr("scaling_factor: int")
+    .Attr("random_round: bool")
     .Input("shell_context: variant")
     .Input("val: Dtype")
     .Output("out: variant")
     .SetShapeFn(ImportAndRemoveBatchingDimShape);
 
 REGISTER_OP("PolynomialExport64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
     .Attr("batching_dim: int")
+    .Attr("scaling_factor: int")
     .Input("shell_context: variant")
     .Input("val: variant")
     .Input("runtime_batching_dim: int64")
-    .Attr("final_scaling_factor: int")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<1>);
 
@@ -90,13 +94,15 @@ REGISTER_OP("Encrypt64")
     .SetShapeFn(UnchangedArgShape<2>);
 
 REGISTER_OP("Decrypt64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
     .Attr("batching_dim: int")
+    .Attr("scaling_factor: int")
     .Input("context: variant")
     .Input("key: variant")
     .Input("val: variant")
     .Input("runtime_batching_dim: int64")
-    .Attr("final_scaling_factor: int")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 
@@ -300,13 +306,15 @@ REGISTER_OP("FastReduceSumByRotation64")
     .SetShapeFn(UnchangedArgShape<1>);
 
 REGISTER_OP("DecryptFastRotated64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
     .Attr("batching_dim: int")
+    .Attr("scaling_factor: int")
     .Input("context: variant")
     .Input("fast_rotation_key: variant")
     .Input("val: variant")
     .Input("runtime_batching_dim: int64")
-    .Attr("final_scaling_factor: int")
     .Output("out: dtype")
     .SetShapeFn(ExportAndAddBatchingDimShape<2>);
 

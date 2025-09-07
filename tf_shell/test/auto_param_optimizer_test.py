@@ -109,10 +109,16 @@ def long_arith(cleartext_a, cleartext_b, use_auto_context=False):
 
 @tf.function
 def long_arith_with_scaling(cleartext_a, cleartext_b, use_auto_context=False):
+    # To use scaling factor, inputs need to be floating point.
+    cleartext_a = tf.cast(cleartext_a, tf.float32)
+    cleartext_b = tf.cast(cleartext_b, tf.float32)
+
     scaling_factor = 3
     shell_context = (
         gen_autocontext(
-            test_values_num_bits * 2 + scaling_factor.bit_length(), 0, scaling_factor
+            test_values_num_bits * 2 + 4 + scaling_factor.bit_length(),
+            0,
+            scaling_factor,
         )
         if use_auto_context
         else gen_context(scaling_factor)

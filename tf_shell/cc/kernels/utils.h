@@ -18,11 +18,15 @@
 
 #include <vector>
 
+#include "shell_encryption/prng/prng.h"
+#include "shell_encryption/prng/single_thread_hkdf_prng.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/variant.h"
 #include "tensorflow/core/util/bcast.h"
 #include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
 
+using rlwe::SecurePrng;
+using rlwe::Uint64;
 using tensorflow::BCast;
 using tensorflow::OkStatus;
 using tensorflow::OpKernelContext;
@@ -246,3 +250,25 @@ class IndexConverterFunctor {
 
 // Internal helper for stringifying macro values.
 #define _TF_SHELL_PREDICT_FALSE(x) (__builtin_expect(false || (x), false))
+
+template <typename T>
+StatusOr<T> RandomRound(SecurePrng* prng, double val) {
+  double ceil = std::ceil(val);
+  double floor = std::floor(val);
+  double decimal_part = val >= 0 ? val - floor : ceil - val;
+
+  // TF_SHELL_ASSIGN_OR_RETURN(Uint64 const u, op_ctx, prng->Rand64());
+  // ASSIGN_OR_RETURN(Uint64 const u, prng->Rand64());
+  TF_SHELL_ASSIGN_OR_RETURN(Uint64 const u, prng->Rand64());
+
+  bool round_away_from_zero =
+      u < decimal_part * (static_cast<double>(UINT64_MAX));
+
+  double rounded;
+  if (val >= 0) {
+    rounded = round_away_from_zero ? ceil : floor;
+  } else {
+    rounded = round_away_from_zero ? floor : ceil;
+  }
+  return static_cast<T>(rounded);
+}

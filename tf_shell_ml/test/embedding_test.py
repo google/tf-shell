@@ -39,7 +39,7 @@ class TestEmbedding(tf.test.TestCase):
         embedding_layer = tf_shell_ml.ShellEmbedding(input_dim, output_dim)
 
         # First check plaintext forward pass.
-        x = tf.zeros((context.num_slots, 5), dtype=tf.int64)
+        x = tf.zeros((context.num_slots, 5), dtype=tf.float32)
         y = embedding_layer(x)
 
         # Check that the output is the same for the same inputs.
@@ -70,7 +70,7 @@ class TestEmbedding(tf.test.TestCase):
         sentence_length = 3
         special_index = 2
         x = (
-            tf.ones((context.num_slots, sentence_length), dtype=tf.int64)
+            tf.ones((context.num_slots, sentence_length), dtype=tf.float32)
             * special_index
         )
 
