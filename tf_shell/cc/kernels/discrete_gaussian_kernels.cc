@@ -191,6 +191,9 @@ class SampleCenteredGaussianLOp : public OpKernel {
       OP_REQUIRES_VALUE(auto sample_tree, op_ctx,
                         sampler->SampleIIterative(*prng, n_max));
       for (int j = 0; j < n_max; ++j) {
+        OP_REQUIRES(
+            op_ctx, j < 64,
+            InvalidArgument("Internal error: invalid shift amount: ", j));
         uint64_t tree_index = sample_tree.size() - (1ULL << j);
         OP_REQUIRES(
             op_ctx, tree_index >= 0 && tree_index < sample_tree.size(),
