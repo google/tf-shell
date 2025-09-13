@@ -105,6 +105,10 @@ class PolynomialImportOp : public OpKernel {
         // encoder.
         std::vector<To> wrapped_nums;
 
+        // Ensure input dimension doesn't exceed num_slots
+        int input_slots = std::min(static_cast<int>(flat_input.dimension(0)),
+                                   static_cast<int>(num_slots));
+
         if constexpr (std::is_signed<From>::value) {
           // SHELL is built on the assumption that the plaintext type (in this
           // case `From`) will always fit into the ciphertext underlying type
@@ -117,7 +121,7 @@ class PolynomialImportOp : public OpKernel {
 
           // Contiguous memory for signed `To`'s to be encoded to unsigned data
           // type.
-          std::vector<SignedInteger> nums(num_slots);
+          std::vector<SignedInteger> nums(num_slots, 0);  // Initialize to zeros
 
           if constexpr (std::is_floating_point<From>::value) {
             // Floating point requires rounding. This can be done randomly or
@@ -127,14 +131,14 @@ class PolynomialImportOp : public OpKernel {
               int prng_i = worker_id % shell_ctx_var->prng_.size();
               SecurePrng* prng = shell_ctx_var->prng_[prng_i].get();
 
-              for (int slot = 0; slot < flat_input.dimension(0); ++slot) {
+              for (int slot = 0; slot < input_slots; ++slot) {
                 double val =
                     static_cast<double>(flat_input(slot, i)) * scaling_factor_;
                 OP_REQUIRES_VALUE(nums[slot], op_ctx,
                                   RandomRound<SignedInteger>(prng, val));
               }
             } else {
-              for (int slot = 0; slot < flat_input.dimension(0); ++slot) {
+              for (int slot = 0; slot < input_slots; ++slot) {
                 double val =
                     static_cast<double>(flat_input(slot, i)) * scaling_factor_;
                 nums[slot] = static_cast<SignedInteger>(round(val));
@@ -142,7 +146,7 @@ class PolynomialImportOp : public OpKernel {
             }
           } else {
             // If From is signed integer, just cast and copy.
-            for (int slot = 0; slot < flat_input.dimension(0); ++slot) {
+            for (int slot = 0; slot < input_slots; ++slot) {
               nums[slot] = static_cast<SignedInteger>(flat_input(slot, i));
             }
           }
@@ -152,10 +156,10 @@ class PolynomialImportOp : public OpKernel {
               wrapped_nums, op_ctx,
               (encoder->template WrapSigned<SignedInteger>(nums)));
         } else {
-          wrapped_nums = std::vector<To>(num_slots);
+          wrapped_nums = std::vector<To>(num_slots, 0);  // Initialize to zeros
           // Since From and To are both unsigned, no need to encode signed
           // values into unsigned type. Just cast and copy.
-          for (int slot = 0; slot < flat_input.dimension(0); ++slot) {
+          for (int slot = 0; slot < input_slots; ++slot) {
             wrapped_nums[slot] = static_cast<To>(flat_input(slot, i));
           }
         }
