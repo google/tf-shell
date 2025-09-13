@@ -217,7 +217,7 @@ class ContextVariant {
     size_t noise_variance = data.tensors_[4].scalar<size_t>()(0);
 
     tstring seed = data.tensors_[5].scalar<tstring>()(0);
-    std::string std_seed(seed.c_str());
+    std::string std_seed(seed.data(), seed.size());
 
     std::vector<uint> substitution_powers;
     substitution_powers.reserve(data.tensors_[6].NumElements());

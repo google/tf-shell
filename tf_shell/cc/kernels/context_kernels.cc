@@ -49,7 +49,7 @@ class ContextImportOp : public OpKernel {
     OP_REQUIRES_VALUE(size_t noise_variance, op_ctx,
                       GetScalar<size_t>(op_ctx, 4));
     OP_REQUIRES_VALUE(tstring t_seed, op_ctx, GetScalar<tstring>(op_ctx, 5));
-    std::string seed(t_seed.c_str());
+    std::string seed(t_seed.data(), t_seed.size());
 
     // Allocate the outputs.
     Tensor* out0;
