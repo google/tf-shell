@@ -286,7 +286,7 @@ class Conv2dOp : public OpKernel {
               //
               // `dot_product` will hold the running sum, initialize with the
               // first result of i=0, j=0, k=0.
-              SymmetricCt* dot_product = nullptr;
+              std::unique_ptr<SymmetricCt> dot_product;
               InputCtOrPoly const* x_val = nullptr;
               FilterCtOrPoly const* filter_val = nullptr;
 
@@ -314,15 +314,16 @@ class Conv2dOp : public OpKernel {
                                       OpCore(x_val, filter_val, shell_ctx_var));
 
                     // Add to the dot product.
-                    if (dot_product == nullptr) {
-                      dot_product = new SymmetricCt(std::move(mul));
+                    if (!dot_product) {
+                      dot_product =
+                          std::make_unique<SymmetricCt>(std::move(mul));
                     } else {
                       OP_REQUIRES_OK(op_ctx, dot_product->AddInPlace(mul));
                     }
                   }
                 }
               }  // End matrix multiplication
-              OP_REQUIRES(op_ctx, dot_product != nullptr,
+              OP_REQUIRES(op_ctx, dot_product,
                           Internal("Internal error, dot product is NULL."));
               OP_REQUIRES(op_ctx, x_val != nullptr,
                           Internal("Internal error, x_val is NULL."));
@@ -555,7 +556,7 @@ class Conv2dTransposeOp : public OpKernel {
               //
               // `dot_product` will hold the running sum, initialize with the
               // first result of i=0, j=0, k=0.
-              SymmetricCt* dot_product = nullptr;
+              std::unique_ptr<SymmetricCt> dot_product;
               InputCtOrPoly const* x_val = nullptr;
               FilterCtOrPoly const* filter_val = nullptr;
 
@@ -599,8 +600,9 @@ class Conv2dTransposeOp : public OpKernel {
                                       OpCore(x_val, filter_val, shell_ctx_var));
 
                     // Add to the dot product.
-                    if (dot_product == nullptr) {
-                      dot_product = new SymmetricCt(std::move(mul));
+                    if (!dot_product) {
+                      dot_product =
+                          std::make_unique<SymmetricCt>(std::move(mul));
                     } else {
                       OP_REQUIRES_OK(op_ctx, dot_product->AddInPlace(mul));
                     }
@@ -614,18 +616,20 @@ class Conv2dTransposeOp : public OpKernel {
               // inserted. Since there is no way to create a zero ciphertext
               // without the key, subtract one of the ciphertext inputs from
               // itself to get a zero.
-              if (dot_product == nullptr) {
+              if (!dot_product) {
                 x_val = shaped_x(0, 0, 0).get<InputCtOrPoly>();
                 filter_val = shaped_filter(0, 0, 0, 0).get<FilterCtOrPoly>();
                 if constexpr (std::is_same<InputCtOrPoly,
                                            SymmetricCtVariant<T>>::value) {
-                  dot_product = new SymmetricCt(x_val->ct);  // copy
+                  dot_product =
+                      std::make_unique<SymmetricCt>(x_val->ct);  // copy
                 } else {
-                  dot_product = new SymmetricCt(filter_val->ct);  // copy
+                  dot_product =
+                      std::make_unique<SymmetricCt>(filter_val->ct);  // copy
                 }
                 OP_REQUIRES_OK(op_ctx, dot_product->SubInPlace(*dot_product));
               }
-              OP_REQUIRES(op_ctx, dot_product != nullptr,
+              OP_REQUIRES(op_ctx, dot_product,
                           Internal("Internal error, dot product is NULL."));
               OP_REQUIRES(op_ctx, x_val != nullptr,
                           Internal("Internal error, x_val is NULL."));
