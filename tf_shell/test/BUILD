@@ -27,6 +27,20 @@ py_test(
 )
 
 py_test(
+    name = "scaling_factor_test",
+    size = "small",
+    srcs = [
+        "scaling_factor_test.py",
+        "test_utils.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
     name = "add_test",
     size = "medium",
     srcs = [
