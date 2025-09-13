@@ -125,11 +125,18 @@ class SymmetricKeyVariant {
                             serialized_key, ct_context_->MainPrimeModuli()));
 
     // Create the key without having access to the constructor.
+    // This is undefined behavior, but it is necessary because the
+    // shell-encryption library does not provide a way to deserialize a secret
+    // key. The static_asserts below make this a bit safer.
     struct RawKey {
       rlwe::RnsPolynomial<ModularInt> key;
       std::vector<rlwe::PrimeModulus<ModularInt> const*> moduli;
       int variance;
     };
+    static_assert(sizeof(RawKey) == sizeof(Key),
+                  "RawKey and Key must have the same size.");
+    static_assert(alignof(RawKey) == alignof(Key),
+                  "RawKey and Key must have the same alignment.");
     RawKey raw_key{std::move(key_polynomial),
                    std::move(ct_context_->MainPrimeModuli()), noise_variance};
     Key* recovered_key = reinterpret_cast<Key*>(&raw_key);  // UB!
