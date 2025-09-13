@@ -161,7 +161,7 @@ class ModulusReduceCtOp : public OpKernel {
       for (int i = start; i < end; ++i) {
         // Get the ciphertext wrapper from the input.
         SymmetricCtVariant<T> const* ct_a_var =
-            std::move(flat_a(i).get<SymmetricCtVariant<T>>());
+            flat_a(i).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(op_ctx, ct_a_var != nullptr,
                     InvalidArgument("SymmetricCtVariant at flat index:", i,
                                     " did not unwrap successfully."));
@@ -232,7 +232,7 @@ class ModulusReducePtOp : public OpKernel {
     auto pt_col_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         PolynomialVariant<T> const* pt_a_var =
-            std::move(flat_a(i).get<PolynomialVariant<T>>());
+            flat_a(i).get<PolynomialVariant<T>>();
         OP_REQUIRES(op_ctx, pt_a_var != nullptr,
                     InvalidArgument("PolynomialVariant at flat index:", i,
                                     " did not unwrap successfully."));

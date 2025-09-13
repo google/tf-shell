@@ -114,7 +114,7 @@ class AddCtCtOp : public OpKernel {
 
     // Recover num_slots from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_a(0).get<SymmetricCtVariant<T>>());
+        flat_a(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -134,7 +134,7 @@ class AddCtCtOp : public OpKernel {
     auto add_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_a_var =
-            std::move(flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>());
+            flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: ", i,
@@ -146,7 +146,7 @@ class AddCtCtOp : public OpKernel {
         SymmetricCt const& ct_a = ct_a_var->ct;
 
         SymmetricCtVariant<T> const* ct_b_var =
-            std::move(flat_b(b_bcaster(i)).get<SymmetricCtVariant<T>>());
+            flat_b(b_bcaster(i)).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_b_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: ", i,
@@ -207,7 +207,7 @@ class AddCtPtOp : public OpKernel {
 
     // Recover num_slots from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_a(0).get<SymmetricCtVariant<T>>());
+        flat_a(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -227,7 +227,7 @@ class AddCtPtOp : public OpKernel {
     auto add_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_a_var =
-            std::move(flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>());
+            flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: ", i,
@@ -239,7 +239,7 @@ class AddCtPtOp : public OpKernel {
         SymmetricCt const& ct_a = ct_a_var->ct;
 
         PolynomialVariant<T> const* pv_b_var =
-            std::move(flat_b(b_bcaster(i)).get<PolynomialVariant<T>>());
+            flat_b(b_bcaster(i)).get<PolynomialVariant<T>>();
         OP_REQUIRES(
             op_ctx, pv_b_var != nullptr,
             InvalidArgument("PolynomialVariant at flat index: ", i,
@@ -301,8 +301,7 @@ class AddPtPtOp : public OpKernel {
     IndexConverterFunctor b_bcaster(bcast.output_shape(), b.shape());
 
     // Recover num_slots from first plaintext.
-    PolynomialVariant<T> const* pt_var =
-        std::move(flat_a(0).get<PolynomialVariant<T>>());
+    PolynomialVariant<T> const* pt_var = flat_a(0).get<PolynomialVariant<T>>();
     OP_REQUIRES(
         op_ctx, pt_var != nullptr,
         InvalidArgument("PolynomialVariant a did not unwrap successfully."));
@@ -321,7 +320,7 @@ class AddPtPtOp : public OpKernel {
     auto add_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         PolynomialVariant<T> const* pv_a_var =
-            std::move(flat_a(a_bcaster(i)).get<PolynomialVariant<T>>());
+            flat_a(a_bcaster(i)).get<PolynomialVariant<T>>();
         OP_REQUIRES(
             op_ctx, pv_a_var != nullptr,
             InvalidArgument("PolynomialVariant at flat index: ", i,
@@ -333,7 +332,7 @@ class AddPtPtOp : public OpKernel {
         RnsPolynomial const& pt_a = pv_a_var->poly;
 
         PolynomialVariant<T> const* pv_b_var =
-            std::move(flat_b(b_bcaster(i)).get<PolynomialVariant<T>>());
+            flat_b(b_bcaster(i)).get<PolynomialVariant<T>>();
         OP_REQUIRES(
             op_ctx, pv_b_var != nullptr,
             InvalidArgument("PolynomialVariant at flat index: ", i,
@@ -383,7 +382,7 @@ class NegCtOp : public OpKernel {
 
     // Recover num_slots from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_a(0).get<SymmetricCtVariant<T>>());
+        flat_a(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -404,7 +403,7 @@ class NegCtOp : public OpKernel {
     auto negate_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_a_var =
-            std::move(flat_a(i).get<SymmetricCtVariant<T>>());
+            flat_a(i).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: ", i,
@@ -453,8 +452,7 @@ class NegPtOp : public OpKernel {
     auto flat_a = a.flat<Variant>();
 
     // Recover num_slots from first plaintext.
-    PolynomialVariant<T> const* pt_var =
-        std::move(flat_a(0).get<PolynomialVariant<T>>());
+    PolynomialVariant<T> const* pt_var = flat_a(0).get<PolynomialVariant<T>>();
     OP_REQUIRES(
         op_ctx, pt_var != nullptr,
         InvalidArgument("PolynomialVariant a did not unwrap successfully."));
@@ -474,7 +472,7 @@ class NegPtOp : public OpKernel {
     auto negate_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         PolynomialVariant<T> const* pt_a_var =
-            std::move(flat_a(i).get<PolynomialVariant<T>>());
+            flat_a(i).get<PolynomialVariant<T>>();
         OP_REQUIRES(
             op_ctx, pt_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: ", i,

@@ -161,7 +161,7 @@ class ConcatVariantOp : public OpKernel {
           for (int64 l = 0; l < input_flat.dimension(2); ++l) {
             // Lock the mutex while copying.
             CtOrPolyVariant const* ct_var =
-                std::move(input_flat(j, k, l).get<CtOrPolyVariant>());
+                input_flat(j, k, l).get<CtOrPolyVariant>();
             // TODO if debug
             OP_REQUIRES(ctx, ct_var != nullptr,
                         InvalidArgument(

@@ -72,7 +72,7 @@ class MulCtCtOp : public OpKernel {
 
     // Recover num_slots from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_a(0).get<SymmetricCtVariant<T>>());
+        flat_a(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -93,7 +93,7 @@ class MulCtCtOp : public OpKernel {
     auto mul_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_a_var =
-            std::move(flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>());
+            flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index:", i,
@@ -105,7 +105,7 @@ class MulCtCtOp : public OpKernel {
         SymmetricCt const& ct_a = ct_a_var->ct;
 
         SymmetricCtVariant<T> const* ct_b_var =
-            std::move(flat_b(b_bcaster(i)).get<SymmetricCtVariant<T>>());
+            flat_b(b_bcaster(i)).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_b_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index:", i,
@@ -172,7 +172,7 @@ class MulCtPtOp : public OpKernel {
 
     // Recover num_slots from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_a(0).get<SymmetricCtVariant<T>>());
+        flat_a(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -186,7 +186,7 @@ class MulCtPtOp : public OpKernel {
     auto mul_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_a_var =
-            std::move(flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>());
+            flat_a(a_bcaster(i)).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index:", i,
@@ -198,7 +198,7 @@ class MulCtPtOp : public OpKernel {
         SymmetricCt const& ct_a = ct_a_var->ct;
 
         PolynomialVariant<T> const* pv_b_var =
-            std::move(flat_b(b_bcaster(i)).get<PolynomialVariant<T>>());
+            flat_b(b_bcaster(i)).get<PolynomialVariant<T>>();
         OP_REQUIRES(
             op_ctx, pv_b_var != nullptr,
             InvalidArgument("PolynomialVariant at flat index:", i,
@@ -272,7 +272,7 @@ class MulShellTfScalarOp : public OpKernel {
     int num_components;
     if constexpr (std::is_same<CtOrPolyVariant, SymmetricCtVariant<T>>::value) {
       SymmetricCtVariant<T> const* ct_var =
-          std::move(flat_a(0).get<SymmetricCtVariant<T>>());
+          flat_a(0).get<SymmetricCtVariant<T>>();
       OP_REQUIRES(
           op_ctx, ct_var != nullptr,
           InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -285,7 +285,7 @@ class MulShellTfScalarOp : public OpKernel {
       num_components = ct.NumModuli();
     } else {
       PolynomialVariant<T> const* pt_var =
-          std::move(flat_a(0).get<PolynomialVariant<T>>());
+          flat_a(0).get<PolynomialVariant<T>>();
       OP_REQUIRES(
           op_ctx, pt_var != nullptr,
           InvalidArgument("PolynomialVariant a did not unwrap successfully."));
@@ -312,7 +312,7 @@ class MulShellTfScalarOp : public OpKernel {
         EncodeScalar(op_ctx, flat_b(b_bcaster(i)), encoder, &wrapped_b);
 
         CtOrPolyVariant const* ct_or_pt_var =
-            std::move(flat_a(a_bcaster(i)).get<CtOrPolyVariant>());
+            flat_a(a_bcaster(i)).get<CtOrPolyVariant>();
         OP_REQUIRES(
             op_ctx, ct_or_pt_var != nullptr,
             InvalidArgument("Input at flat index:", i,
@@ -420,8 +420,7 @@ class MulPtPtOp : public OpKernel {
     IndexConverterFunctor b_bcaster(bcast.output_shape(), b.shape());
 
     // Recover num_slots from first plaintext.
-    PolynomialVariant<T> const* pt_var =
-        std::move(flat_a(0).get<PolynomialVariant<T>>());
+    PolynomialVariant<T> const* pt_var = flat_a(0).get<PolynomialVariant<T>>();
     OP_REQUIRES(
         op_ctx, pt_var != nullptr,
         InvalidArgument("PolynomialVariant a did not unwrap successfully."));
@@ -441,7 +440,7 @@ class MulPtPtOp : public OpKernel {
     auto add_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         PolynomialVariant<T> const* pv_a_var =
-            std::move(flat_a(a_bcaster(i)).get<PolynomialVariant<T>>());
+            flat_a(a_bcaster(i)).get<PolynomialVariant<T>>();
         OP_REQUIRES(
             op_ctx, pv_a_var != nullptr,
             InvalidArgument("PolynomialVariant at flat index:", i,
@@ -453,7 +452,7 @@ class MulPtPtOp : public OpKernel {
         RnsPolynomial const& pt_a = pv_a_var->poly;
 
         PolynomialVariant<T> const* pv_b_var =
-            std::move(flat_b(b_bcaster(i)).get<PolynomialVariant<T>>());
+            flat_b(b_bcaster(i)).get<PolynomialVariant<T>>();
         OP_REQUIRES(
             op_ctx, pv_b_var != nullptr,
             InvalidArgument("PolynomialVariant at flat index:", i,
@@ -552,7 +551,7 @@ class MatMulCtPtOp : public OpKernel {
     auto ct_col_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_a_var =
-            std::move(flat_a(0).get<SymmetricCtVariant<T>>());
+            flat_a(0).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_a_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: 0",
@@ -574,7 +573,7 @@ class MatMulCtPtOp : public OpKernel {
 
         for (int j = 1; j < b.dim_size(0); ++j) {
           SymmetricCtVariant<T> const* ct_a_var =
-              std::move(flat_a(j).get<SymmetricCtVariant<T>>());
+              flat_a(j).get<SymmetricCtVariant<T>>();
           OP_REQUIRES(
               op_ctx, ct_a_var != nullptr,
               InvalidArgument("SymmetricCtVariant at flat index:", j,
@@ -743,7 +742,7 @@ class MatMulPtCtOp : public OpKernel {
     // come from the ciphertext, not the shell context, to ensure smart pointers
     // are properly preserved.
     SymmetricCtVariant<T> const* first_ct_b_var =
-        std::move(flat_b(0).get<SymmetricCtVariant<T>>());
+        flat_b(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(op_ctx, first_ct_b_var != nullptr,
                 InvalidArgument("SymmetricCtVariant at flat index: 0",
                                 " for input b did not unwrap successfully."));
@@ -807,7 +806,7 @@ class MatMulPtCtOp : public OpKernel {
           for (int ct_col = 0; ct_col < num_ct_cols; ++ct_col) {
             // Index into the ciphertext columns.
             SymmetricCtVariant<T> const* ct_b_var =
-                std::move(flat_b(ct_col).get<SymmetricCtVariant<T>>());
+                flat_b(ct_col).get<SymmetricCtVariant<T>>();
             // TODO if debug
             OP_REQUIRES(
                 op_ctx, ct_b_var != nullptr,

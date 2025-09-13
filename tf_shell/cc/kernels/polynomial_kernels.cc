@@ -235,7 +235,7 @@ class PolynomialExportOp : public OpKernel {
     auto export_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         PolynomialVariant<From> const* pv =
-            std::move(flat_input(i).get<PolynomialVariant<From>>());
+            flat_input(i).get<PolynomialVariant<From>>();
         OP_REQUIRES(op_ctx, pv != nullptr,
                     InvalidArgument("PolynomialVariant at flat index: ", i,
                                     " did not unwrap successfully."));
