@@ -188,7 +188,7 @@ class RollOp : public OpKernel {
 
     // Recover num_slots from first ciphertext to validate shift argument.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_value(0).get<SymmetricCtVariant<T>>());
+        flat_value(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -219,7 +219,7 @@ class RollOp : public OpKernel {
     auto roll_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_var =
-            std::move(flat_value(i).get<SymmetricCtVariant<T>>());
+            flat_value(i).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(
             op_ctx, ct_var != nullptr,
             InvalidArgument("SymmetricCtVariant at flat index: ", i,
@@ -299,7 +299,7 @@ class ReduceSumByRotationCtOp : public OpKernel {
 
     // Recover num_slots from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_value(0).get<SymmetricCtVariant<T>>());
+        flat_value(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -324,7 +324,7 @@ class ReduceSumByRotationCtOp : public OpKernel {
         // Learn how many slots there are from first ciphertext and create a
         // deep copy to hold the sum.
         SymmetricCtVariant<T> const* ct_var =
-            std::move(flat_value(i).get<SymmetricCtVariant<T>>());
+            flat_value(i).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument(
                         "SymmetricCtVariant a did not unwrap successfully."));
@@ -594,7 +594,7 @@ class ReduceSumCtOp : public OpKernel {
         for (int j = j_start; j < j_end; ++j) {
           // Get the first chip.
           SymmetricCtVariant<T> const* first_ct_var =
-              std::move(flat_value(i, 0, j).get<SymmetricCtVariant<T>>());
+              flat_value(i, 0, j).get<SymmetricCtVariant<T>>();
           OP_REQUIRES(op_ctx, first_ct_var != nullptr,
                       InvalidArgument(
                           "SymmetricCtVariant a did not unwrap successfully."));
@@ -606,8 +606,8 @@ class ReduceSumCtOp : public OpKernel {
 
           // Add the remaining chips.
           for (int chip_dim = 1; chip_dim < dim_sz_to_reduce; ++chip_dim) {
-            SymmetricCtVariant<T> const* ct_var = std::move(
-                flat_value(i, chip_dim, j).get<SymmetricCtVariant<T>>());
+            SymmetricCtVariant<T> const* ct_var =
+                flat_value(i, chip_dim, j).get<SymmetricCtVariant<T>>();
             OP_REQUIRES(
                 op_ctx, ct_var != nullptr,
                 InvalidArgument(

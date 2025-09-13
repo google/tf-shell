@@ -171,7 +171,7 @@ class FastReduceSumByRotationOp : public OpKernel {
 
     // Recover num_slots and moduli from first ciphertext.
     SymmetricCtVariant<T> const* ct_var =
-        std::move(flat_value(0).get<SymmetricCtVariant<T>>());
+        flat_value(0).get<SymmetricCtVariant<T>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -199,7 +199,7 @@ class FastReduceSumByRotationOp : public OpKernel {
         // Learn how many slots there are from first ciphertext and create a
         // deep copy to hold the sum.
         SymmetricCtVariant<T> const* ct_var =
-            std::move(flat_value(i).get<SymmetricCtVariant<T>>());
+            flat_value(i).get<SymmetricCtVariant<T>>();
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument(
                         "SymmetricCtVariant a did not unwrap successfully."));
@@ -312,7 +312,7 @@ class DecryptFastRotatedOp : public OpKernel {
     // This method for decryption only works on degree 1 ciphertexts. Check the
     // first ciphertext and assume the rest are the same.
     SymmetricCtVariant<From> const* ct_var =
-        std::move(flat_input(0).get<SymmetricCtVariant<From>>());
+        flat_input(0).get<SymmetricCtVariant<From>>();
     OP_REQUIRES(
         op_ctx, ct_var != nullptr,
         InvalidArgument("SymmetricCtVariant a did not unwrap successfully."));
@@ -337,7 +337,7 @@ class DecryptFastRotatedOp : public OpKernel {
     auto dec_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<From> const* ct_var =
-            std::move(flat_input(i).get<SymmetricCtVariant<From>>());
+            flat_input(i).get<SymmetricCtVariant<From>>();
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument("SymmetricCtVariant at flat index: ", i,
                                     " did not unwrap successfully."));

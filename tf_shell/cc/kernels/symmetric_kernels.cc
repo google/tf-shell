@@ -122,7 +122,7 @@ class EncryptOp : public OpKernel {
 
       for (int i = start; i < end; ++i) {
         PolynomialVariant<T> const* pv =
-            std::move(flat_input(i).get<PolynomialVariant<T>>());
+            flat_input(i).get<PolynomialVariant<T>>();
         OP_REQUIRES(op_ctx, pv != nullptr,
                     InvalidArgument("PolynomialVariant at flat index:", i,
                                     "did not unwrap successfully."));
@@ -211,7 +211,7 @@ class DecryptOp : public OpKernel {
     auto dec_in_range = [&](int start, int end) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<From> const* ct_var =
-            std::move(flat_input(i).get<SymmetricCtVariant<From>>());
+            flat_input(i).get<SymmetricCtVariant<From>>();
         OP_REQUIRES(op_ctx, ct_var != nullptr,
                     InvalidArgument("SymmetricCtVariant at flat index: ", i,
                                     " did not unwrap successfully."));
