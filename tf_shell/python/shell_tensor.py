@@ -26,7 +26,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
     _level: tf.Tensor
     _num_mod_reductions: int
     _underlying_dtype: tf.DType
-    _scaling_factor: int
+    _scaling_factor: float
     _is_enc: bool
     _is_fast_rotated: bool = False
 
@@ -376,20 +376,21 @@ class ShellTensor64(tf.experimental.ExtensionType):
                     assert other.shape[0] == 1
                     other = tf.reshape(other, other.shape[1:])
 
-                # Encode the other scalar tensor to the context scaling factor.
-                other = _encode_scaling(other, self._context.scaling_factor)
-
                 if self.is_encrypted:
                     raw_result = shell_ops.mul_ct_tf_scalar64(
                         self._context._get_context_at_level(self._level),
                         self._raw_tensor,
                         other,
+                        scaling_factor=float(self._scaling_factor),
+                        random_round=_ENALBE_RANDOMIZED_ROUNDING,
                     )
                 else:
                     raw_result = shell_ops.mul_pt_tf_scalar64(
                         self._context._get_context_at_level(self._level),
                         self._raw_tensor,
                         other,
+                        scaling_factor=float(self._scaling_factor),
+                        random_round=_ENALBE_RANDOMIZED_ROUNDING,
                     )
 
                 return ShellTensor64(
@@ -487,8 +488,14 @@ def _match_moduli_and_scaling(x, y):
     with tf.name_scope("match_moduli_and_scaling"):
         x, y = _match_moduli(x, y)
 
-        gcd = math.gcd(x._scaling_factor, y._scaling_factor)
-        lcm = math.lcm(x._scaling_factor, y._scaling_factor)
+        # The scaling factor is a float, but if it's very close to an integer,
+        # round it to avoid floating point issues.
+        if abs(x._scaling_factor - round(x._scaling_factor)) < 1e-6:
+            gcd = math.gcd(round(x._scaling_factor), round(y._scaling_factor))
+            lcm = math.lcm(round(x._scaling_factor), round(y._scaling_factor))
+        else:
+            gcd = 1.0
+            lcm = x._scaling_factor * y._scaling_factor
 
         # Match the scaling factors.
         if lcm > x._scaling_factor:
@@ -616,7 +623,7 @@ def to_shell_plaintext(tensor, context, override_scaling_factor=None):
             _level=context.level,
             _num_mod_reductions=0,
             _underlying_dtype=tensor.dtype,
-            _scaling_factor=scaling_factor,
+            _scaling_factor=float(scaling_factor),
             _is_enc=False,
         )
     else:

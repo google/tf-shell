@@ -48,7 +48,7 @@ REGISTER_OP("ContextImport64")
 
 REGISTER_OP("AutoShellContext64")
     .Input("log2_cleartext_sz: uint64")
-    .Input("scaling_factor: uint64")
+    .Input("scaling_factor: float")
     .Input("log2_noise_offset: int64")
     .Input("noise_variance: uint64")
     .Output("shell_context: variant")
@@ -62,7 +62,7 @@ REGISTER_OP("PolynomialImport64")
     .Attr(
         "Dtype: {uint8, int8, int16, uint16, int32, uint32, int64, uint64, "
         "float, double}")
-    .Attr("scaling_factor: int")
+    .Attr("scaling_factor: float")
     .Attr("random_round: bool")
     .Input("shell_context: variant")
     .Input("val: Dtype")
@@ -74,7 +74,7 @@ REGISTER_OP("PolynomialExport64")
         "dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
         "float, double}")
     .Attr("batching_dim: int")
-    .Attr("scaling_factor: int")
+    .Attr("scaling_factor: float")
     .Input("shell_context: variant")
     .Input("val: variant")
     .Input("runtime_batching_dim: int64")
@@ -98,7 +98,7 @@ REGISTER_OP("Decrypt64")
         "dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
         "float, double}")
     .Attr("batching_dim: int")
-    .Attr("scaling_factor: int")
+    .Attr("scaling_factor: float")
     .Input("context: variant")
     .Input("key: variant")
     .Input("val: variant")
@@ -177,7 +177,11 @@ REGISTER_OP("MulCtPt64")
     .SetShapeFn(ShellBroadcastingOpShape);
 
 REGISTER_OP("MulCtTfScalar64")
-    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
+    .Attr("scaling_factor: float")
+    .Attr("random_round: bool")
     .Input("context: variant")
     .Input("a: variant")
     .Input("b: Dtype")
@@ -185,7 +189,11 @@ REGISTER_OP("MulCtTfScalar64")
     .SetShapeFn(UnchangedArgShape<1>);
 
 REGISTER_OP("MulPtTfScalar64")
-    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
+    .Attr("scaling_factor: float")
+    .Attr("random_round: bool")
     .Input("context: variant")
     .Input("a: variant")
     .Input("b: Dtype")
@@ -310,7 +318,7 @@ REGISTER_OP("DecryptFastRotated64")
         "dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
         "float, double}")
     .Attr("batching_dim: int")
-    .Attr("scaling_factor: int")
+    .Attr("scaling_factor: float")
     .Input("context: variant")
     .Input("fast_rotation_key: variant")
     .Input("val: variant")

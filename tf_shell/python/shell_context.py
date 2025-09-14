@@ -27,7 +27,7 @@ class ShellContext64(tf.experimental.ExtensionType):
     aux_moduli: tf.Tensor
     plaintext_modulus: tf.Tensor
     noise_variance: int
-    scaling_factor: int
+    scaling_factor: float
     seed: str
     id_str: str
 
@@ -63,7 +63,7 @@ class ShellContext64(tf.experimental.ExtensionType):
             plaintext_modulus, dtype=tf.uint64
         )
         self.noise_variance = noise_variance
-        self.scaling_factor = scaling_factor
+        self.scaling_factor = float(scaling_factor)
         self.seed = seed
         self.id_str = id_str
 
@@ -93,7 +93,7 @@ def create_context64(
     plaintext_modulus,
     aux_moduli=[],
     noise_variance=8,
-    scaling_factor=1,
+    scaling_factor=1.0,
     seed="",
 ):
     if len(seed) > 64:
@@ -156,7 +156,7 @@ def create_context64(
             aux_moduli=aux_moduli,
             plaintext_modulus=plaintext_modulus,
             noise_variance=noise_variance,
-            scaling_factor=scaling_factor,
+            scaling_factor=float(scaling_factor),
             seed=seed,
             id_str=id_str,
         )
@@ -166,7 +166,7 @@ def create_autocontext64(
     log2_cleartext_sz,
     noise_offset_log2,
     noise_variance=8,
-    scaling_factor=1,
+    scaling_factor=1.0,
     seed="",
     read_from_cache=False,
     cache_path=None,
@@ -225,7 +225,7 @@ def create_autocontext64(
                 aux_moduli=new_ps,
                 plaintext_modulus=new_t,
                 noise_variance=noise_variance,
-                scaling_factor=scaling_factor,
+                scaling_factor=float(scaling_factor),
                 seed=seed,
                 id_str=id_str,
             )
@@ -234,7 +234,7 @@ def create_autocontext64(
         first_context, new_log_n, new_qs, new_ps, new_t = (
             shell_ops.auto_shell_context64(
                 log2_cleartext_sz=log2_cleartext_sz,
-                scaling_factor=scaling_factor,
+                scaling_factor=float(scaling_factor),
                 log2_noise_offset=noise_offset_log2,
                 noise_variance=noise_variance,
             )
@@ -277,7 +277,7 @@ def create_autocontext64(
             aux_moduli=new_ps,
             plaintext_modulus=new_t,
             noise_variance=noise_variance,
-            scaling_factor=scaling_factor,
+            scaling_factor=float(scaling_factor),
             seed=seed,
             id_str=id_str,
         )

@@ -58,7 +58,7 @@ class PolynomialImportOp : public OpKernel {
   using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
   using NttParams = rlwe::NttParameters<ModularInt>;
 
-  int scaling_factor_ = 1;
+  float scaling_factor_ = 1;
   bool random_round_ = false;
 
  public:
@@ -67,12 +67,12 @@ class PolynomialImportOp : public OpKernel {
     OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("random_round", &random_round_));
 
     if constexpr (!std::is_floating_point<From>::value) {
-      OP_REQUIRES(op_ctx, scaling_factor_ == 1,
+      OP_REQUIRES(op_ctx, scaling_factor_ == 1.,
                   InvalidArgument("scaling_factor must be 1 when using integer "
                                   "(non-floating) type. Saw scaling_factor: ",
                                   scaling_factor_));
     }
-    OP_REQUIRES(op_ctx, scaling_factor_ > 0,
+    OP_REQUIRES(op_ctx, scaling_factor_ > 0.,
                 InvalidArgument("scaling_factor must be positive."));
   }
 
@@ -199,19 +199,20 @@ class PolynomialExportOp : public OpKernel {
   using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
   using NttParams = rlwe::NttParameters<ModularInt>;
 
-  int scaling_factor_ = 1;
+  float scaling_factor_ = 1;
 
  public:
   explicit PolynomialExportOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
     OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("scaling_factor", &scaling_factor_));
 
     if constexpr (!std::is_floating_point<To>::value) {
-      OP_REQUIRES(op_ctx, scaling_factor_ == 1,
-                  InvalidArgument("scaling_factor must be 1 when using integer "
-                                  "(non-floating) type. Saw scaling_factor: ",
-                                  scaling_factor_));
+      OP_REQUIRES(
+          op_ctx, scaling_factor_ == 1.,
+          InvalidArgument("scaling_factor must be 1. when using integer "
+                          "(non-floating) type. Saw scaling_factor: ",
+                          scaling_factor_));
     }
-    OP_REQUIRES(op_ctx, scaling_factor_ > 0,
+    OP_REQUIRES(op_ctx, scaling_factor_ > 0.,
                 InvalidArgument("scaling_factor must be positive."));
   }
 

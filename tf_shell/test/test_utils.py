@@ -64,7 +64,7 @@ def get_bounds_for_n_adds(test_context, num_adds):
     dtype = test_context.plaintext_dtype
     plaintext_modulus = tf.cast(test_context.shell_context.plaintext_modulus, float)
     num_adds = math.ceil(num_adds)
-    scaling_factor = test_context.shell_context.scaling_factor
+    scaling_factor = int(test_context.shell_context.scaling_factor)
 
     # Make sure not to exceed the range of the dtype.
     # Allow the plaintext to be multiplied by the scaling factor.
@@ -107,7 +107,7 @@ def get_bounds_for_n_muls(test_context, num_muls):
     num_muls = math.ceil(num_muls)
 
     # Each multiplication doubles the number of scaling factors in the result.
-    max_scaling_factor = test_context.shell_context.scaling_factor ** (2**num_muls)
+    max_scaling_factor = int(test_context.shell_context.scaling_factor) ** (2**num_muls)
 
     # Make sure not to exceed the range of the dtype.
     min_plaintext_dtype = math.ceil(dtype.min / max_scaling_factor)
@@ -147,7 +147,7 @@ def uniform_for_n_adds(test_context, num_adds, shape=None):
     fractional values at the appropriate quantization."""
     min_val, max_val = get_bounds_for_n_adds(test_context, num_adds)
 
-    scaling_factor = test_context.shell_context.scaling_factor
+    scaling_factor = int(test_context.shell_context.scaling_factor)
 
     if max_val < 1 / scaling_factor:
         raise ValueError(
@@ -183,7 +183,7 @@ def uniform_for_n_muls(test_context, num_muls, shape=None, subsequent_adds=0):
     overflowing either the datatype and plaintext modulus. Floating point
     datatypes return fractional values at the appropriate quantization.
     """
-    scaling_factor = test_context.shell_context.scaling_factor
+    scaling_factor = int(test_context.shell_context.scaling_factor)
 
     min_val, max_val = get_bounds_for_n_muls(test_context, num_muls)
 

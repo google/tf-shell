@@ -43,7 +43,7 @@ struct ShellParams {
 
 struct ShellAutoParams {
   uint64_t cleartext_bits;
-  uint64_t scaling_factor;
+  float scaling_factor;
   int64_t noise_offset_bits;
   uint64_t noise_variance;
   std::string seed;
@@ -145,7 +145,7 @@ Status GetAutoShellContextParams(utils::MutableNodeView* autocontext,
 
   auto const* scaling_factor_node =
       autocontext->GetRegularFanin(1).node_view()->node();
-  TF_RETURN_IF_ERROR(GetScalarConstValue<uint64_t, DT_UINT64>(
+  TF_RETURN_IF_ERROR(GetScalarConstValue<float, DT_FLOAT>(
       *scaling_factor_node, &params.scaling_factor));
 
   auto const* noise_offset_node =
@@ -216,12 +216,12 @@ StatusOr<bool> DecryptUsesSameContext(utils::MutableNodeView const* node_view,
   return true;
 }
 
-StatusOr<int64_t> MaxScalingFactor(utils::MutableGraphView& graph_view,
-                                   utils::MutableNodeView const* autocontext) {
+StatusOr<float> MaxScalingFactor(utils::MutableGraphView& graph_view,
+                                 utils::MutableNodeView const* autocontext) {
   // Traverse the graph and return the maximum scaling factor across all decrypt
   // ops tied to this autocontext.
   int const num_nodes = graph_view.NumNodes();
-  int64_t max_sf = 0;
+  float max_sf = 0;
 
   for (int i = 0; i < num_nodes; ++i) {
     auto const* this_node_view = graph_view.GetNode(i);
@@ -234,7 +234,7 @@ StatusOr<int64_t> MaxScalingFactor(utils::MutableGraphView& graph_view,
       TF_ASSIGN_OR_RETURN(bool is_same_autocontext,
                           DecryptUsesSameContext(this_node_view, autocontext));
 
-      int64 sf = 0;
+      float sf = 0.;
       if (!TryGetNodeAttr(*this_node_def, "scaling_factor", &sf)) {
         std::cout
             << "WARNING: Could not determine scaling factor in Decrypt op."

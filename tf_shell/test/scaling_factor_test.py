@@ -55,7 +55,7 @@ class TestShellTensor(tf.test.TestCase):
             _level=shell_tensor._level,
             _num_mod_reductions=shell_tensor._num_mod_reductions,
             _underlying_dtype=shell_tensor._underlying_dtype,
-            _scaling_factor=1,
+            _scaling_factor=1.0,
             _is_enc=shell_tensor._is_enc,
             _is_fast_rotated=shell_tensor._is_fast_rotated,
         )

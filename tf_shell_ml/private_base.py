@@ -530,7 +530,7 @@ class PrivateBase(keras.Model):
                 _level=g._level,
                 _num_mod_reductions=g._num_mod_reductions,
                 _underlying_dtype=tf.int64,  # Spoof the dtype.
-                _scaling_factor=1,  # Spoof the scaling factor.
+                _scaling_factor=float(1),  # Spoof the scaling factor.
                 _is_enc=g._is_enc,
                 _is_fast_rotated=g._is_fast_rotated,
             )
@@ -944,7 +944,7 @@ class PrivateBase(keras.Model):
                 # and an additional noise scaling factor is not needed.
                 tf.assert_equal(
                     noise_context.scaling_factor,
-                    1,
+                    1.0,
                     message="Noise scaling factor must be 1.",
                 )
 

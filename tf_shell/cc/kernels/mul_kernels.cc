@@ -242,9 +242,17 @@ class MulShellTfScalarOp : public OpKernel {
   using Context = rlwe::RnsContext<ModularInt>;
   using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
 
+  float scaling_factor_ = 1.;
+  bool random_round_ = false;
+
  public:
-  explicit MulShellTfScalarOp(OpKernelConstruction* op_ctx)
-      : OpKernel(op_ctx) {}
+  explicit MulShellTfScalarOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("scaling_factor", &scaling_factor_));
+    OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("random_round", &random_round_));
+
+    OP_REQUIRES(op_ctx, scaling_factor_ > 0,
+                InvalidArgument("scaling_factor must be positive."));
+  }
 
   void Compute(OpKernelContext* op_ctx) override {
     // Get the input tensors.
@@ -304,12 +312,25 @@ class MulShellTfScalarOp : public OpKernel {
     auto flat_output = output->flat<Variant>();
 
     // Now multiply.
-    auto mul_in_range = [&](int start, int end) {
+    auto mul_in_range = [&](int start, int end, int worker_id) {
       for (int i = start; i < end; ++i) {
-        // First encode the scalar b
-        // TDOO(jchoncholas): encode all scalars at once beforehand.
+        // First multiply the scalar b by the scaling factor.
+        double val =
+            static_cast<double>(flat_b(b_bcaster(i))) * scaling_factor_;
+
+        if (random_round_) {
+          // Use a separate PRNG for each thread to avoid contention.
+          int prng_i = worker_id % shell_ctx_var->prng_.size();
+          SecurePrng* prng = shell_ctx_var->prng_[prng_i].get();
+          OP_REQUIRES_VALUE(val, op_ctx, RandomRound<T>(prng, val));
+        } else {
+          // Just round to the nearest integer.
+          val = round(val);
+        }
+
+        // Encode the scalar b, taking the scaling factor into account.
         T wrapped_b{};
-        EncodeScalar(op_ctx, flat_b(b_bcaster(i)), encoder, &wrapped_b);
+        EncodeScalar(op_ctx, static_cast<PtT>(round(val)), encoder, &wrapped_b);
 
         CtOrPolyVariant const* ct_or_pt_var =
             flat_a(a_bcaster(i)).get<CtOrPolyVariant>();
@@ -357,8 +378,8 @@ class MulShellTfScalarOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_mul = 20 * num_slots * num_components;
-    thread_pool->ParallelFor(flat_output.dimension(0), cost_per_mul,
-                             mul_in_range);
+    thread_pool->ParallelForWithWorkerId(flat_output.dimension(0), cost_per_mul,
+                                         mul_in_range);
   }
 
  private:
@@ -957,6 +978,19 @@ REGISTER_KERNEL_BUILDER(
 REGISTER_KERNEL_BUILDER(
     Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
     MulShellTfScalarOp<uint64, int64, SymmetricCtVariant<uint64>>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<float>("Dtype"),
+    MulShellTfScalarOp<uint64, float, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulPtTfScalar64").Device(DEVICE_CPU).TypeConstraint<double>("Dtype"),
+    MulShellTfScalarOp<uint64, double, PolynomialVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<float>("Dtype"),
+    MulShellTfScalarOp<uint64, float, SymmetricCtVariant<uint64>>);
+REGISTER_KERNEL_BUILDER(
+    Name("MulCtTfScalar64").Device(DEVICE_CPU).TypeConstraint<double>("Dtype"),
+    MulShellTfScalarOp<uint64, double, SymmetricCtVariant<uint64>>);
 
 // Multiply plaintext by plaintext.
 REGISTER_KERNEL_BUILDER(Name("MulPtPt64").Device(DEVICE_CPU),

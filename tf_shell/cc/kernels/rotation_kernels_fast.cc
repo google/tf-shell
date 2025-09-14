@@ -270,7 +270,7 @@ class DecryptFastRotatedOp : public OpKernel {
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
   using RnsPolynomial = rlwe::RnsPolynomial<ModularInt>;
 
-  int scaling_factor_ = 1;
+  float scaling_factor_ = 1.;
 
  public:
   explicit DecryptFastRotatedOp(OpKernelConstruction* op_ctx)
@@ -278,12 +278,12 @@ class DecryptFastRotatedOp : public OpKernel {
     OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("scaling_factor", &scaling_factor_));
 
     if constexpr (!std::is_floating_point<To>::value) {
-      OP_REQUIRES(op_ctx, scaling_factor_ == 1,
+      OP_REQUIRES(op_ctx, scaling_factor_ == 1.,
                   InvalidArgument("scaling_factor must be 1 when using integer "
                                   "(non-floating) type. Saw scaling_factor: ",
                                   scaling_factor_));
     }
-    OP_REQUIRES(op_ctx, scaling_factor_ > 0,
+    OP_REQUIRES(op_ctx, scaling_factor_ > 0.,
                 InvalidArgument("scaling_factor must be positive."));
   }
 
