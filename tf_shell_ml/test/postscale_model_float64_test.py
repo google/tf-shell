@@ -71,7 +71,7 @@ class TestModel(tf.test.TestCase):
             validation_data=val_dataset,
         )
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.20)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.55)
 
     def test_model(self):
         tf.keras.backend.set_floatx("float64")

@@ -112,7 +112,7 @@ class TestDistribModel(tf.test.TestCase):
 
         cache_dir.cleanup()
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.55)
 
 
 if __name__ == "__main__":
