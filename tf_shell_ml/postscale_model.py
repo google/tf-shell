@@ -49,7 +49,7 @@ class PostScaleModel(PrivateBase):
             prediction = tf.nn.softmax(prediction)
         return prediction
 
-    def _predict_and_jacobian(self, features):
+    def _predict_and_jacobian(self, features, model):
         """
         Predicts the output for the given features and optionally computes the
         Jacobian.
@@ -64,10 +64,14 @@ class PostScaleModel(PrivateBase):
                 - jacobians (list or tf.Tensor): The Jacobian of the last layer
                   preactivation with respect to the model weights.
         """
+        # Make sure model is a tf.keras.Model
+        if not isinstance(model, tf.keras.Model):
+            raise ValueError("model must be a tf.keras.Model")
+
         with tf.GradientTape(
             persistent=tf.executing_eagerly() or self.jacobian_pfor
         ) as tape:
-            predictions = self.call(features, training=True, with_softmax=False)
+            predictions = model.call(features, training=True)
 
         jacobians = tape.jacobian(
             predictions,
@@ -112,8 +116,10 @@ class PostScaleModel(PrivateBase):
 
         return grads
 
-    def compute_postscale_precursors_ubatch(self, ubatch_features, scaling_factor):
-        prediction, jacobians = self._predict_and_jacobian(ubatch_features)
+    def compute_postscale_precursors_ubatch(
+        self, ubatch_features, model, scaling_factor
+    ):
+        prediction, jacobians = self._predict_and_jacobian(ubatch_features, model)
 
         # Perform PostScale (dJ/dz * dz/dw) in plaintext for every
         # possible label using the worst casse quantization of the
@@ -246,36 +252,31 @@ class PostScaleModel(PrivateBase):
                 return ubatch < self.ubatch_per_batch
 
             def body(ubatch, predictions_ta, jacobians_tas, jacobians_norms_ta):
-                # Build per-replica input from the pre-split tensor
-                per_replica_features = (
-                    self.jacobian_strategy.experimental_distribute_values_from_function(
-                        lambda ctx: split_features[ctx.replica_id_in_sync_group][ubatch]
-                    )
-                )
+                # Iterate over the devices and compute the results
+                device_predictions = []
+                device_jacobians = [[] for _ in self.trainable_variables]
+                device_jacobians_norms = []
+                for dev_i, (dev, dev_model) in enumerate(
+                    zip(self.jacobian_devices, self.jacobian_shadow_models)
+                ):
+                    dev_features = split_features[dev_i][ubatch]
+                    with tf.device(dev):
+                        dev_preds, dev_jacs, dev_jac_norms = (
+                            self.compute_postscale_precursors_ubatch(
+                                tf.identity(dev_features), dev_model, scaling_factor
+                            )
+                        )
+                        device_predictions.append(dev_preds)
+                        for j, j_list in enumerate(device_jacobians):
+                            j_list.append(dev_jacs[j])
+                        device_jacobians_norms.append(dev_jac_norms)
 
-                # One per-replica call for all devices on the current ubatch
-                per_replica_out = self.jacobian_strategy.run(
-                    lambda feats, sf: self.compute_postscale_precursors_ubatch(
-                        feats, sf
-                    ),
-                    args=(per_replica_features, scaling_factor),
-                )
-
-                # Unpack and gather (concatenate across replicas on axis 0)
-                preds_pr, jacs_pr_list, norms_pr = per_replica_out
-
-                ubatch_predictions = self.jacobian_strategy.gather(
-                    preds_pr, axis=0
-                )  # Tensor
-
-                # jacs_pr_list is a Python list of PerReplica values
+                # Concat the results from each device
+                ubatch_predictions = tf.concat(device_predictions, axis=0)
                 ubatch_jacobians = [
-                    self.jacobian_strategy.gather(j_pr, axis=0) for j_pr in jacs_pr_list
-                ]  # List[Tensor]
-
-                ubatch_jacobians_norms = self.jacobian_strategy.gather(
-                    norms_pr, axis=0
-                )  # Tensor
+                    tf.concat(j_list, axis=0) for j_list in device_jacobians
+                ]
+                ubatch_jacobians_norms = tf.concat(device_jacobians_norms, axis=0)
 
                 # Store the results in the TensorArrays.
                 with tf.device(self.features_party_dev):

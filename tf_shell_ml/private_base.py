@@ -117,6 +117,13 @@ class PrivateBase(keras.Model):
                     f"clip_threshold={self.clip_threshold}"
                 )
 
+        # Create a shadow model on each device for computing the Jacobian.
+        self.jacobian_shadow_models = []
+        for dev in self.jacobian_devices:
+            with tf.device(dev):
+                dev_model = tf.keras.Model(inputs=self.inputs, outputs=self.outputs)
+                self.jacobian_shadow_models.append(dev_model)
+
     def compile(self, loss, **kwargs):
         if isinstance(loss, tf.keras.losses.CategoricalCrossentropy):
             if not (
@@ -150,6 +157,12 @@ class PrivateBase(keras.Model):
         # Build the optimizer to create any internal variables in the strategy
         # scope
         self.optimizer.build(self.trainable_variables)
+
+        # Build the shadow models.
+        for dev, dev_model in zip(self.jacobian_devices, self.jacobian_shadow_models):
+            with tf.device(dev):
+                dev_model.build(self.inputs[0].shape)
+                dev_model.compile(loss=loss, **kwargs)
 
     def train_step(self, features, labels):
         """
@@ -831,6 +844,12 @@ class PrivateBase(keras.Model):
                 enc_labels = tf_shell.to_encrypted(
                     labels, backprop_secret_key, backprop_context
                 )
+
+        # Copy weights to the shadow models.
+        for dev, dev_model in zip(self.jacobian_devices, self.jacobian_shadow_models):
+            for dev_var, var in zip(dev_model.weights, self.weights):
+                with tf.device(dev):
+                    dev_var.assign(var)
 
         # Call the derived class to compute the gradients.
         grads, per_example_norms, predictions = self.compute_grads(features, enc_labels)
