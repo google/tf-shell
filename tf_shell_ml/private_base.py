@@ -760,20 +760,7 @@ class PrivateBase(keras.Model):
         Returns:
             list of tf.Tensor: List of clipped gradient tensors.
         """
-
-        # Clip gradients to have L2 norm of l2_norm_clip.
-        # Here, we use TF primitives rather than the built-in
-        # tf.clip_by_global_norm() so that operations can be vectorized
-        # across microbatches.
-        grads_flat = tf.nest.flatten(grads_list)
-        squared_l2_norms = [
-            tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
-        ]
-        global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
-        div = tf.maximum(global_norm / self.clip_threshold, 1.0)
-        clipped_flat = [g / div for g in grads_flat]
-        clipped_grads = tf.nest.pack_sequence_as(grads_list, clipped_flat)
-        return clipped_grads
+        return tf.clip_by_global_norm(grads_list, self.clip_threshold)[0]
 
     def gradient_norms(self, grads_list):
         grads_flat = tf.nest.flatten(grads_list)
