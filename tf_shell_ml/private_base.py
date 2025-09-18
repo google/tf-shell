@@ -660,11 +660,6 @@ class PrivateBase(keras.Model):
         if hasattr(self, "noise_multiplier"):
             sensitivity *= self.noise_multiplier
 
-        # Ensure the sensitivity is at least as large as the base scale, since
-        # the base_scale is the smallest scale distribution which the protocol
-        # can sample.
-        bounded_sensitivity = tf.maximum(sensitivity, self.dg_params.base_scale)
-
         noise_factors = {
             "enc_as": [],
             "enc_bs": [],
@@ -674,25 +669,32 @@ class PrivateBase(keras.Model):
             # When the noise is added to the gradients, the gradients are scaled
             # by the `mask scaling factors`. The noise must be scaled by the
             # same amount.
-            scaled_sensitivity = bounded_sensitivity * sf
+            scaled_sensitivity = sensitivity * sf
+
+            # Ensure the sensitivity is at least as large as the base scale, since
+            # the base_scale is the smallest scale distribution which the protocol
+            # can sample.
+            bounded_sensitivity = tf.maximum(
+                scaled_sensitivity, self.dg_params.base_scale
+            )
 
             # The noise protocol generates samples in the range [-6s, 6s], where
             # s is the scale. Ensure the maximum noise is less than the
             # plaintext modulus.
             tf.assert_less(
-                scaled_sensitivity * 6,
+                bounded_sensitivity * 6,
                 tf.cast(context.plaintext_modulus, tf.float32),
                 message="Sensitivity is too large for the noise context's plaintext modulus and WILL overflow. Reduce the sensitivity by reducing the gradient norms (e.g. reducing the backprop context's scaling factor), or increase the noise context's plaintext modulus.",
             )
 
             tf.assert_less(
-                scaled_sensitivity,
+                bounded_sensitivity,
                 self.dg_params.max_scale,
                 message="Sensitivity is too large for the maximum noise scale.",
             )
 
             a, b = tf_shell.sample_centered_gaussian_f(
-                scaled_sensitivity, self.dg_params
+                bounded_sensitivity, self.dg_params
             )
 
             def _prep_noise_factor(x):
@@ -880,7 +882,41 @@ class PrivateBase(keras.Model):
                         grads.insert(0, clipper)
                         grads = tf.vectorized_map(_plaintext_clip, grads)
                     else:
-                        grads = [g * clipper for g in grads]
+                        # Since the clipping is done with multiplication, the
+                        # scaling factor of the gradients will increase after
+                        # clipping. The clipping scaling factor is limited
+                        # below to reduce the growth. The extra precision is not
+                        # needed.
+                        clipping_scaling_factors = [g._scaling_factor for g in grads]
+                        clipping_scaling_factors = tf.minimum(
+                            clipping_scaling_factors, backprop_context.scaling_factor**2
+                        )
+                        clipping_scaling_factors = tf.maximum(
+                            clipping_scaling_factors, 4.0
+                        )
+
+                        # Compute the smallest rounding for the clipper. This
+                        # ensures that the gradient norm is infact below the
+                        # clipping threshold after quantization. Without this,
+                        # the norm might be higher, the DP sensitivity might be
+                        # underestimated, and privacy slightly weaker than
+                        # stated.
+                        rounded_clippers = [
+                            tf_shell.smallest_case_rounding(clipper, g._scaling_factor)
+                            for g in grads
+                        ]
+                        rounded_clippers = [
+                            tf_shell.to_shell_plaintext(
+                                rc,
+                                backprop_context,
+                                override_scaling_factor=g._scaling_factor,
+                                randomized_rounding_override=False,
+                            )
+                            for rc, g in zip(rounded_clippers, grads)
+                        ]
+
+                        # Perform the clipping.
+                        grads = [g * rc for g, rc in zip(grads, rounded_clippers)]
 
             # Store the scaling factors of the gradients.
             if self.disable_he_backprop_INSECURE:
@@ -900,6 +936,15 @@ class PrivateBase(keras.Model):
                     backprop_scaling_factors,
                     tf.identity(backprop_context.plaintext_modulus),
                     "WARNING: Backprop gradient may have overflowed.",
+                )
+
+                clipped_grad_norm = tf.reduce_max(
+                    tf.vectorized_map(tf.linalg.global_norm, dec_grads)
+                )
+                tf.assert_less(
+                    clipped_grad_norm,
+                    tf.cast(self.clip_threshold + 1e-3, tf.keras.backend.floatx()),
+                    message="Clipped gradient norms exceed clipping threshold. DP sensitivity may be underestimated.",
                 )
 
             # Spoof encrypted gradients as int64 with scaling factor 1 for

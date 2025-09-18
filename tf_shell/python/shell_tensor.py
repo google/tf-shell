@@ -611,7 +611,9 @@ def _decode_scaling(scaled_tensor, output_dtype, scaling_factor):
             raise ValueError(f"Unsupported dtype {output_dtype}")
 
 
-def to_shell_plaintext(tensor, context, override_scaling_factor=None):
+def to_shell_plaintext(
+    tensor, context, override_scaling_factor=None, randomized_rounding_override=None
+):
     """Converts a Tensorflow tensor to a ShellTensor which holds a plaintext.
     Under the hood, this means encoding the Tensorflow tensor to a BGV style
     polynomial representation with the sign and scaling factor encoded as
@@ -638,7 +640,11 @@ def to_shell_plaintext(tensor, context, override_scaling_factor=None):
                 context._get_context_at_level(context.level),
                 tensor,
                 scaling_factor=scaling_factor,
-                random_round=_ENALBE_RANDOMIZED_ROUNDING,
+                random_round=(
+                    randomized_rounding_override
+                    if randomized_rounding_override is not None
+                    else _ENALBE_RANDOMIZED_ROUNDING
+                ),
             ),
             _context=context,
             _level=context.level,
