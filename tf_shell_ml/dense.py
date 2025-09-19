@@ -129,9 +129,9 @@ class ShellDense(keras.layers.Layer):
             # To perform sensitivity analysis, assume the worst case rounding
             # for the intermediate state, dictated by the
             # sensitivity_analysis_factor.
-            x = tf_shell.worst_case_rounding(x, sensitivity_analysis_factor)
-            z = tf_shell.worst_case_rounding(z, sensitivity_analysis_factor)
-            kernel = tf_shell.worst_case_rounding(kernel, sensitivity_analysis_factor)
+            x = tf_shell.largest_case_rounding(x, sensitivity_analysis_factor)
+            z = tf_shell.largest_case_rounding(z, sensitivity_analysis_factor)
+            kernel = tf_shell.largest_case_rounding(kernel, sensitivity_analysis_factor)
         else:
             x = tf.concat([tf.identity(x) for x in self._layer_input], axis=0)
             z = tf.concat([tf.identity(z) for z in self._layer_intermediate], axis=0)

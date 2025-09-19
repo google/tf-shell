@@ -506,13 +506,13 @@ def _match_moduli_and_scaling(x, y):
     return x, y
 
 
-def worst_case_rounding(tensor, scaling_factor):
+def largest_case_rounding(tensor, scaling_factor):
     """
     Rounds a tensor to the largest absolute fractional value of the scaling
     factor.
 
     This function pairs with randomized_rounding() and will return the
-    worst-case randomized rounding of the tensor, i.e., the tensor with the
+    largest-case randomized rounding of the tensor, i.e., the tensor with the
     largest L2 norm after being randomly rounded.
     """
     if scaling_factor == 0 or scaling_factor == float("inf"):
@@ -525,6 +525,26 @@ def worst_case_rounding(tensor, scaling_factor):
 
         worst_case = tf.where(scaled_tensor > 0, ceil, floor)
         return worst_case / scaling_factor
+
+def smallest_case_rounding(tensor, scaling_factor):
+    """
+    Rounds a tensor to the smallest absolute fractional value of the scaling
+    factor.
+
+    This function pairs with randomized_rounding() and will return the
+    smallest-case randomized rounding of the tensor, i.e., the tensor with the
+    smallest L2 norm after being randomly rounded.
+    """
+    if scaling_factor == 0 or scaling_factor == float("inf"):
+        return tensor
+
+    with tf.name_scope("best_case_rounding"):
+        scaled_tensor = tensor * scaling_factor
+        ceil = tf.math.ceil(scaled_tensor)
+        floor = tf.math.floor(scaled_tensor)
+
+        best_case = tf.where(scaled_tensor > 0, floor, ceil)
+        return best_case / scaling_factor
 
 
 _ENALBE_RANDOMIZED_ROUNDING = False

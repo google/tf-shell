@@ -91,7 +91,7 @@ class ShellDropout(keras.layers.Layer):
             # for the intermediate state, dictated by the
             # sensitivity_analysis_factor.
             # Note: The dropout mask is not necessarily 0 or 1.
-            dropout_mask = tf_shell.worst_case_rounding(
+            dropout_mask = tf_shell.largest_case_rounding(
                 dropout_mask, sensitivity_analysis_factor
             )
         else:
