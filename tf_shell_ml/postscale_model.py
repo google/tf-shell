@@ -127,9 +127,9 @@ class PostScaleModel(PrivateBase):
                 element_shape=tf.TensorShape([ubatch_features.shape[0]]),
             )
             worst_case_jacobians = [
-                tf_shell.worst_case_rounding(j, scaling_factor) for j in jacobians
+                tf_shell.largest_case_rounding(j, scaling_factor) for j in jacobians
             ]
-            worst_case_prediction = tf_shell.worst_case_rounding(
+            worst_case_prediction = tf_shell.largest_case_rounding(
                 prediction, scaling_factor
             )
 

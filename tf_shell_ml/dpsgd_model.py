@@ -142,7 +142,7 @@ class DpSgdModel(PrivateBase):
                         dtype=tf.keras.backend.floatx(), size=0, dynamic_size=True
                     )
                     sensitivity = tf.constant(0.0, dtype=tf.keras.backend.floatx())
-                    worst_case_prediction = tf_shell.worst_case_rounding(
+                    worst_case_prediction = tf_shell.largest_case_rounding(
                         prediction, scaling_factor
                     )
 

@@ -35,7 +35,8 @@ from tf_shell.python.shell_tensor import conv2d
 from tf_shell.python.shell_tensor import conv2d_transpose
 from tf_shell.python.shell_tensor import max_unpool2d
 from tf_shell.python.shell_tensor import enable_randomized_rounding
-from tf_shell.python.shell_tensor import worst_case_rounding
+from tf_shell.python.shell_tensor import largest_case_rounding
+from tf_shell.python.shell_tensor import smallest_case_rounding
 
 from tf_shell.python.shell_context import ShellContext64
 from tf_shell.python.shell_context import create_context64
