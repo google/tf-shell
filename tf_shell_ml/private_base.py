@@ -776,14 +776,7 @@ class PrivateBase(keras.Model):
         return tf.clip_by_global_norm(grads_list, self.clip_threshold)[0]
 
     def gradient_norms(self, grads_list):
-        grads_flat = tf.nest.flatten(grads_list)
-        squared_l2_norms = [
-            tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
-        ]
-        global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
-        return global_norm
-        div = tf.maximum(global_norm / self.clip_threshold, 1.0)
-        return div
+        return tf.linalg.global_norm(grads_list)
 
     def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
         """
@@ -945,7 +938,7 @@ class PrivateBase(keras.Model):
                 )
 
                 clipped_grad_norm = tf.reduce_max(
-                    tf.vectorized_map(tf.linalg.global_norm, dec_grads)
+                    tf.vectorized_map(self.gradient_norms, dec_grads)
                 )
                 tf.assert_less(
                     clipped_grad_norm,
