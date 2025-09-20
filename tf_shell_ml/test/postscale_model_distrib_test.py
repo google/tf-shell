@@ -77,7 +77,7 @@ class TestDistribModel(tf.test.TestCase):
                 inputs=inputs,
                 outputs=outputs,
                 backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                    log2_cleartext_sz=23,
+                    log2_cleartext_sz=24,
                     scaling_factor=32,
                     noise_offset_log2=14,
                     read_from_cache=read_from_cache,
@@ -93,6 +93,7 @@ class TestDistribModel(tf.test.TestCase):
                 labels_party_dev=labels_party_dev,
                 features_party_dev=features_party_dev,
                 cache_path=cache,
+                check_overflow_INSECURE=True,
             )
 
             m.compile(
