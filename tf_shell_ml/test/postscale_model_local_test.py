@@ -43,7 +43,7 @@ class TestModel(tf.test.TestCase):
         def backprop_context_fn(read_from_cache):
             if use_autocontext:
                 return tf_shell.create_autocontext64(
-                    log2_cleartext_sz=23,
+                    log2_cleartext_sz=24,
                     scaling_factor=32,
                     noise_offset_log2=14,
                     read_from_cache=read_from_cache,

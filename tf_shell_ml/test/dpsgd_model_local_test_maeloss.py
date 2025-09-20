@@ -39,9 +39,9 @@ class TestModel(tf.test.TestCase):
             inputs=input_img,
             outputs=x,
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                log2_cleartext_sz=23,
+                log2_cleartext_sz=24,
                 scaling_factor=4,
-                noise_offset_log2=16,
+                noise_offset_log2=18,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),

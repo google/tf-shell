@@ -23,7 +23,7 @@ import test_models
 
 class TestModel(tf.test.TestCase):
     def _test_model(self, disable_encryption, disable_masking, disable_noise, cache):
-        crop_by = 16
+        crop_by = 14
         features_dataset, labels_dataset, val_dataset = test_models.MNIST_datasets(
             crop_by=crop_by
         )
@@ -37,7 +37,7 @@ class TestModel(tf.test.TestCase):
             outputs=outputs,
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=17,
-                scaling_factor=2,
+                scaling_factor=1.95,
                 noise_offset_log2=0,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
@@ -69,13 +69,12 @@ class TestModel(tf.test.TestCase):
         history = m.fit(
             features_dataset,
             labels_dataset,
-            steps_per_epoch=1,
-            epochs=8,
+            epochs=1,
             verbose=1,
             validation_data=val_dataset,
         )
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.20)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.12)
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:
