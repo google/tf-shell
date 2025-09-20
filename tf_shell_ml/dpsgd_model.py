@@ -118,10 +118,8 @@ class DpSgdModel(PrivateBase):
 
         # Split the batch of features across the devices.
         for i, device in enumerate(self.jacobian_devices):
+            f = features[i * batch_size_per_device : (i + 1) * batch_size_per_device]
             with tf.device(device):
-                f = features[
-                    i * batch_size_per_device : (i + 1) * batch_size_per_device
-                ]
                 f = tf.identity(f)  # copy to GPU if needed
 
                 # First compute the real prediction. Manually perform the
