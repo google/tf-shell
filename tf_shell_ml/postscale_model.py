@@ -22,7 +22,6 @@ class PostScaleModel(PrivateBase):
         self,
         *args,
         ubatch_per_batch=1,
-        jacobian_strategy=tf.distribute.get_strategy(),
         **kwargs,
     ):
         if not isinstance(ubatch_per_batch, int) or ubatch_per_batch <= 0:
@@ -31,7 +30,6 @@ class PostScaleModel(PrivateBase):
                 f"{ubatch_per_batch}"
             )
         self.ubatch_per_batch = ubatch_per_batch
-        self.jacobian_strategy = jacobian_strategy
 
         super().__init__(*args, **kwargs)
 
@@ -207,20 +205,9 @@ class PostScaleModel(PrivateBase):
                 [num_devices, self.ubatch_per_batch, ubatch_size] + features.shape[1:],
             )
 
-        # Computing the jacobians can be done in two ways. First, the simplest
-        # approach is to iterate over the available devices with a python for
-        # loop and concat the results. For some models, Tensorflow wants to
-        # execute the code serially (first set of features on GPU0 then next set
-        # on GPU1, etc).
-        # Instead, the tf.distribute.strategy can be used to distribute the
-        # computation across the available devices and avoids this problem
-        # at the cost of the caller needing to create the model with the
-        # strategy scope (increase complexity for calling code).
-        #
-        # Additionally, iterate over the ubatch dimension first, then
-        # parallelize over the available devices. This ensures when the features
-        # are large, they are only copied to the device in small chunks (of size
-        # ubatch).
+        # Iterate over the ubatch dimension first, then parallelize over the
+        # available devices. This ensures when the features are large, they are
+        # only copied to the device in small chunks (of size ubatch).
         with tf.device(self.features_party_dev):
             ubatch = tf.constant(0)
             predictions_ta_dev = tf.TensorArray(
@@ -331,18 +318,5 @@ class PostScaleModel(PrivateBase):
             # ^ shape: [batch_size, num output classes]
 
             grads = self._backward(dJ_dz, jacobians)
-
-            # Manually set shapes because the distributed.strategy can break
-            # shape inference.
-            # Recall jacobians shape is:
-            # layers list x tensor of shape (batch size, num output classes, weights)
-            for g, w in zip(grads, self.trainable_variables):
-                if isinstance(g, tf_shell.ShellTensor64):
-                    g._raw_tensor.set_shape(w.shape)  # batch dim is implicit
-                else:
-                    g.set_shape([batch_size] + w.shape)
-
-            per_example_norms.set_shape([batch_size])
-            predictions.set_shape([batch_size, self.out_classes])
 
         return grads, per_example_norms, predictions

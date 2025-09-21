@@ -154,8 +154,7 @@ class PrivateBase(keras.Model):
             loss=loss,
             **kwargs,
         )
-        # Build the optimizer to create any internal variables in the strategy
-        # scope
+        # Build the optimizer to create any internal variables in this scope.
         self.optimizer.build(self.trainable_variables)
 
         # Build the shadow models.
