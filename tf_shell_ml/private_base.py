@@ -776,7 +776,33 @@ class PrivateBase(keras.Model):
         return tf.clip_by_global_norm(grads_list, self.clip_threshold)[0]
 
     def gradient_norms(self, grads_list):
-        return tf.linalg.global_norm(grads_list)
+        """
+        A helper function to compute the global norm of a list of gradients that
+        is safe to run on GPU.
+
+        It is most convenient to use tf.linalg.global_norm to compute the global
+        norm of a list of tensors. However, it causes the following error when
+        called on GPU
+
+        WARNING:tensorflow:Using a while_loop for converting L2Loss cause there is no registered converter for this op.
+        """
+        # The simplest method which should work:
+        # return tf.linalg.global_norm(grads_list)
+
+        # Explicitly set the shape of the returned norm to avoid issues
+        # with shape inference later in the graph. This also should work.
+        # n = tf.linalg.global_norm(grads_list)
+        # n.set_shape([])
+        # return n
+
+        grads_flat = tf.nest.flatten(grads_list)
+        squared_l2_norms = [
+            tf.reduce_sum(input_tensor=tf.square(g)) for g in grads_flat
+        ]
+        global_norm = tf.sqrt(tf.add_n(squared_l2_norms))
+        return global_norm
+        div = tf.maximum(global_norm / self.clip_threshold, 1.0)
+        return div
 
     def warn_on_overflow(self, grads, scaling_factors, plaintext_modulus, message):
         """
