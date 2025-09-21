@@ -913,12 +913,13 @@ class PrivateBase(keras.Model):
                         # below to reduce the growth. The extra precision is not
                         # needed.
                         clipping_scaling_factors = [g._scaling_factor for g in grads]
-                        clipping_scaling_factors = tf.minimum(
-                            clipping_scaling_factors, backprop_context.scaling_factor**2
-                        )
-                        clipping_scaling_factors = tf.maximum(
-                            clipping_scaling_factors, 4.0
-                        )
+                        clipping_scaling_factors = [
+                            min(c, backprop_context.scaling_factor)
+                            for c in clipping_scaling_factors
+                        ]
+                        clipping_scaling_factors = [
+                            max(c, 4.0) for c in clipping_scaling_factors
+                        ]
 
                         # Compute the smallest rounding for the clipper. This
                         # ensures that the gradient norm is infact below the
@@ -927,17 +928,19 @@ class PrivateBase(keras.Model):
                         # underestimated, and privacy slightly weaker than
                         # stated.
                         rounded_clippers = [
-                            tf_shell.smallest_case_rounding(clipper, g._scaling_factor)
-                            for g in grads
+                            tf_shell.smallest_case_rounding(clipper, csf)
+                            for csf in clipping_scaling_factors
                         ]
                         rounded_clippers = [
                             tf_shell.to_shell_plaintext(
                                 rc,
                                 backprop_context,
-                                override_scaling_factor=g._scaling_factor,
+                                override_scaling_factor=csf,
                                 randomized_rounding_override=False,
                             )
-                            for rc, g in zip(rounded_clippers, grads)
+                            for rc, csf in zip(
+                                rounded_clippers, clipping_scaling_factors
+                            )
                         ]
 
                         # Perform the clipping.
@@ -966,10 +969,12 @@ class PrivateBase(keras.Model):
                 clipped_grad_norm = tf.reduce_max(
                     tf.vectorized_map(self.gradient_norms, dec_grads)
                 )
-                tf.assert_less(
-                    clipped_grad_norm,
-                    tf.cast(self.clip_threshold + 1e-3, tf.keras.backend.floatx()),
-                    message="Clipped gradient norms exceed clipping threshold. DP sensitivity may be underestimated.",
+                self.warn_on_overflow(
+                    [clipped_grad_norm],
+                    [1.0],
+                    (self.clip_threshold + 1e-3)
+                    * 4,  # warn_on_overflow divides this by 4.
+                    "WARNING: Clipped gradient norms exceed clipping threshold. DP sensitivity may be underestimated.",
                 )
 
             # Spoof encrypted gradients as int64 with scaling factor 1 for
