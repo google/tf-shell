@@ -112,6 +112,53 @@ this case, `c++filt` will help to decode the mangled symbol name and `nm
 --defined-only .../libtensorflow_framework.so | grep ...` may help find what the
 symbol changed to, and which dependency is causing the error.
 
+## Security
+
+### Security Vulnerability Scanning
+
+tf-shell includes comprehensive security scanning tools to identify potential vulnerabilities in code and dependencies.
+
+#### Running Security Scans Locally
+
+Install security scanning tools:
+
+```bash
+pip install -r requirements-security.txt
+```
+
+Run all security scans:
+
+```bash
+python tools/security_scan.py
+```
+
+Or using Bazel:
+
+```bash
+bazel run //tools:security_scanner
+```
+
+#### Available Security Tools
+
+- **Safety**: Scans Python dependencies for known vulnerabilities
+- **Bandit**: Analyzes Python code for security issues
+- **Semgrep**: Static analysis security scanner
+- **pip-audit**: Audits installed packages for vulnerabilities
+- **CodeQL**: GitHub's semantic code analysis (runs in CI)
+- **Dependabot**: Automated dependency updates
+
+#### Security Reports
+
+Security scan reports are saved to the `security-reports/` directory and include:
+- Detailed vulnerability findings
+- Severity assessments
+- Remediation recommendations
+- Summary reports in JSON format
+
+#### Reporting Security Issues
+
+Please see our [Security Policy](SECURITY.md) for information on how to report security vulnerabilities responsibly.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
