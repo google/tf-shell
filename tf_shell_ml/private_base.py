@@ -917,7 +917,7 @@ class PrivateBase(keras.Model):
                             for c in clipping_scaling_factors
                         ]
                         clipping_scaling_factors = [
-                            max(c, 4.0) for c in clipping_scaling_factors
+                            max(c, 32.0) for c in clipping_scaling_factors
                         ]
 
                         # Compute the smallest rounding for the clipper. This

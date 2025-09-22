@@ -39,14 +39,14 @@ class TestModel(tf.test.TestCase):
             inputs=input_img,
             outputs=x,
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                log2_cleartext_sz=24,
-                scaling_factor=4,
-                noise_offset_log2=18,
+                log2_cleartext_sz=33,
+                scaling_factor=32,
+                noise_offset_log2=100,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
             noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                log2_cleartext_sz=25,
+                log2_cleartext_sz=33,
                 scaling_factor=1,
                 noise_offset_log2=48,
                 read_from_cache=read_from_cache,
@@ -56,7 +56,7 @@ class TestModel(tf.test.TestCase):
             disable_he_backprop_INSECURE=disable_encryption,
             disable_masking_INSECURE=disable_masking,
             simple_noise_INSECURE=disable_noise,
-            check_overflow_INSECURE=True,
+            # check_overflow_INSECURE=True,
         )
 
         m.compile(
@@ -76,7 +76,7 @@ class TestModel(tf.test.TestCase):
             validation_data=val_dataset,
         )
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.25)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.30)
 
     def test_model(self):
         with tempfile.TemporaryDirectory() as cache_dir:

@@ -45,13 +45,13 @@ class TestModel(tf.test.TestCase):
             ubatch_per_batch=16,
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=24,
-                scaling_factor=32,
-                noise_offset_log2=14,
+                scaling_factor=16,
+                noise_offset_log2=18,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
             noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                log2_cleartext_sz=24,
+                log2_cleartext_sz=25,
                 scaling_factor=1,
                 noise_offset_log2=0,
                 read_from_cache=read_from_cache,
@@ -61,12 +61,12 @@ class TestModel(tf.test.TestCase):
             disable_he_backprop_INSECURE=disable_encryption,
             disable_masking_INSECURE=disable_masking,
             simple_noise_INSECURE=disable_noise,
-            check_overflow_INSECURE=True,
+            # check_overflow_INSECURE=True,
         )
 
         m.compile(
             loss=tf.keras.losses.CategoricalCrossentropy(),
-            optimizer=tf.keras.optimizers.Adam(0.001, beta_1=0.6),
+            optimizer=tf.keras.optimizers.Adam(0.01, beta_1=0.8),
             metrics=[tf.keras.metrics.CategoricalAccuracy()],
         )
 

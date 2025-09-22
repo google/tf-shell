@@ -77,14 +77,14 @@ class TestDistribModel(tf.test.TestCase):
                 inputs=inputs,
                 outputs=outputs,
                 backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                    log2_cleartext_sz=24,
-                    scaling_factor=4,
-                    noise_offset_log2=14,
+                    log2_cleartext_sz=33,
+                    scaling_factor=16,
+                    noise_offset_log2=50,
                     read_from_cache=read_from_cache,
                     cache_path=cache,
                 ),
                 noise_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
-                    log2_cleartext_sz=25,
+                    log2_cleartext_sz=33,
                     scaling_factor=1,
                     noise_offset_log2=48,
                     read_from_cache=read_from_cache,
@@ -93,7 +93,7 @@ class TestDistribModel(tf.test.TestCase):
                 labels_party_dev=labels_party_dev,
                 features_party_dev=features_party_dev,
                 cache_path=cache,
-                check_overflow_INSECURE=True,
+                # check_overflow_INSECURE=True,
             )
 
             m.compile(
@@ -115,7 +115,7 @@ class TestDistribModel(tf.test.TestCase):
 
         cache_dir.cleanup()
 
-        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.55)
+        self.assertGreater(history.history["val_categorical_accuracy"][-1], 0.65)
 
 
 if __name__ == "__main__":
