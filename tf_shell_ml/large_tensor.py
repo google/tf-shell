@@ -22,7 +22,7 @@ SAFETY_FACTOR = 0.9 / 4  # Leave some headroom below the limit
 # cannot be accounted for (or at least, I don't know how to account for it). As
 # such the SAFETY_FACTOR is set very low, which unfortunately limits the size of
 # ciphertexts that can be sent between nodes.
-MAX_NUM_SPLITS = 100  # Maximum number of splits
+MAX_NUM_SPLITS = 350  # Maximum number of splits
 
 
 def calculate_tf_shell_split_sizes(context, total_elements):
