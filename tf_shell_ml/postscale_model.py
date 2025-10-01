@@ -200,9 +200,14 @@ class PostScaleModel(PrivateBase):
             all_devs_ubatch_size = batch_size // self.ubatch_per_batch
             num_ubatches = num_devices * self.ubatch_per_batch
 
+            # Due to TensorFlow errata, reshaping this tensor only works when
+            # indexed first by the ubatch dimension, then by the device
+            # dimension. Without this ordering, the data is silently corrupted
+            # resulting in poor accuracy models after training. It is only
+            # observed when both devices and ubatch_per_batch > 1.
             split_features = tf.reshape(
                 features,
-                [num_devices, self.ubatch_per_batch, ubatch_size] + features.shape[1:],
+                [self.ubatch_per_batch, num_devices, ubatch_size] + features.shape[1:],
             )
 
         # Iterate over the ubatch dimension first, then parallelize over the
@@ -246,7 +251,7 @@ class PostScaleModel(PrivateBase):
                 for dev_i, (dev, dev_model) in enumerate(
                     zip(self.jacobian_devices, self.jacobian_shadow_models)
                 ):
-                    dev_features = split_features[dev_i][ubatch]
+                    dev_features = split_features[ubatch][dev_i]
                     with tf.device(dev):
                         dev_preds, dev_jacs, dev_jac_norms = (
                             self.compute_postscale_precursors_ubatch(
