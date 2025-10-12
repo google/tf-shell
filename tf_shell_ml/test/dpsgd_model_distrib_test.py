@@ -93,7 +93,7 @@ class TestDistribModel(tf.test.TestCase):
                 labels_party_dev=labels_party_dev,
                 features_party_dev=features_party_dev,
                 cache_path=cache,
-                # check_overflow_INSECURE=True,
+                check_overflow_INSECURE=True,
             )
 
             m.compile(

@@ -53,7 +53,7 @@ class TestModel(tf.test.TestCase):
             disable_he_backprop_INSECURE=disable_encryption,
             disable_masking_INSECURE=disable_masking,
             simple_noise_INSECURE=disable_noise,
-            # check_overflow_INSECURE=True,
+            check_overflow_INSECURE=True,
             clip_threshold=10.0,
         )
 
