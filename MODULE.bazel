@@ -97,9 +97,9 @@ filegroup(
 http_archive(
     name = "emp-tool",
     build_file_content = _ALL_CONTENT,
-    integrity = "sha256-jEpsiBYbcu1pqP9NYmIBresj6I83XeGb1IuMs0psI7c=",
-    strip_prefix = "emp-tool-0.2.5",
-    urls = ["https://github.com/emp-toolkit/emp-tool/archive/refs/tags/0.2.5.zip"],
+    integrity = "sha256-t0gd+dwTAPSlj6ET4+lgFzq2kkIz0fE/UN0SVdMS6ts=",
+    strip_prefix = "emp-tool-8052d95ddf56b519a671b774865bb13157b3b4e0",
+    urls = ["https://github.com/emp-toolkit/emp-tool/archive/8052d95ddf56b519a671b774865bb13157b3b4e0.zip"],
 )
 
 http_archive(
