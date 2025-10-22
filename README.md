@@ -1,8 +1,17 @@
 # tf-shell
+[![Build](https://github.com/google/tf-shell/actions/workflows/wheel.yaml/badge.svg)](https://github.com/google/tf-shell/actions/workflows/wheel.yaml)
+[![Formatting](https://github.com/google/tf-shell/actions/workflows/formatter.yaml/badge.svg)](https://github.com/google/tf-shell/actions/workflows/formatter.yaml)
 
-The `tf-shell` library supports privacy preserving machine learning with
-homomorphic encryption via the
-[SHELL](https://github.com/google/shell-encryption/) library and tensorflow.
+Train models with strong privacy, even when you can't trust anyone.
+
+`tf-shell` is a TensorFlow extension that uses Homomorphic Encryption (HE) to
+train models with centralized label differential privacy (Label DP) guarantees,
+without requiring a trusted third party.
+
+It's built for the "vertically partitioned" scenario where one party has the
+features and another party has the labels. This library implements the protocols
+from the Hadal research paper  to securely train a model without the
+feature-holder ever seeing the plain-text labels.
 
 This is not an officially supported Google product.
 
@@ -14,33 +23,46 @@ pip install tf-shell
 
 See `./examples/` for how to use the library.
 
-## Background
+## The Problem: Centralized DP without a Trusted Party
+When training with high privacy requirements (e.g., $\epsilon \le 1$),
+centralized DP (like DP-SGD) provides much higher model accuracy than local DP
+(like randomized response). However, centralized DP traditionally requires a
+trusted third-party "curator" that can see all the data (or at least the secret
+labels) to compute and noise the gradients. This is a problem when data is
+vertically partitioned: Party F has the features and wants to train the model.
+Party L has the secret labels and cannot share them. How can Party F train its
+model using Party L's labels without a trusted intermediary?
 
-Homomorphic encryption allows computation on encrypted data. For example, given
-two ciphertexts `a` and `b` representing the numbers `3` and `4`, respectively,
-one can compute a ciphertext `c` representing the number `7` without decrypting
-`a` or `b`. This is useful for privacy preserving machine learning because it
-allows training a model on encrypted data.
+## The Solution: HE-based Backpropagation
+`tf-shell` uses Homomorphic Encryption (via Google's
+[SHELL](https://github.com/google/shell-encryption/) library) to
+cryptographically "simulate" the trusted curator. The core technical idea is
+based on the Features-And-Model-vs-Labels (FAML) data partitioning:
+1. Forward Pass (Plaintext): Party F (with features and the model) computes the
+entire forward pass in plaintext, right up to the final layer's logits.
+2. Encrypted Labels: Party L encrypts its batch of labels using HE and sends the
+single ciphertext to Party F.
+3. Backward Pass (Encrypted): The gradient of the loss (e.g., CCE with Softmax)
+is often a simple affine function of the labels (like $\hat{y} - y$). Party F
+can compute this step homomorphically using its plaintext logits and Party L's
+encrypted labels.
+4. Model Update: Party F finishes the backpropagation, adds the required DP
+noise, and updates its model weights.
 
-The SHELL encryption library supports homomorphic encryption with respect to
-addition and multiplication. This means that one can compute the sum of two
-ciphertexts or the product of two ciphertexts without decrypting them. SHELL
-does not support _fully_ homomorphic encryption, meaning computing functions of
-ciphertexts with arbitrary depth. That said, because machine learning models are
-of bounded depth, the performance benefits of leveled schemes (without
-bootstrapping, e.g. SHELL) outweight limitations in circuit depth.
+The result is a model trained with the high utility of centralized DP, but Party
+F never sees Party L's individual labels.
 
-## Design
+## What's Included?
+The library is split into two packages:
 
-This library has two modules, `tf_shell` which supports Tensorflow Tensors
-containing ciphertexts with homomorphic properties, and `tf_shell_ml` some (very)
-simple machine learning tools supporting privacy preserving training.
-
-`tf-shell` is designed for Label-DP SGD where training data is vertically
-partitioned, e.g. one party holds features while another party holds labels. The
-party who holds the features would like to train a model without learning the
-labels. The resultant trained model is differentially private with respect to
-the labels.
+- tf_shell: The base package. It integrates TensorFlow with the SHELL library,
+providing a ShellTensor type for basic HE-enabled computations.
+- tf_shell_ml: The machine learning library. It implements two different
+protocols for the encrypted backpropagation step:
+  - POSTSCALE: A novel protocol that is highly efficient for models with a low
+  number of output classes (e.g., binary classification).
+  - HE-DP-SGD: A more direct HE implementation of backpropagation, which is
+  better suited for models with many output classes.
 
 ## Building
 
@@ -122,11 +144,12 @@ Apache 2.0; see [`LICENSE`](LICENSE) for details.
 
 ## Disclaimer
 
-Convolutions on AMD-based platforms may fail due to known limitations of TensorFlow. This will resulting in the following error:
+Convolutions on AMD-based platforms may fail due to known limitations of
+TensorFlow. This will resulting in the following error when running tests:
+
 ```log
 CPU implementation of Conv3D currently only supports dilated rates of 1.
 ```
-
 
 This project is not an official Google project. It is not supported by
 Google and Google specifically disclaims all warranties as to its quality,
