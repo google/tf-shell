@@ -183,8 +183,10 @@ class PolynomialImportOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_import = 70 * num_slots;  // ns, measured on log_n = 11
-    thread_pool->ParallelForWithWorkerId(flat_input.dimension(1),
-                                         cost_per_import, import_in_range);
+    thread_pool->ParallelForWithWorkerId(
+        flat_input.dimension(1),
+        tsl::thread::ThreadPool::SchedulingParams::Adaptive(cost_per_import),
+        import_in_range);
   }
 };
 

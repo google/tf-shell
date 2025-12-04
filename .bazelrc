@@ -2,8 +2,11 @@ build --enable_bzlmod
 
 build -c opt
 
+# Get these flags with:
+# python -c "import tensorflow as tf; print(f'CXX11 ABI Flag: {tf.sysconfig.get_compile_flags()}')"
 build --cxxopt='-std=c++17'
 build --cxxopt='-D_GLIBCXX_USE_CXX11_ABI=1'
+build --cxxopt='-DEIGEN_MAX_ALIGN_BYTES=64'
 
 # To enable asan, pass `--config=asan` to bazel.
 # If there are compilation issues with asan and absl, try making the changes

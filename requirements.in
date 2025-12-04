@@ -1,2 +1,2 @@
-tensorflow[and-cuda]==2.19.0  # See also: top level BUILD, wheel target.
+tensorflow[and-cuda]==2.20.0  # See also: top level BUILD, wheel target.
 black==25.1.0

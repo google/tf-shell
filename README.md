@@ -118,7 +118,7 @@ Update requirements.in and run the following to update the requirements files
 for each python version.
 
 ```bash
-for ver in 3_9 3_10 3_11 3_12; do
+for ver in 3_9 3_10 3_11 3_12 3_13; do
   rm requirements_${ver}.txt
   touch requirements_${ver}.txt
   bazel run //:requirements_${ver}.update

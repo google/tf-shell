@@ -148,8 +148,10 @@ class EncryptOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_enc = 6000 * num_slots;  // ns, measured on log_n = 11
-    thread_pool->ParallelForWithWorkerId(flat_output.dimension(0), cost_per_enc,
-                                         enc_in_range);
+    thread_pool->ParallelForWithWorkerId(
+        flat_output.dimension(0),
+        tsl::thread::ThreadPool::SchedulingParams::Adaptive(cost_per_enc),
+        enc_in_range);
   }
 };
 

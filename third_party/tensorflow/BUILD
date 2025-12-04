@@ -1,4 +1,7 @@
 load("@pip//:requirements.bzl", "requirement")
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_python//python:defs.bzl", "py_binary")
 load("//tools:dynamic_genrule.bzl", "dynamic_genrule")
 
 py_binary(

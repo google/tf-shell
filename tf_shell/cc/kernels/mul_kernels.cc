@@ -378,8 +378,10 @@ class MulShellTfScalarOp : public OpKernel {
     auto thread_pool =
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_mul = 20 * num_slots * num_components;
-    thread_pool->ParallelForWithWorkerId(flat_output.dimension(0), cost_per_mul,
-                                         mul_in_range);
+    thread_pool->ParallelForWithWorkerId(
+        flat_output.dimension(0),
+        tsl::thread::ThreadPool::SchedulingParams::Adaptive(cost_per_mul),
+        mul_in_range);
   }
 
  private:
