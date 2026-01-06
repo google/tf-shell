@@ -44,7 +44,14 @@ REGISTER_OP("ContextImport64")
     .Output("new_qs: uint64")
     .Output("new_ps: uint64")
     .Output("new_pt_modulus: uint64")
-    .SetShapeFn(MultiScalarOut<2>);
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->Scalar());
+      c->set_output(1, c->Scalar());
+      c->set_output(2, c->input(1));
+      c->set_output(3, c->input(2));
+      c->set_output(4, c->Scalar());
+      return OkStatus();
+    });
 
 REGISTER_OP("AutoShellContext64")
     .Input("log2_cleartext_sz: uint64")
@@ -56,7 +63,14 @@ REGISTER_OP("AutoShellContext64")
     .Output("new_qs: uint64")
     .Output("new_ps: uint64")
     .Output("new_pt_modulus: uint64")
-    .SetShapeFn(MultiScalarOut<2>);
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->Scalar());
+      c->set_output(1, c->Scalar());
+      c->set_output(2, c->UnknownShape());
+      c->set_output(3, c->UnknownShape());
+      c->set_output(4, c->Scalar());
+      return OkStatus();
+    });
 
 REGISTER_OP("PolynomialImport64")
     .Attr(
