@@ -431,6 +431,10 @@ REGISTER_OP("ExpandDimsVariant")
     .Output("expanded_value: variant")
     .SetShapeFn([](InferenceContext* c) {
       tsl::int32 rank = c->Rank(c->input(0));
+      if (rank == InferenceContext::kUnknownRank) {
+        c->set_output(0, c->UnknownShape());
+        return OkStatus();
+      }
 
       tsl::int32 axis;
       TF_RETURN_IF_ERROR(c->GetAttr("axis", &axis));
@@ -698,3 +702,31 @@ REGISTER_OP("SampleCenteredGaussianL64")
     .Output("samples: int64")
     .SetIsStateful()  // Prevent caching output.
     .SetShapeFn(ShellSampleCenteredGaussianL);
+
+REGISTER_OP("SaveShellTensor")
+    .Input("data: T")
+    .Input("path: string")
+    .Output("out_path: string")
+    .Attr("T: type")
+    .SetShapeFn([](InferenceContext* c) {
+      c->set_output(0, c->input(1));
+      return OkStatus();
+    });
+
+REGISTER_OP("LoadShellTensor")
+    .Input("path: string")
+    .Output("data: T")
+    .Attr("T: type")
+    .Attr("output_shape: shape = { unknown_rank: true }")
+    .SetShapeFn([](InferenceContext* c) {
+      tensorflow::TensorShapeProto shape_proto;
+      if (c->GetAttr("output_shape", &shape_proto).ok() &&
+          !shape_proto.unknown_rank()) {
+        ShapeHandle shape;
+        TF_RETURN_IF_ERROR(c->MakeShapeFromShapeProto(shape_proto, &shape));
+        c->set_output(0, shape);
+      } else {
+        c->set_output(0, c->UnknownShape());
+      }
+      return OkStatus();
+    });

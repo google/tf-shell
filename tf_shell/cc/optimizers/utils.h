@@ -72,8 +72,21 @@ constexpr char kMaxUnpool2dCt64[] = "MaxUnpool2dCt64";
 constexpr char kConcatCt[] = "ConcatCt64";
 constexpr char kConcatPt[] = "ConcatPt64";
 
-// TensorFlow names
+constexpr char kSaveShellTensor[] = "SaveShellTensor";
+constexpr char kLoadShellTensor[] = "LoadShellTensor";
+
+constexpr char kKeyGen[] = "KeyGen64";
+constexpr char kRotationKeyGen[] = "RotationKeyGen64";
+constexpr char kFastRotationKeyGen[] = "FastRotationKeyGen64";
+
+constexpr char kModulusReduceContext[] = "ModulusReduceContext64";
+constexpr char kModulusReduceKey[] = "ModulusReduceKey64";
+constexpr char kModulusReduceCt[] = "ModulusReduceCt64";
+constexpr char kModulusReducePt[] = "ModulusReducePt64";
+
 constexpr char kExpandDimsVariant[] = "ExpandDimsVariant";
+
+// TensorFlow names
 constexpr char kBroadcastToShape[] = "BroadcastToShape";  // TODO check name
 constexpr char kReshape[] = "Reshape";                    // TODO check name
 constexpr char kConstOpName[] = "Const";
@@ -81,6 +94,10 @@ constexpr char kSplitVOpName[] = "SplitV";
 
 bool IsShellContext(NodeDef const& node);
 bool IsShellAutoContext(NodeDef const& node);
+bool IsKeyGen(NodeDef const& node);
+bool IsRotationKeyGen(NodeDef const& node);
+bool IsFastRotationKeyGen(NodeDef const& node);
+bool IsModulusReduce(NodeDef const& node);
 
 bool IsEncode(NodeDef const& node);
 bool IsDecode(NodeDef const& node);
@@ -88,6 +105,9 @@ bool IsEncrypt(NodeDef const& node);
 bool IsPlainDerypt(NodeDef const& node);
 bool IsFastDecrypt(NodeDef const& node);
 bool IsDecrypt(NodeDef const& node);
+
+bool IsSaveShellTensor(NodeDef const& node);
+bool IsLoadShellTensor(NodeDef const& node);
 
 bool IsAddCtCt(NodeDef const& node);
 bool IsSubCtCt(NodeDef const& node);
@@ -139,3 +159,6 @@ bool IsExpandDimsVariant(NodeDef const& node);
 bool IsBroadcastToShape(NodeDef const& node);
 bool IsReshape(NodeDef const& node);
 bool IsSplitV(NodeDef const& node);
+
+// Returns true if the custom op node outputs a ciphertext or plaintext.
+bool NodeOutputsCtOrPt(NodeDef const& node);

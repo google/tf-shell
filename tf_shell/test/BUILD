@@ -265,6 +265,20 @@ py_test(
 )
 
 py_test(
+    name = "filesystem_distribution_test",
+    size = "medium",
+    srcs = [
+        "filesystem_distribution_test.py",
+        "test_utils.py",
+    ],
+    imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
     name = "discrete_gaussian_test",
     size = "small",
     srcs = [
@@ -272,6 +286,37 @@ py_test(
         "test_utils.py",
     ],
     imports = ["./"],
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
+    name = "large_tensor_test_fs",
+    size = "large",
+    srcs = [
+        "large_tensor_test.py",
+    ],
+    env = {
+        "TF_SHELL_FILESYSTEM_PATH": "/tmp/tf_shell_large_test_fs",
+    },
+    imports = ["./"],
+    main = "large_tensor_test.py",
+    deps = [
+        "//tf_shell:tf_shell_lib",
+        requirement("tensorflow"),
+    ],
+)
+
+py_test(
+    name = "large_tensor_test_grpc",
+    size = "large",
+    srcs = [
+        "large_tensor_test.py",
+    ],
+    imports = ["./"],
+    main = "large_tensor_test.py",
     deps = [
         "//tf_shell:tf_shell_lib",
         requirement("tensorflow"),

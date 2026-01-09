@@ -136,6 +136,9 @@ py_test(
         "dpsgd_model_distrib_test.py",
         "test_models.py",
     ],
+    env = {
+        "TF_SHELL_FILESYSTEM_PATH": "/tmp/tf_shell_model_distrib_test",
+    },
     tags = ["exclusive"],
     deps = [
         "//tf_shell_ml",

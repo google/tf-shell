@@ -7,6 +7,26 @@ bool IsShellAutoContext(NodeDef const& node) {
   return node.op() == kShellAutoContext;
 }
 
+bool IsKeyGen(NodeDef const& node) { return node.op() == kKeyGen; }
+bool IsRotationKeyGen(NodeDef const& node) {
+  return node.op() == kRotationKeyGen;
+}
+bool IsFastRotationKeyGen(NodeDef const& node) {
+  return node.op() == kFastRotationKeyGen;
+}
+
+bool IsModulusReduce(NodeDef const& node) {
+  return node.op() == kModulusReduceContext || node.op() == kModulusReduceKey ||
+         node.op() == kModulusReduceCt || node.op() == kModulusReducePt;
+}
+
+bool IsSaveShellTensor(NodeDef const& node) {
+  return node.op() == kSaveShellTensor;
+}
+bool IsLoadShellTensor(NodeDef const& node) {
+  return node.op() == kLoadShellTensor;
+}
+
 // Encryption ops.
 bool IsEncode(NodeDef const& node) { return node.op() == kEncode; }
 bool IsDecode(NodeDef const& node) { return node.op() == kDecode; }
@@ -114,12 +134,23 @@ bool IsMaxUnpool2d(NodeDef const& node) {
 // tf-shell shape ops
 bool IsConcatCt(NodeDef const& node) { return node.op() == kConcatCt; }
 
-// TensorFlow ops.
 bool IsExpandDimsVariant(NodeDef const& node) {
   return node.op() == kExpandDimsVariant;
 }
+
+// TensorFlow ops.
 bool IsBroadcastToShape(NodeDef const& node) {
   return node.op() == kBroadcastToShape;
 }
 bool IsReshape(NodeDef const& node) { return node.op() == kReshape; }
 bool IsSplitV(NodeDef const& node) { return node.op() == kSplitVOpName; }
+
+bool NodeOutputsCtOrPt(NodeDef const& node) {
+  return IsEncode(node) || IsEncrypt(node) || IsArithmetic(node) ||
+         IsNegCt(node) || IsNegPt(node) || IsMulCtTfScalar(node) ||
+         IsMulPtTfScalar(node) || IsTfShellMatMul(node) || IsRoll(node) ||
+         IsReduceSumByRotation(node) || IsFastReduceSumByRotation(node) ||
+         IsReduceSum(node) || IsUnsortedCtSegmentSum(node) || IsConv2d(node) ||
+         IsMaxUnpool2d(node) || IsConcatCt(node) || IsModulusReduce(node) ||
+         IsExpandDimsVariant(node);
+}

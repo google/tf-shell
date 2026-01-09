@@ -108,8 +108,7 @@ Status AddScalarConstNode(T value, utils::Mutation* mutation,
   } else {
     []<bool flag = false>() {
       static_assert(flag, "AddScalarConstNode does not support this type");
-    }
-    ();
+    }();
   }
   tensor->set_allocated_tensor_shape(tensor_shape.release());
   (*node.mutable_attr())["value"].set_allocated_tensor(tensor.release());
