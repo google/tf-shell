@@ -42,6 +42,7 @@ all_shell_optimizers = [
     "CtPtOptimizer",
     "PtPtOptimizer",
     "ModuliAutotuneOptimizer",
+    "FilesystemDistributionOptimizer",
 ]
 
 

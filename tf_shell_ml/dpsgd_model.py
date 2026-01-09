@@ -14,7 +14,6 @@
 import tensorflow as tf
 import tf_shell
 from tf_shell_ml.private_base import PrivateBase
-from tf_shell_ml import large_tensor
 
 
 def is_model_sequential(model: tf.keras.Model) -> bool:

@@ -986,16 +986,6 @@ class PrivateBase(keras.Model):
             if not self.disable_masking_INSECURE:
                 grads, masks = self.mask_gradients(backprop_context, grads)
 
-            if self.features_party_dev != self.labels_party_dev:
-                # When the tensor needs to be sent between machines, split it
-                # into chunks to stay within GRPC's 4BG maximum message size.
-                # Note, running this on a single machine sometimes breaks
-                # TensorFlow's optimizer, which then decides to replace the
-                # entire training graph with a const op.
-                chunked_grads, chunked_grads_metadata = (
-                    tf_shell_ml.large_tensor.split_tensor_list(grads)
-                )
-
             if not self.simple_noise_INSECURE:
                 # Set up the features party side of the distributed noise
                 # sampling sub-protocol.
@@ -1032,12 +1022,6 @@ class PrivateBase(keras.Model):
                 )
 
         with tf.device(self.labels_party_dev):
-            if self.features_party_dev != self.labels_party_dev:
-                # Reassemble the tensor list after sending it between machines.
-                grads = tf_shell_ml.large_tensor.reassemble_tensor_list(
-                    chunked_grads, chunked_grads_metadata
-                )
-
             if not self.disable_he_backprop_INSECURE:
                 # Decrypt the weight gradients with the backprop key.
                 grads = [tf_shell.to_tensorflow(g, backprop_secret_key) for g in grads]
