@@ -45,8 +45,8 @@ class TestModel(tf.test.TestCase):
             ubatch_per_batch=16,
             backprop_context_fn=lambda read_from_cache: tf_shell.create_autocontext64(
                 log2_cleartext_sz=24,
-                scaling_factor=16,
-                noise_offset_log2=18,
+                scaling_factor=8,
+                noise_offset_log2=27,
                 read_from_cache=read_from_cache,
                 cache_path=cache,
             ),
