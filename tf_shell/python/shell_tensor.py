@@ -382,7 +382,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                         self._raw_tensor,
                         other,
                         scaling_factor=float(self._scaling_factor),
-                        random_round=_ENALBE_RANDOMIZED_ROUNDING,
+                        random_round=_ENABLE_RANDOMIZED_ROUNDING,
                     )
                 else:
                     raw_result = shell_ops.mul_pt_tf_scalar64(
@@ -390,7 +390,7 @@ class ShellTensor64(tf.experimental.ExtensionType):
                         self._raw_tensor,
                         other,
                         scaling_factor=float(self._scaling_factor),
-                        random_round=_ENALBE_RANDOMIZED_ROUNDING,
+                        random_round=_ENABLE_RANDOMIZED_ROUNDING,
                     )
 
                 return ShellTensor64(
@@ -548,12 +548,12 @@ def smallest_case_rounding(tensor, scaling_factor):
         return best_case / scaling_factor
 
 
-_ENALBE_RANDOMIZED_ROUNDING = False
+_ENABLE_RANDOMIZED_ROUNDING = False
 
 
 def enable_randomized_rounding(enable=True):
-    global _ENALBE_RANDOMIZED_ROUNDING
-    _ENALBE_RANDOMIZED_ROUNDING = enable
+    global _ENABLE_RANDOMIZED_ROUNDING
+    _ENABLE_RANDOMIZED_ROUNDING = enable
 
 
 def randomized_rounding(tensor):
@@ -579,8 +579,8 @@ def _encode_scaling(tf_tensor, scaling_factor=1):
 
     with tf.name_scope("encode_scaling"):
         if tf_tensor.dtype in [tf.float16, tf.float32, tf.float64]:
-            global _ENALBE_RANDOMIZED_ROUNDING
-            if _ENALBE_RANDOMIZED_ROUNDING:
+            global _ENABLE_RANDOMIZED_ROUNDING
+            if _ENABLE_RANDOMIZED_ROUNDING:
                 return tf.cast(
                     randomized_rounding(tf_tensor * scaling_factor), tf.int64
                 )
@@ -599,13 +599,10 @@ def _encode_scaling(tf_tensor, scaling_factor=1):
 def _decode_scaling(scaled_tensor, output_dtype, scaling_factor):
     with tf.name_scope("decode_scaling"):
         if output_dtype in [tf.float16, tf.float32, tf.float64]:
-            assert scaled_tensor.dtype == tf.int64
             return tf.cast(scaled_tensor, output_dtype) / scaling_factor
         elif output_dtype in [tf.uint8, tf.uint16, tf.uint32, tf.uint64]:
-            assert scaled_tensor.dtype == tf.uint64
             return tf.cast(scaled_tensor, output_dtype)
         elif output_dtype in [tf.int8, tf.int16, tf.int32, tf.int64]:
-            assert scaled_tensor.dtype == tf.int64
             return tf.cast(scaled_tensor, output_dtype)
         else:
             raise ValueError(f"Unsupported dtype {output_dtype}")
@@ -643,7 +640,7 @@ def to_shell_plaintext(
                 random_round=(
                     randomized_rounding_override
                     if randomized_rounding_override is not None
-                    else _ENALBE_RANDOMIZED_ROUNDING
+                    else _ENABLE_RANDOMIZED_ROUNDING
                 ),
             ),
             _context=context,
@@ -938,12 +935,14 @@ def reduce_sum_with_mod(x, axis, context, scaling_factor=None):
         s = scaling_factor
 
     # Shell tensor represents floats as integers * scaling_factor.
-    scaled_x = _encode_scaling(x, s)
+    # scaled_x = _encode_scaling(x, s)
 
     # The context is only used to get the plaintext modulus, any level will do.
     c = context._get_context_at_level(1)
 
-    reduced_x = shell_ops.reduce_sum_with_modulus_pt64(c, scaled_x, axis=axis)
+    reduced_x = shell_ops.reduce_sum_with_modulus_pt64(
+        c, x, axis=axis, scaling_factor=float(s), random_round=_ENABLE_RANDOMIZED_ROUNDING
+    )
     return _decode_scaling(reduced_x, x.dtype, s)
 
 
@@ -998,15 +997,14 @@ def matmul(x, y, rotation_key=None, pt_ct_reduction="galois", emulate_pt_ct=Fals
                 f"Underlying dtypes must match. Got {x._underlying_dtype} and {y.dtype}"
             )
 
-        # Encode the plaintext y to the same scaling factor as x.
-        scaled_y = _encode_scaling(y, x._scaling_factor)
-
         return ShellTensor64(
             _raw_tensor=shell_ops.mat_mul_ct_pt64(
                 x._context._get_context_at_level(x._level),
                 x._raw_tensor,
-                scaled_y,
+                y,
                 reduce_dim_size=x.shape[-1],
+                scaling_factor=float(x._scaling_factor),
+                random_round=_ENABLE_RANDOMIZED_ROUNDING,
             ),
             _context=x._context,
             _level=x._level,
@@ -1029,7 +1027,7 @@ def matmul(x, y, rotation_key=None, pt_ct_reduction="galois", emulate_pt_ct=Fals
             )
 
         # Encode the plaintext x to the same scaling factor as y.
-        scaled_x = _encode_scaling(x, y._context.scaling_factor)
+        # scaled_x = _encode_scaling(x, y._context.scaling_factor)
 
         if pt_ct_reduction == "galois":
             if not isinstance(rotation_key, ShellRotationKey64):
@@ -1052,10 +1050,12 @@ def matmul(x, y, rotation_key=None, pt_ct_reduction="galois", emulate_pt_ct=Fals
         return ShellTensor64(
             _raw_tensor=shell_ops.mat_mul_pt_ct64(
                 y._context._get_context_at_level(y._level),
-                scaled_x,
+                x,
                 y._raw_tensor,
                 raw_rotation_key,
                 reduction=pt_ct_reduction,
+                scaling_factor=float(y._context.scaling_factor),
+                random_round=_ENABLE_RANDOMIZED_ROUNDING,
             ),
             _context=y._context,
             _level=y._level,

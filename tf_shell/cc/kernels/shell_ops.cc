@@ -222,7 +222,11 @@ REGISTER_OP("MulPtPt64")
     .SetShapeFn(ShellBroadcastingOpShape);
 
 REGISTER_OP("MatMulCtPt64")
-    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
+    .Attr("scaling_factor: float")
+    .Attr("random_round: bool")
     .Input("context: variant")
     .Input("a: variant")
     .Input("b: Dtype")
@@ -231,7 +235,11 @@ REGISTER_OP("MatMulCtPt64")
     .SetShapeFn(ShellMatMulCtPtShape);
 
 REGISTER_OP("MatMulPtCt64")
-    .Attr("Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "Dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
+    .Attr("scaling_factor: float")
+    .Attr("random_round: bool")
     .Input("context: variant")
     .Input("a: Dtype")
     .Input("b: variant")
@@ -263,7 +271,11 @@ REGISTER_OP("ReduceSumByRotationCt64")
     .SetShapeFn(UnchangedArgShape<2>);
 
 REGISTER_OP("ReduceSumWithModulusPt64")
-    .Attr("dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64}")
+    .Attr(
+        "dtype: {uint8, int8, uint16, int16, uint32, int32, uint64, int64, "
+        "float, double}")
+    .Attr("scaling_factor: float")
+    .Attr("random_round: bool")
     .Attr("axis: int")
     .Input("context: variant")
     .Input("value: dtype")

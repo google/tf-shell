@@ -512,8 +512,21 @@ class MatMulCtPtOp : public OpKernel {
   using SymmetricCt = rlwe::RnsBgvCiphertext<ModularInt>;
   using Encoder = rlwe::FiniteFieldEncoder<ModularInt>;
 
+  float scaling_factor_ = 1.;
+  bool random_round_ = false;
+
  public:
-  explicit MatMulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {}
+  explicit MatMulCtPtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
+    if (op_ctx->HasAttr("scaling_factor")) {
+      OP_REQUIRES_OK(op_ctx,
+                     op_ctx->GetAttr("scaling_factor", &scaling_factor_));
+    }
+    if (op_ctx->HasAttr("random_round")) {
+      OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("random_round", &random_round_));
+    }
+    OP_REQUIRES(op_ctx, scaling_factor_ > 0,
+                InvalidArgument("scaling_factor must be positive."));
+  }
 
   // A matrix of ciphertext multiplied by plaintext matrix can be performed
   // without any expensive ciphertext slot rotations and without needing to
@@ -571,7 +584,7 @@ class MatMulCtPtOp : public OpKernel {
     auto flat_b = b.flat_outer_dims<PtT>();
     auto flat_output = output->flat<Variant>();
 
-    auto ct_col_in_range = [&](int start, int end) {
+    auto ct_col_in_range = [&](int start, int end, int worker_id) {
       for (int i = start; i < end; ++i) {
         SymmetricCtVariant<T> const* ct_a_var =
             flat_a(0).get<SymmetricCtVariant<T>>();
@@ -585,11 +598,9 @@ class MatMulCtPtOp : public OpKernel {
                 shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
         SymmetricCt const& ct_a = ct_a_var->ct;
 
-        // Before multiplying, the check if the plaintext integer is signed.
-        // If so, it needs to be imported into the field of the plaintext
-        // modulus to properly handle negative values.
-        OP_REQUIRES_VALUE(T mint_b, op_ctx,
-                          ToSigned(flat_b(0, i), encoder, op_ctx));
+        T mint_b{};
+        EncodeScalar(op_ctx, flat_b(0, i), encoder, &mint_b, worker_id,
+                     shell_ctx_var);
 
         OP_REQUIRES_VALUE(SymmetricCt ct_result, op_ctx,
                           ct_a * mint_b);  // ciphertext * scalar
@@ -607,9 +618,8 @@ class MatMulCtPtOp : public OpKernel {
                   shell_ctx_var->ct_context_, shell_ctx_var->error_params_));
           SymmetricCt const& ct_a = ct_a_var->ct;
 
-          // Again check if the plaintext integer is signed.
-          OP_REQUIRES_VALUE(T mint_b, op_ctx,
-                            ToSigned(flat_b(j, i), encoder, op_ctx));
+          EncodeScalar(op_ctx, flat_b(j, i), encoder, &mint_b, worker_id,
+                       shell_ctx_var);
 
           OP_REQUIRES_VALUE(SymmetricCt scaled, op_ctx,
                             ct_a * mint_b);  // Ct * scalar
@@ -625,33 +635,33 @@ class MatMulCtPtOp : public OpKernel {
         op_ctx->device()->tensorflow_cpu_worker_threads()->workers;
     int const cost_per_outter =
         32384 * b.dim_size(0);  // ns, measured on log_n = 11
-    thread_pool->ParallelFor(b.dim_size(1), cost_per_outter, ct_col_in_range);
+    thread_pool->ParallelForWithWorkerId(
+        b.dim_size(1),
+        tsl::thread::ThreadPool::SchedulingParams::Adaptive(cost_per_outter),
+        ct_col_in_range);
   }
 
-  static StatusOr<T> ToSigned(PtT const& val, Encoder const* encoder,
-                              OpKernelContext* op_ctx) {
-    if constexpr (std::is_signed<PtT>::value) {
-      // SHELL is built on the assumption that the plaintext type (in this
-      // case `From`) will always fit into the ciphertext underlying type
-      // (in this case `To`). E.g. the plaintext modulus is stored as the
-      // ciphertext type. This is true even in the RNS code paths. This means
-      // that this function can convert `From` to a signed version of `To`,
-      // then modulus switch into plaintext field t and type `To` without
-      // overflow.
-      using SignedInteger = std::make_signed_t<T>;
-
-      // Map signed integer into the unsigned plaintext modulus field.
-      auto signed_val = (encoder->template WrapSigned<SignedInteger>({val}));
-
-      if (!signed_val.ok()) {
-        return signed_val.status();
-      } else {
-        return signed_val.value()[0];
-      }
+  void EncodeScalar(OpKernelContext* op_ctx, PtT const& val,
+                    Encoder const* encoder, T* wrapped_val, int worker_id,
+                    ContextVariant<T> const* shell_ctx_var) {
+    double double_val = static_cast<double>(val) * scaling_factor_;
+    if (random_round_) {
+      int prng_i = worker_id % shell_ctx_var->prng_.size();
+      rlwe::SecurePrng* prng = shell_ctx_var->prng_[prng_i].get();
+      OP_REQUIRES_VALUE(double_val, op_ctx,
+                        RandomRound<T>(prng, double_val));
     } else {
-      // Since T and PtT are both unsigned, just cast and copy.
-      return static_cast<T>(val);
+      double_val = round(double_val);
     }
+
+    using SignedInteger = std::make_signed_t<T>;
+    SignedInteger signed_val = static_cast<SignedInteger>(double_val);
+    // Map signed integer into the unsigned plaintext modulus field.
+    auto signed_val_or =
+        (encoder->template WrapSigned<SignedInteger>({signed_val}));
+
+    OP_REQUIRES_OK(op_ctx, signed_val_or.status());
+    *wrapped_val = signed_val_or.value()[0];
   }
 };
 
@@ -670,6 +680,9 @@ class MatMulPtCtOp : public OpKernel {
   char const* fast_reduction = "fast";
   char const* no_reduction = "none";
 
+  float scaling_factor_ = 1.;
+  bool random_round_ = false;
+
  public:
   explicit MatMulPtCtOp(OpKernelConstruction* op_ctx) : OpKernel(op_ctx) {
     OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("reduction", &reduction));
@@ -678,6 +691,15 @@ class MatMulPtCtOp : public OpKernel {
         reduction == "galois" || reduction == "fast" || reduction == "none",
         InvalidArgument("Invalid reduction attribute: ", reduction,
                         ". Must be 'galois', 'fast', or 'none'."));
+    if (op_ctx->HasAttr("scaling_factor")) {
+      OP_REQUIRES_OK(op_ctx,
+                     op_ctx->GetAttr("scaling_factor", &scaling_factor_));
+    }
+    if (op_ctx->HasAttr("random_round")) {
+      OP_REQUIRES_OK(op_ctx, op_ctx->GetAttr("random_round", &random_round_));
+    }
+    OP_REQUIRES(op_ctx, scaling_factor_ > 0,
+                InvalidArgument("scaling_factor must be positive."));
   }
 
   void Compute(OpKernelContext* op_ctx) override {
@@ -786,40 +808,34 @@ class MatMulPtCtOp : public OpKernel {
     // on the inner dimension.
     for (int outer = 0; outer < num_pt_outer_dims; ++outer) {
       // ParallelFor in the inner dimensions of the plaintext matrix.
-      auto pt_inner_dim_in_range = [&](int start, int end) {
+      auto pt_inner_dim_in_range = [&](int start, int end, int worker_id) {
         // Iterate over the rows in the plaintext inner matrix, encode the
         // plaintext matrix into polynomials row-wise then multiply by the
         // ciphertext column.
         for (int i = start; i < end; ++i) {
           // Encode the row of the plaintext matrix into a polynomial.
-          std::vector<T> wrapped_row;
-          if constexpr (std::is_signed<PtT>::value) {
-            // SHELL is built on the assumption that the plaintext type (in
-            // this case `From`) will always fit into the ciphertext
-            // underlying type (in this case `To`). E.g. the plaintext modulus
-            // is stored as the ciphertext type. This is true even in the RNS
-            // code paths. This means that this function can convert `From` to
-            // a signed version of `To`, then modulus switch into plaintext
-            // field t and type `To` without overflow.
-            using SignedInteger = std::make_signed_t<T>;
+          using SignedInteger = std::make_signed_t<T>;
+          std::vector<SignedInteger> nums(num_slots);
 
-            // Copy into contiguous memory of signed `To`'s
-            std::vector<SignedInteger> nums(num_slots);
-            for (int slot = 0; slot < num_slots; ++slot) {
-              nums[slot] = static_cast<SignedInteger>(flat_a(outer, i, slot));
-            }
+          int prng_i = worker_id % shell_ctx_var->prng_.size();
+          rlwe::SecurePrng* prng = shell_ctx_var->prng_[prng_i].get();
 
-            // Map signed integers into the plaintext modulus field.
-            OP_REQUIRES_VALUE(
-                wrapped_row, op_ctx,
-                (encoder->template WrapSigned<SignedInteger>(nums)));
-          } else {
-            wrapped_row = std::vector<T>(num_slots);
-            // Since From and To are both unsigned, just cast and copy.
-            for (int slot = 0; slot < num_slots; ++slot) {
-              wrapped_row[slot] = static_cast<T>(flat_a(outer, i, slot));
+          for (int slot = 0; slot < num_slots; ++slot) {
+            double val =
+                static_cast<double>(flat_a(outer, i, slot)) * scaling_factor_;
+            if (random_round_) {
+              OP_REQUIRES_VALUE(val, op_ctx, RandomRound<T>(prng, val));
+            } else {
+              val = round(val);
             }
+            nums[slot] = static_cast<SignedInteger>(val);
           }
+
+          // Map signed integers into the plaintext modulus field.
+          std::vector<T> wrapped_row;
+          OP_REQUIRES_VALUE(
+              wrapped_row, op_ctx,
+              (encoder->template WrapSigned<SignedInteger>(nums)));
 
           OP_REQUIRES_VALUE(RnsPolynomial row_polynomial, op_ctx,
                             encoder->EncodeBgv(wrapped_row, main_moduli));
@@ -914,8 +930,11 @@ class MatMulPtCtOp : public OpKernel {
 
       // Use a parallel for loop in the inner dimensions of the plaintext
       // matrix.
-      thread_pool->ParallelFor(num_pt_inner_rows, cost_per_inner * 1000 * 1000,
-                               pt_inner_dim_in_range);
+      thread_pool->ParallelForWithWorkerId(
+          num_pt_inner_rows,
+          tsl::thread::ThreadPool::SchedulingParams::Adaptive(cost_per_inner *
+                                                              1000 * 1000),
+          pt_inner_dim_in_range);
     }
   }
 };
@@ -1026,6 +1045,12 @@ REGISTER_KERNEL_BUILDER(
 REGISTER_KERNEL_BUILDER(
     Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
     MatMulCtPtOp<uint64, int64>);
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<float>("Dtype"),
+    MatMulCtPtOp<uint64, float>);
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulCtPt64").Device(DEVICE_CPU).TypeConstraint<double>("Dtype"),
+    MatMulCtPtOp<uint64, double>);
 
 // Matrix multiply plaintext and ciphertext.
 REGISTER_KERNEL_BUILDER(
@@ -1055,3 +1080,10 @@ REGISTER_KERNEL_BUILDER(
 REGISTER_KERNEL_BUILDER(
     Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<int64>("Dtype"),
     MatMulPtCtOp<int64, uint64>);
+
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<float>("Dtype"),
+    MatMulPtCtOp<float, uint64>);
+REGISTER_KERNEL_BUILDER(
+    Name("MatMulPtCt64").Device(DEVICE_CPU).TypeConstraint<double>("Dtype"),
+    MatMulPtCtOp<double, uint64>);
