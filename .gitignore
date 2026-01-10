@@ -6,3 +6,11 @@ __pycache__
 **.venv
 *.whl
 MODULE.bazel.lock
+
+# Security scan reports (contain sensitive information)
+security-reports/
+*.security-report.*
+bandit-report.*
+safety-report.*
+semgrep-report.*
+pip-audit-report.*

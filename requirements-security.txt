@@ -1,0 +1,25 @@
+# Security scanning tools for tf-shell development
+# Install with: pip install -r requirements-security.txt
+
+# Python code security scanner
+bandit[toml]==1.7.5
+
+# Python dependency vulnerability scanner  
+safety==3.0.1
+
+# Static analysis security scanner
+semgrep==1.45.0
+
+# Additional security tools
+pip-audit==2.6.1          # Audit Python packages for known vulnerabilities
+cyclonedx-bom==4.0.4       # Generate Software Bill of Materials (SBOM)
+
+# Code quality tools that help with security
+pylint==3.0.2              # Code analysis for potential issues
+mypy==1.7.1                # Static type checking
+flake8==6.1.0              # Style guide enforcement
+flake8-bandit==4.1.1       # Bandit integration for flake8
+
+# Documentation and reporting
+jinja2==3.1.2              # For generating security reports
+markdown==3.5.1            # For markdown report generation
