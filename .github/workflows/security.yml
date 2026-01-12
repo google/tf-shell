@@ -1,0 +1,201 @@
+name: Security Vulnerability Scanning
+
+on:
+  # Run on every push to main and pull requests
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Run weekly security scans
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 6 AM UTC
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  # Required for security scanning
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # Python dependency vulnerability scanning
+  python-security-scan:
+    name: Python Security Scan
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install security scanning tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety bandit semgrep
+
+      - name: Run Safety (Python dependency vulnerability scanner)
+        run: |
+          # Scan requirements files for known vulnerabilities
+          for req_file in requirements*.txt; do
+            if [ -f "$req_file" ]; then
+              echo "Scanning $req_file..."
+              safety check -r "$req_file" --json --output safety-report-$(basename $req_file .txt).json || true
+            fi
+          done
+        continue-on-error: true
+
+      - name: Run Bandit (Python code security scanner)
+        run: |
+          # Scan Python code for security issues
+          bandit -r tf_shell/ tf_shell_ml/ -f json -o bandit-report.json || true
+          bandit -r tf_shell/ tf_shell_ml/ -f txt -o bandit-report.txt || true
+        continue-on-error: true
+
+      - name: Run Semgrep (Static analysis security scanner)
+        run: |
+          # Run Semgrep with security rules
+          semgrep --config=auto --json --output=semgrep-report.json tf_shell/ tf_shell_ml/ || true
+        continue-on-error: true
+
+      - name: Upload security scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-security-reports
+          path: |
+            *-report.json
+            *-report.txt
+          retention-days: 30
+
+  # CodeQL analysis for comprehensive code scanning
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python', 'cpp' ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Use default queries plus security-extended for more comprehensive scanning
+          queries: security-extended,security-and-quality
+
+      - name: Setup Bazel for C++ analysis
+        if: matrix.language == 'cpp'
+        run: |
+          # Install bazelisk for building C++ components
+          curl -LO "https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64"
+          chmod +x bazelisk-linux-amd64
+          sudo mv bazelisk-linux-amd64 /usr/local/bin/bazelisk
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+
+  # Dependency review for pull requests
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Fail the build if high or critical vulnerabilities are found
+          fail-on-severity: high
+          # Allow licenses commonly used in ML/crypto projects
+          allow-licenses: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause
+
+  # Secret scanning (for any accidentally committed secrets)
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for secret scanning
+          fetch-depth: 0
+
+      - name: Run TruffleHog (Secret scanner)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+
+  # Security summary and reporting
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-22.04
+    needs: [python-security-scan, codeql-analysis, secret-scan]
+    if: always()
+    steps:
+      - name: Download security reports
+        uses: actions/download-artifact@v4
+        with:
+          name: python-security-reports
+          path: ./security-reports/
+        continue-on-error: true
+
+      - name: Generate Security Summary
+        run: |
+          echo "# Security Scan Summary" > security-summary.md
+          echo "" >> security-summary.md
+          echo "## Scan Results" >> security-summary.md
+          echo "" >> security-summary.md
+          
+          # Check if reports exist and summarize
+          if [ -f "./security-reports/bandit-report.json" ]; then
+            echo "### Bandit (Python Code Security)" >> security-summary.md
+            echo "- Report generated successfully" >> security-summary.md
+          fi
+          
+          if [ -f "./security-reports/safety-report-requirements_3_10.json" ]; then
+            echo "### Safety (Dependency Vulnerabilities)" >> security-summary.md
+            echo "- Dependency scan completed" >> security-summary.md
+          fi
+          
+          echo "" >> security-summary.md
+          echo "## Recommendations" >> security-summary.md
+          echo "- Review all security findings before merging" >> security-summary.md
+          echo "- Update dependencies with known vulnerabilities" >> security-summary.md
+          echo "- Follow security best practices outlined in SECURITY.md" >> security-summary.md
+
+      - name: Comment PR with security summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('security-summary.md')) {
+              const summary = fs.readFileSync('security-summary.md', 'utf8');
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            }

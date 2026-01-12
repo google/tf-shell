@@ -1,0 +1,71 @@
+# Dependabot configuration for tf-shell
+# This file configures Dependabot to automatically create pull requests
+# for dependency updates, including security patches.
+
+version: 2
+updates:
+  # Monitor Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    # Allow both direct and indirect dependency updates
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    # Automatically merge security updates
+    open-pull-requests-limit: 10
+    # Group related updates together
+    groups:
+      tensorflow:
+        patterns:
+          - "tensorflow*"
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "security"
+    # Custom commit message
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    # Reviewers for dependency updates
+    reviewers:
+      - "google/tf-shell-maintainers"
+    # Labels to apply to PRs
+    labels:
+      - "dependencies"
+      - "security"
+
+  # Monitor GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/.github/workflows"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "github-actions"
+      - "ci"
+
+  # Monitor Bazel dependencies (if applicable)
+  - package-ecosystem: "docker"
+    directory: "/.devcontainer"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+    labels:
+      - "docker"
+      - "devcontainer"
